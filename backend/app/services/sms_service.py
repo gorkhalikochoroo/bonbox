@@ -46,14 +46,26 @@ def sms_configured() -> bool:
 def _normalize_msisdn(phone: str | None) -> str | None:
     """Best-effort E.164-ish digits (country code + number, no '+').
     Bare 8-digit DK numbers get the +45 prefix. Returns None if it can't
-    make something plausible."""
-    digits = re.sub(r"\D", "", phone or "")
+    make something plausible.
+
+    A bare 9-digit number (no '+', no '00') is REFUSED, never guessed: a
+    Portuguese mobile typed as "912 345 678" used to go out as
+    +91 2345678… (India), i.e. a guest's booking text to a stranger
+    (Portugal plan L9). Until a venue's market supplies the right country
+    code (Stage 0b), only a number written with its code ("+351…",
+    "00351…", "351…") can be sent to."""
+    raw = (phone or "").strip()
+    digits = re.sub(r"\D", "", raw)
     if not digits:
         return None
+    explicit_cc = raw.startswith("+")
     if digits.startswith("00"):
         digits = digits[2:]  # 0045... → 45...
-    if len(digits) == 8:  # bare DK local
+        explicit_cc = True
+    if len(digits) == 8:  # bare DK local (unchanged, whatever the prefix)
         digits = _DEFAULT_CC + digits
+    elif len(digits) == 9 and not explicit_cc:  # another market's local: no guessing
+        return None
     # Plausible international length.
     if not (8 <= len(digits) <= 15):
         return None

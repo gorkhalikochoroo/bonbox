@@ -53,6 +53,7 @@ import re
 from app.utils.time import utc_now
 from app.models.user import User
 from app.services.tz_utils import now_local, business_today_local
+from app.services.ics_timezone import venue_vtimezone
 
 # ── Multi-layer link protection ──────────────────────────────────────────
 # The magic link is the staff credential, so it gets defense in depth —
@@ -824,18 +825,10 @@ def get_portal_venue_map(token: str, request: Request, w: int = 336, h: int = 96
 # fetchers (Apple's calendar servers) are exempt from the PIN gate, like the
 # SSE stream. Stable per-shift UID ⇒ an update REPLACES the event, never dupes.
 
-# Fixed Europe/Copenhagen VTIMEZONE so naive wall-clock lands correctly on any
-# client without ever UTC-converting (the naive-UTC bug class we avoid app-wide).
-_CPH_VTIMEZONE = (
-    "BEGIN:VTIMEZONE", "TZID:Europe/Copenhagen",
-    "BEGIN:DAYLIGHT", "TZOFFSETFROM:+0100", "TZOFFSETTO:+0200",
-    "TZNAME:CEST", "DTSTART:19700329T020000",
-    "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU", "END:DAYLIGHT",
-    "BEGIN:STANDARD", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100",
-    "TZNAME:CET", "DTSTART:19701025T030000",
-    "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU", "END:STANDARD",
-    "END:VTIMEZONE",
-)
+# The venue's own VTIMEZONE (app/services/ics_timezone.py) so naive
+# wall-clock lands correctly on any client without ever UTC-converting (the
+# naive-UTC bug class we avoid app-wide). A Danish venue keeps the exact
+# Europe/Copenhagen block it always had.
 
 
 def _ics_esc(v) -> str:
@@ -851,16 +844,17 @@ def _ics_local(date_str: str, hhmm: str) -> str:
     return f"{date_str.replace('-', '')}T{(hhmm or '00:00').replace(':', '')}00"
 
 
-def _build_schedule_ics(member_name, venue, shifts) -> str:
+def _build_schedule_ics(member_name, venue, shifts, tz_name=None) -> str:
     dtstamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
+    tzid, vtimezone = venue_vtimezone(tz_name)
     out = [
         "BEGIN:VCALENDAR", "VERSION:2.0",
         "PRODID:-//BonBox//Schedule//DA", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
         f"X-WR-CALNAME:{_ics_esc((venue or 'BonBox') + ' — vagter')}",
-        "X-WR-TIMEZONE:Europe/Copenhagen",
+        f"X-WR-TIMEZONE:{tzid}",
         # Refresh hints so subscribed clients re-poll ~hourly (Apple/Google honour these).
         "REFRESH-INTERVAL;VALUE=DURATION:PT1H", "X-PUBLISHED-TTL:PT1H",
-        *_CPH_VTIMEZONE,
+        *vtimezone,
     ]
     for s in shifts:
         end_date = s.date.isoformat()
@@ -872,8 +866,8 @@ def _build_schedule_ics(member_name, venue, shifts) -> str:
             "BEGIN:VEVENT",
             f"UID:bonbox-shift-{s.id}@bonbox.dk",
             f"DTSTAMP:{dtstamp}",
-            f"DTSTART;TZID=Europe/Copenhagen:{_ics_local(s.date.isoformat(), s.start_time)}",
-            f"DTEND;TZID=Europe/Copenhagen:{_ics_local(end_date, s.end_time)}",
+            f"DTSTART;TZID={tzid}:{_ics_local(s.date.isoformat(), s.start_time)}",
+            f"DTEND;TZID={tzid}:{_ics_local(end_date, s.end_time)}",
             f"SUMMARY:{_ics_esc(summary)}",
         ]
         if getattr(s, "notes", None):
@@ -902,7 +896,8 @@ def get_portal_schedule_ics(token: str, request: Request, db: Session = Depends(
         Schedule.date <= week_start + timedelta(days=56),
         Schedule.status == "published",
     ).order_by(Schedule.date, Schedule.start_time).all()
-    body = _build_schedule_ics(member.name, venue, shifts)
+    body = _build_schedule_ics(member.name, venue, shifts,
+                               getattr(owner, "timezone", None) if owner else None)
     return Response(
         content=body,
         media_type="text/calendar; charset=utf-8",

@@ -1164,13 +1164,11 @@ export default function ProfilePage() {
                       <option value="DKK">DKK - Danish Krone (Moms 25%)</option>
                       <option value="SEK">SEK - Swedish Krona (Moms 25%)</option>
                       <option value="NOK">NOK - Norwegian Krone (MVA 25%)</option>
-                      <option value="EUR">EUR - Euro (General, VAT 20%)</option>
-                      <option value="EUR_PT">EUR - Portugal (IVA 23%)</option>
-                      <option value="EUR_DE">EUR - Germany (MwSt 19%)</option>
-                      <option value="EUR_FR">EUR - France (TVA 20%)</option>
-                      <option value="EUR_ES">EUR - Spain (IVA 21%)</option>
-                      <option value="EUR_IT">EUR - Italy (IVA 22%)</option>
-                      <option value="EUR_NL">EUR - Netherlands (BTW 21%)</option>
+                      {/* One EUR. The EUR_* country variants never saved (the
+                          server only takes plain codes: 422), and 21 % is the
+                          rate plain EUR is computed with (TAX_RATES.EUR,
+                          tax_service.VAT_RATES["EUR"]). */}
+                      <option value="EUR">EUR - Euro (General, VAT 21%)</option>
                       <option value="USD">USD - US Dollar (Sales Tax varies)</option>
                       <option value="GBP">GBP - British Pound (VAT 20%)</option>
                       <option value="NPR">NPR - Nepalese Rupee (VAT 13%)</option>
