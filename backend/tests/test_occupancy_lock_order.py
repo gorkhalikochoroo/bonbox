@@ -268,9 +268,16 @@ def test_a_deadlock_on_named_tables_is_slot_unavailable_and_rolled_back(db):
     assert db.query(ReservationOccupancy).count() == 0
 
 
+def _midday_tomorrow(user):
+    # The retry re-checks the venue's hours (00:00-23:59): a 90-minute slot from
+    # "now" stops fitting in the last 90 minutes before midnight, so this test
+    # failed on every late-evening gate run. Book tomorrow at noon instead.
+    return (_start(user) + timedelta(days=1)).replace(hour=12, minute=0)
+
+
 def test_a_deadlock_where_the_engine_picks_is_retried_like_any_lost_race(db):
     u, profile = _venue(db)
-    start = _start(u)
+    start = _midday_tomorrow(u)
     real_commit = db.commit
     calls = {"n": 0}
 
