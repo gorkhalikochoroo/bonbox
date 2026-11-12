@@ -58,6 +58,19 @@ def test_deleted_accounts_images_are_kept_about_6_years_and_only_the_four_kinds(
         assert "filer fra lagerimport" in doc
 
 
+def test_egenkontrol_records_are_kept_2_years_as_privacy_says():
+    """Egenkontrol R1a: readings carry the name of whoever measured. They are
+    kept 2 years, then deleted by the always-on nightly purge, and deleted
+    with the account."""
+    from app.jobs.privacy_purges import EGENKONTROL_RETENTION_DAYS, _PURGES
+    assert EGENKONTROL_RETENTION_DAYS == 730
+    assert ("egenkontrol_entries", "purge_old_egenkontrol_entries") in _PURGES
+    assert ('["Food safety records (egenkontrol readings, with the name of whoever measured)", '
+            '"2 years, then deleted automatically; deleted with your account"]') in PRIVACY
+    assert ('["Egenkontrol-målinger (med navnet på den, der målte)", '
+            '"2 år, derefter slettet automatisk; slettes med kontoen"]') in PRIVACY
+
+
 def test_change_log_has_no_end_date_because_the_database_refuses_deletes():
     main = (APP / "main.py").read_text()
     assert "CREATE OR REPLACE RULE audit_logs_no_delete AS ON DELETE TO audit_logs DO INSTEAD NOTHING" in main

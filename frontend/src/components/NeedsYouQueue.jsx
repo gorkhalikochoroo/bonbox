@@ -20,7 +20,7 @@
 // re-keys immediately.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, CalendarX, ChevronRight, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, CalendarX, ChevronRight, Thermometer, X } from "lucide-react";
 import api from "../services/api";
 import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
@@ -145,6 +145,19 @@ const RENDERERS = {
   // customer who opens the link just bounces. Flagged by the public-surface
   // monitor (dead-on-arrival), surfaced here so you can fix opening hours /
   // tables. Never fires for a demo's missing name (that stays admin-only).
+  // Egenkontrol (R1a): readings missing today, or a deviation not yet closed.
+  // meta.date is the venue's business day, so a dismissal hides this row for
+  // that day only (keyFor) — it is not a dated code (not in DATED_CODES).
+  egenkontrol_due: {
+    icon: Thermometer,
+    title: (t, m) => {
+      const dev = Number(m.deviations || 0);
+      const missing = Number(m.missing || 0);
+      if (dev > 0) return dev === 1 ? t("nyqEkDeviationOne") : t("nyqEkDeviationMany", { count: dev });
+      return missing === 1 ? t("nyqEkMissingOne") : t("nyqEkMissingMany", { count: missing });
+    },
+    action: (t) => t("nyqEkAction"),
+  },
   public_booking_dead: {
     icon: CalendarX,
     title: (t) =>

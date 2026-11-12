@@ -431,10 +431,12 @@ export function on401(path, reqUrl = "") {
   // "Denne skærm er ikke forbundet"). Nor is an owner token that happens to
   // live in this browser wiped from here — the stand never sends it.
   // (/reservations/stand is the OWNER's pop-out, a real session: unchanged.)
-  const isStandDevice = path === "/stand" || path.startsWith("/stand/");
+  // The paired kitchen iPad (/kitchen, /kitchen/<token>, egenkontrol) is the
+  // same kind of device: it never goes to /login and never wipes a token.
+  const isPairedDevice = /^\/(?:stand|kitchen)(?:\/|$)/.test(path);
   return {
-    redirect: !isAuthPage && !isLinkLanding && !isAuthProbe && !isPublicRoute && !isStandDevice,
-    wipeToken: !isAuthPage && !isStandDevice,
+    redirect: !isAuthPage && !isLinkLanding && !isAuthProbe && !isPublicRoute && !isPairedDevice,
+    wipeToken: !isAuthPage && !isPairedDevice,
   };
 }
 

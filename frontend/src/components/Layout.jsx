@@ -42,6 +42,7 @@ import { useDeviceShare } from "../hooks/useDeviceShare";
 import { archetypeIdFor } from "../config/archetypes";
 import MobileBottomNav from "./MobileBottomNav";
 import PillarDiscovery from "./PillarDiscovery";
+import EgenkontrolNavBadge from "./egenkontrol/EgenkontrolNavBadge";
 import ResumeRow from "./ResumeRow";
 import { useRouteHistoryRecorder } from "../hooks/useRouteHistory";
 import { useAppLifecycle } from "../hooks/useAppLifecycle";
@@ -1068,6 +1069,7 @@ export default function Layout() {
                                 locked row clipped it and an unlocked row spilled
                                 it, which is the asymmetry, not the width. */}
                             <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
+                            {item.badge === "egenkontrol" ? <EgenkontrolNavBadge /> : null}
                           </NavLink>
                         )
                       ))}
@@ -1176,6 +1178,7 @@ export default function Layout() {
                             >
                               <Icon name={item.icon} size={16} className="shrink-0" />
                               <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
+                              {item.badge === "egenkontrol" ? <EgenkontrolNavBadge /> : null}
                             </NavLink>
                           )
                         ))}

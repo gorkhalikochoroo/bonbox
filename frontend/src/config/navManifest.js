@@ -517,6 +517,27 @@ export const NAV_MANIFEST = [
   // (/inventory — job 5 — was promoted to the core spine in Sep 2026. The rows
   // below are the stock DETAIL and keep the LAGER header.)
   {
+    // Egenkontrol (R1a) — temperature readings, the Kontrolmappe and the
+    // kitchen iPad. Food service and bar only: the archetype lists below are
+    // UI visibility (the backend never 403s another archetype). Not ownerOnly:
+    // every member seat reads today; the page and the server decide who
+    // records. NOT named "I dag" — the only "I dag" in the owner app stays the
+    // Today page (plan E13); the kitchen iPad's own screen is "I dag".
+    // `badge` makes Layout draw the missing-readings count after the label.
+    to: "/egenkontrol",
+    icon: "Thermometer",
+    labelKey: "navEgenkontrol",
+    group: "stock",
+    pillar: null,
+    visibleFor: ["restaurant", "cafe", "bakery", "tea_shop", "food_truck", "takeaway", "bar"],
+    visibleForArchetypes: ["food_service", "bar"],
+    hideForArchetypes: ["retail", "salon", "services", "personal", "generic"],
+    frequency: "daily",
+    surfaces: ["sidebar", "more", "search"],
+    badge: "egenkontrol",
+    aliases: ["egenkontrol", "haccp", "temperatur", "temperature", "køleskab", "fridge", "kontrolmappe", "inspection folder", "food safety"],
+  },
+  {
     // Bar Pour — gated on the bar_pour vertical module.
     to: "/bar",
     icon: "Martini",

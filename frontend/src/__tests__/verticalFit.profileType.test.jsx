@@ -235,7 +235,8 @@ describe("the sheet tells the truth (review round)", () => {
     const { select } = await renderProfile();
     await pickAndSave(select, "cafe");
     const summary = await screen.findByTestId("type-change-summary");
-    expect(summary.textContent).toContain("New in the menu: expiryForecasting, wasteTracker");
+    // Egenkontrol (R1a) is a food-service row too: a salon becoming a café gains it.
+    expect(summary.textContent).toContain("New in the menu: navEgenkontrol, expiryForecasting, wasteTracker");
   });
 
   it("nothing to apply but the menu changes: one way forward, no 'Keep my settings'", async () => {

@@ -61,6 +61,18 @@ SELF_GATED = {
     "/api/admin",
     # routers/team.py — 8 explicit owner-actor gates.
     "/api/team",
+    # routers/egenkontrol.py (R1a) — role checked per route: the accountant
+    # view is 403 everywhere (_ek_user); every write and /staff + /devices are
+    # owner-only (_require_owner, on top of the member write guard); the
+    # Kontrolmappe, its PDF and /checks are owner + manager
+    # (_require_folder_reader → cashier/viewer 403 read_forbidden). Only
+    # /today, /status and /templates are open to every seat, by plan C2: a
+    # cashier on shift sees which temperatures are still missing.
+    "/api/egenkontrol",
+    # routers/kitchen_link.py (R1a) — the kitchen iPad's token routes. No
+    # session is ever read: every route resolves a KitchenLink token from the
+    # path (resolve_kitchen), so a delegated seat's session reaches nothing.
+    "/api/kitchen",
 }
 
 # ── Readable by a delegated seat TODAY, and arguably should not be ────

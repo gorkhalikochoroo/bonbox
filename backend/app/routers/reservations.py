@@ -1097,6 +1097,8 @@ RESERVED_SLUGS = frozenset({
     "accept-invite", "getting-started", "stand", "v2", "weekly-report", "wine-list",
     # Månedsafslutning's page (revisor-reports, Push 8): same guard.
     "month-end",
+    # Egenkontrol R1a: the owner page and the kitchen iPad screen.
+    "egenkontrol", "kitchen",
     # existing public prefixes
     "r", "g", "e", "s", "t", "portal",
     # generic / infra — reserved for the platform

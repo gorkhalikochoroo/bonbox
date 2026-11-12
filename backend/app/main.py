@@ -135,6 +135,9 @@ from app.routers import reservation_spam as reservation_spam_router
 from app.routers import public_reservations as public_reservations_router
 from app.routers import public_waitlist as public_waitlist_router
 from app.routers import stand_link as stand_link_router
+# Egenkontrol R1a (Migration 088): owner routes + the kitchen iPad's token routes.
+from app.routers import egenkontrol as egenkontrol_router
+from app.routers import kitchen_link as kitchen_link_router
 from app.routers import public_gavekort as public_gavekort_router
 from app.routers import revisor_package as revisor_package_router
 from app.routers import gavekort as gavekort_router
@@ -177,6 +180,51 @@ _OCCUPANCY_BACKFILL_CANDIDATES = """
            SELECT 1 FROM reservation_occupancy o
            WHERE o.reservation_id = r.id AND o.resource_id = r.resource_id
          )"""
+
+# ── Migration 088 (Egenkontrol R1a) — Postgres immutability triggers ──────
+# BEFORE UPDATE only: DELETE stays allowed, or account erasure and the
+# 730-day purge would fail. `to_jsonb(NEW) - <allowed keys>` compares EVERY
+# other column, present and future, so a column added later is protected
+# without touching this function. The four columns that MAY change are
+# narrowed too, because the folder and the PDF read them: a deviation only
+# moves open <-> closed (never to or from NULL, which would drop it from the
+# print), and a void needs a known reason ('undo'; R1b adds its own). The SQLite-side twin is the pair of mapper
+# listeners in app/models/food_check.py. Module-level so the PG test imports
+# the exact SQL the boot runs; no `:name` tokens (they go through text()).
+_EK_ENTRY_GUARD_FN = """CREATE OR REPLACE FUNCTION bonbox_food_check_entries_guard() RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN
+  IF (to_jsonb(NEW) - 'deviation_state' - 'voided_at' - 'void_reason' - 'staff_id') IS DISTINCT FROM (to_jsonb(OLD) - 'deviation_state' - 'voided_at' - 'void_reason' - 'staff_id') THEN RAISE EXCEPTION 'food_check_entries: a saved reading cannot be changed, only voided'; END IF;
+  IF OLD.voided_at IS NOT NULL AND (NEW.voided_at IS DISTINCT FROM OLD.voided_at OR NEW.void_reason IS DISTINCT FROM OLD.void_reason) THEN RAISE EXCEPTION 'food_check_entries: a voided reading stays voided'; END IF;
+  IF NEW.voided_at IS NULL AND NEW.void_reason IS DISTINCT FROM OLD.void_reason THEN RAISE EXCEPTION 'food_check_entries: void_reason only with voided_at'; END IF;
+  IF OLD.voided_at IS NULL AND NEW.voided_at IS NOT NULL AND (NEW.void_reason IS NULL OR NEW.void_reason NOT IN ('undo')) THEN RAISE EXCEPTION 'food_check_entries: void_reason must be a known reason'; END IF;
+  IF NEW.deviation_state IS DISTINCT FROM OLD.deviation_state AND (OLD.deviation_state IS NULL OR NEW.deviation_state IS NULL OR NEW.deviation_state NOT IN ('open', 'closed')) THEN RAISE EXCEPTION 'food_check_entries: a deviation only moves between open and closed'; END IF;
+  IF NEW.staff_id IS DISTINCT FROM OLD.staff_id AND NEW.staff_id IS NOT NULL THEN RAISE EXCEPTION 'food_check_entries: staff_id may only be cleared'; END IF;
+  RETURN NEW; END $fn$"""
+_EK_REVISION_GUARD_FN = """CREATE OR REPLACE FUNCTION bonbox_food_check_revisions_guard() RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN RAISE EXCEPTION 'food_check_revisions: a revision is never changed; write a new one'; END $fn$"""
+_EK_TRIGGERS = {
+    "trg_food_check_entries_guard": ("food_check_entries", "bonbox_food_check_entries_guard"),
+    "trg_food_check_revisions_guard": ("food_check_revisions", "bonbox_food_check_revisions_guard"),
+}
+
+
+def _ek_trigger_do_block(trigger: str, table: str, fn: str) -> str:
+    """Create the trigger only when it is missing, so a normal deploy takes no
+    lock on the table. A failure is a NOTICE, and the boot check below logs
+    CRITICAL if the trigger is still missing afterwards."""
+    return (
+        "DO $$ BEGIN "
+        f"IF EXISTS (SELECT 1 FROM pg_class WHERE relname='{table}') "
+        "AND NOT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
+        f"WHERE t.tgname='{trigger}' AND c.relname='{table}') THEN "
+        f"CREATE TRIGGER {trigger} BEFORE UPDATE ON {table} FOR EACH ROW EXECUTE FUNCTION {fn}(); "
+        "END IF; "
+        "EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'egenkontrol trigger install failed: %', SQLERRM; "
+        "END $$"
+    )
+
+
+_EK_TRIGGER_DO_BLOCKS = [
+    _ek_trigger_do_block(trg, table, fn) for trg, (table, fn) in _EK_TRIGGERS.items()
+]
 
 # Run schema migrations (idempotent — safe to run multiple times)
 _migrations = [
@@ -2915,6 +2963,145 @@ _migrations = [
     # no backfill (an old "[linked:…]" note is left as it was): a
     # metadata-only ADD COLUMN under the 5 s lock_timeout.
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS linked_expense_id VARCHAR(36)",
+    # ── Migration 088 (2026-11-12): Egenkontrol R1a — temperatures ──────
+    # Five NEW tables, no existing table altered. Models in
+    # app/models/food_check.py and app/models/kitchen_link.py; create_all
+    # builds them first on both engines, these are the create_all-bypassed
+    # safety net, typed exactly as create_all types them (GUID → VARCHAR(36),
+    # Numeric(5,1) → NUMERIC(5,1), DateTime → TIMESTAMP naive UTC). Plain
+    # REFERENCES, no ON DELETE CASCADE. FK-free on purpose: followup_of_id and
+    # supersedes_id (a self-reference would FK-fail the 730-day purge at its
+    # boundary), created_by_user_id and actor_user_id (actor refs).
+    # Placed at the END of the list: 087 is reserved for the unmerged
+    # reservations-v2 branch. The runner has no ledger (numbers live only in
+    # comments; _migration_already_applied reads the live catalog), so a
+    # missing 087 here is harmless and the order between them is irrelevant.
+    # Cooling (R2) and food_check_reviews (R1b) are NOT created yet.
+    #
+    # kitchen_links — the kitchen iPad's device credential: stand_links' shape
+    # + branch_id. `token` / `join_code` are in auth._EXPORT_SECRET_EXACT, so
+    # the GDPR export never carries them.
+    """CREATE TABLE IF NOT EXISTS kitchen_links (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        branch_id VARCHAR(36) REFERENCES branches(id),
+        token VARCHAR(64) NOT NULL UNIQUE,
+        join_code VARCHAR(12) UNIQUE,
+        code_expires_at TIMESTAMP,
+        code_used_at TIMESTAMP,
+        label VARCHAR(80),
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP,
+        revoked_at TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_kitchen_links_user_id ON kitchen_links (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_kitchen_links_token ON kitchen_links (token)",
+    "CREATE INDEX IF NOT EXISTS ix_kitchen_links_join_code ON kitchen_links (join_code)",
+    # food_checks — the venue's current list (a cache; history is revisions).
+    """CREATE TABLE IF NOT EXISTS food_checks (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        branch_id VARCHAR(36) REFERENCES branches(id),
+        kind VARCHAR(12) NOT NULL,
+        template_key VARCHAR(16) NOT NULL,
+        group_key VARCHAR(16) NOT NULL,
+        name VARCHAR(60) NOT NULL,
+        note VARCHAR(80),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        archived_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_food_checks_user_branch ON food_checks (user_id, branch_id)",
+    # food_check_revisions — APPEND-ONLY rule history (trigger below).
+    """CREATE TABLE IF NOT EXISTS food_check_revisions (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        check_id VARCHAR(36) NOT NULL REFERENCES food_checks(id),
+        valid_from TIMESTAMP NOT NULL,
+        name VARCHAR(60) NOT NULL,
+        note VARCHAR(80),
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        limit_c NUMERIC(5,1),
+        limit_source VARCHAR(16),
+        product_limits TEXT,
+        schedule TEXT NOT NULL,
+        action_codes TEXT NOT NULL,
+        fate_codes TEXT NOT NULL,
+        recheck_min INTEGER NOT NULL DEFAULT 30,
+        created_by_user_id VARCHAR(36),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_food_check_revisions_check_valid ON food_check_revisions (check_id, valid_from)",
+    "CREATE INDEX IF NOT EXISTS ix_food_check_revisions_user ON food_check_revisions (user_id)",
+    # food_check_entries — APPEND-ONLY readings (trigger below). recorded_at is
+    # the server clock: THE official time. client_typed_at is display only.
+    """CREATE TABLE IF NOT EXISTS food_check_entries (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        branch_id VARCHAR(36) REFERENCES branches(id),
+        check_id VARCHAR(36) NOT NULL REFERENCES food_checks(id),
+        revision_id VARCHAR(36) NOT NULL REFERENCES food_check_revisions(id),
+        client_id VARCHAR(36) NOT NULL,
+        business_date DATE NOT NULL,
+        slot_due_at TIMESTAMP,
+        recorded_at TIMESTAMP NOT NULL,
+        client_typed_at TIMESTAMP,
+        value_c NUMERIC(5,1),
+        done BOOLEAN,
+        product_type VARCHAR(12),
+        limit_c NUMERIC(5,1),
+        limit_direction VARCHAR(3),
+        in_limit BOOLEAN,
+        late BOOLEAN NOT NULL DEFAULT FALSE,
+        product_note VARCHAR(80),
+        label_ok BOOLEAN,
+        action_code VARCHAR(32),
+        action_other VARCHAR(80),
+        fate_code VARCHAR(32),
+        fate_other VARCHAR(80),
+        action_note VARCHAR(280),
+        acted_by_name VARCHAR(80),
+        deviation_state VARCHAR(8),
+        followup_of_id VARCHAR(36),
+        source VARCHAR(8) NOT NULL DEFAULT 'live',
+        paper_measured_at TIMESTAMP,
+        staff_id VARCHAR(36) REFERENCES staff_members(id),
+        staff_name VARCHAR(80) NOT NULL,
+        name_source VARCHAR(10) NOT NULL,
+        via VARCHAR(10) NOT NULL,
+        kitchen_link_id VARCHAR(36) REFERENCES kitchen_links(id),
+        actor_user_id VARCHAR(36),
+        voided_at TIMESTAMP,
+        void_reason VARCHAR(16),
+        supersedes_id VARCHAR(36),
+        correction_reason VARCHAR(120),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_food_check_entries_client ON food_check_entries (user_id, client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_food_check_entries_user_day ON food_check_entries (user_id, business_date)",
+    "CREATE INDEX IF NOT EXISTS ix_food_check_entries_check_time ON food_check_entries (check_id, recorded_at)",
+    "CREATE INDEX IF NOT EXISTS ix_food_check_entries_open_dev ON food_check_entries (user_id, deviation_state) WHERE deviation_state = 'open'",
+    "CREATE INDEX IF NOT EXISTS ix_food_check_entries_recorded ON food_check_entries (recorded_at)",
+    # food_check_settings — one row per venue. No retention column: retention
+    # is one constant (jobs/privacy_purges.EGENKONTROL_RETENTION_DAYS).
+    """CREATE TABLE IF NOT EXISTS food_check_settings (
+        user_id VARCHAR(36) PRIMARY KEY REFERENCES users(id),
+        staff_card BOOLEAN NOT NULL DEFAULT FALSE,
+        findsmiley_url VARCHAR(255),
+        findsmiley_on_booking BOOLEAN NOT NULL DEFAULT FALSE,
+        setup_done_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP
+    )""",
+    # The immutability guards (BEFORE UPDATE only; DELETE allowed). The
+    # functions are CREATE OR REPLACE (no table lock); each trigger is created
+    # only when missing. _verify_egenkontrol_immutability checks them on boot.
+    _EK_ENTRY_GUARD_FN,
+    _EK_REVISION_GUARD_FN,
+    *_EK_TRIGGER_DO_BLOCKS,
 ]
 
 
@@ -2967,6 +3154,55 @@ def _verify_audit_log_immutability(conn) -> None:
         _lg.getLogger("bonbox.security").warning(
             "audit_logs immutability self-test could not run: %s", e
         )
+
+
+def _verify_egenkontrol_immutability(conn) -> list[str]:
+    """Postgres-only boot check for the Migration 088 triggers: a saved
+    egenkontrol reading or a revision must not be editable in the database.
+
+    Reads pg_trigger for the two names (not tgisinternal); a trigger that is
+    missing or disabled (tgenabled = 'D') logs CRITICAL. Returns the missing
+    names. Decides on `conn.dialect.name`, not the global engine, so a test
+    can hand it a Postgres connection. Never blocks the boot.
+    """
+    import logging as _lg
+    from sqlalchemy import text as _text
+
+    if getattr(getattr(conn, "dialect", None), "name", "") != "postgresql":
+        return []
+    log = _lg.getLogger("bonbox.security")
+    try:
+        rows = conn.execute(_text(
+            "SELECT t.tgname, c.relname, t.tgenabled FROM pg_trigger t "
+            "JOIN pg_class c ON c.oid = t.tgrelid "
+            "WHERE NOT t.tgisinternal "
+            "AND t.tgname IN ('trg_food_check_entries_guard', 'trg_food_check_revisions_guard')"
+        )).all()
+        live = {
+            (r[0], r[1]) for r in rows
+            if str(r[2] if not isinstance(r[2], bytes) else r[2].decode()) != "D"
+        }
+        missing = []
+        for name, (table, _fn) in _EK_TRIGGERS.items():
+            if (name, table) not in live:
+                missing.append(name)
+                log.critical(
+                    "EGENKONTROL IMMUTABILITY CHECK FAILED — trigger %s on %s is missing "
+                    "or disabled. Saved readings can be edited in the database. "
+                    "Investigate immediately.", name, table,
+                )
+        try:
+            conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+        return missing
+    except Exception as e:  # noqa: BLE001
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        log.warning("egenkontrol immutability self-test could not run: %s", e)
+        return []
 
 
 # ─── Schema-drift self-test ────────────────────────────────────────
@@ -3666,6 +3902,18 @@ def _run_migrations():
                 "CREATE INDEX IF NOT EXISTS ix_hours_breaks_user_staff ON hours_breaks (user_id, staff_id)",
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_hours_breaks_open ON hours_breaks (hours_id) "
                 "WHERE ended_at IS NULL",
+                # Mirror of Migration 088 — egenkontrol. The tables come from create_all; these keep the indexes on a dev DB built before an index was declared.
+                "CREATE INDEX IF NOT EXISTS ix_kitchen_links_user_id ON kitchen_links (user_id)",
+                "CREATE INDEX IF NOT EXISTS ix_kitchen_links_token ON kitchen_links (token)",
+                "CREATE INDEX IF NOT EXISTS ix_kitchen_links_join_code ON kitchen_links (join_code)",
+                "CREATE INDEX IF NOT EXISTS ix_food_checks_user_branch ON food_checks (user_id, branch_id)",
+                "CREATE INDEX IF NOT EXISTS ix_food_check_revisions_check_valid ON food_check_revisions (check_id, valid_from)",
+                "CREATE INDEX IF NOT EXISTS ix_food_check_revisions_user ON food_check_revisions (user_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_food_check_entries_client ON food_check_entries (user_id, client_id)",
+                "CREATE INDEX IF NOT EXISTS ix_food_check_entries_user_day ON food_check_entries (user_id, business_date)",
+                "CREATE INDEX IF NOT EXISTS ix_food_check_entries_check_time ON food_check_entries (check_id, recorded_at)",
+                "CREATE INDEX IF NOT EXISTS ix_food_check_entries_open_dev ON food_check_entries (user_id, deviation_state) WHERE deviation_state = 'open'",
+                "CREATE INDEX IF NOT EXISTS ix_food_check_entries_recorded ON food_check_entries (recorded_at)",
             ]
             ix_ok = 0
             for stmt in _index_stmts:
@@ -3729,6 +3977,11 @@ def _run_migrations():
                 _verify_audit_log_immutability(conn)
             except Exception as e:
                 print(f"audit_logs self-test wrapper failed: {e}")
+            # Migration 088: the egenkontrol readings / revisions triggers.
+            try:
+                _verify_egenkontrol_immutability(conn)
+            except Exception as e:
+                print(f"egenkontrol self-test wrapper failed: {e}")
 
 
 def _run_data_migration():
@@ -5214,7 +5467,20 @@ async def member_read_guard(request: Request, call_next):
 # `_shared_device_locked`, the flag auth.py sets from this same `sd` claim +
 # reveal proof. One signal, two mechanisms: deny where the whole response is
 # money, redact where the money is mixed into the work.
-_SHARED_DEVICE_DENY_PREFIXES = _MANAGER_READ_DENY_PREFIXES
+#
+# EGENKONTROL (R1a, plan C3). The Kontrolmappe, its PDF and the kitchen-device
+# list are owner records a curtained tablet must not show without the reveal
+# PIN. They get the shared device's OWN extra tuple, NOT the member/manager
+# tuple: that tuple is one shared set (manager == member, pinned by three
+# tests), and a manager seat DOES read the Kontrolmappe and the PDF — the
+# per-role split lives in routers/egenkontrol.py. Readings and undo
+# (/api/egenkontrol/entries…) stay open on a curtained tablet: it is the
+# counter device, and its readings are marked via="shared".
+_SHARED_DEVICE_EXTRA_READ_DENY_PREFIXES = (
+    "/api/egenkontrol/folder",    # the folder AND folder.pdf
+    "/api/egenkontrol/devices",
+)
+_SHARED_DEVICE_DENY_PREFIXES = _MANAGER_READ_DENY_PREFIXES + _SHARED_DEVICE_EXTRA_READ_DENY_PREFIXES
 
 # READ-SHAPED WRITES. The gate below used to return early for anything that was
 # not GET/HEAD, on the reading that a curtain hides numbers and a write changes
@@ -5230,6 +5496,14 @@ _SHARED_DEVICE_DENY_PREFIXES = _MANAGER_READ_DENY_PREFIXES
 # the counter device — it still has to log hours, seat a table and take money.
 _SHARED_DEVICE_DENY_WRITE_PREFIXES = (
     "/api/staff/payroll",
+    # Egenkontrol config (R1a lead override): the start-list setup, the check
+    # editor (create / change / switch off / archive), kitchen-iPad pairing and
+    # revoking, and the settings (R1b) need the reveal PIN on a shared tablet.
+    # NOT /api/egenkontrol/entries — recording a temperature is counter work.
+    "/api/egenkontrol/setup",
+    "/api/egenkontrol/checks",
+    "/api/egenkontrol/devices",
+    "/api/egenkontrol/settings",
 )
 
 
@@ -5909,6 +6183,11 @@ app.include_router(reservations_router.router, prefix="/api/reservations", tags=
 # /stand prefix) so device URLs read /api/stand/<token>/... — the credential
 # reaches ONLY the operations wrapped in that router, never the owner API.
 app.include_router(stand_link_router.router, prefix="/api", tags=["Host stand"])
+# Egenkontrol R1a. The kitchen iPad's token routes sit next to the stand's:
+# the same structural allow-list (only the wrappers in routers/kitchen_link.py
+# accept a kitchen token), paired through the same POST /api/stand/join.
+app.include_router(kitchen_link_router.router, prefix="/api", tags=["Kitchen device"])
+app.include_router(egenkontrol_router.router, prefix="/api", tags=["Egenkontrol"])
 # Owner-facing analytics on the booking book — GET /api/reservations/insights.
 # Mounted under the SAME prefix as the owner reservation router (separate file
 # to keep that router from growing further). Authed + tenant-scoped + fail-soft.

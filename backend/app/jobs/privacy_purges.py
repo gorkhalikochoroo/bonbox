@@ -27,6 +27,12 @@ At most BATCH x MAX_BATCHES rows per table per night; the rest goes the next
 night (every purge selects "everything past due", so a skipped night catches
 up by itself).
 
+  • Egenkontrol readings (food_check_entries) older than 2 years
+    (EGENKONTROL_RETENTION_DAYS = 730) — ALWAYS ON, no flag: /privacy promises
+    "2 years, then deleted automatically". Readings only: the revisions and
+    checks they point at hold no personal data and stay referenced. Nothing
+    is due before Nov 2028.
+
 Accounting records and everything /privacy says is kept (reservations,
 audit_logs, security_events, notification_log, event_logs, invoices,
 daily_closes) are never touched here — tests/test_privacy_purges.py pins it.
@@ -40,6 +46,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
+from app.models.food_check import FoodCheckEntry
 from app.models.magic_link_token import MagicLinkToken
 from app.models.reservation_waitlist import ReservationWaitlistEntry
 from app.models.waitlist import WaitlistEntry
@@ -54,6 +61,10 @@ MAX_BATCHES = 20  # at most 10,000 rows per table per night
 WHATSAPP_MESSAGE_RETENTION_DAYS = 90
 MAGIC_LINK_RETENTION_DAYS_AFTER_EXPIRY = 30
 ANON_PAID_WAITLIST_RETENTION_DAYS = 365
+# Egenkontrol readings (with the name of whoever measured): 2 years, then
+# deleted automatically. Pinned with the /privacy text by
+# tests/test_privacy_matches_code.py.
+EGENKONTROL_RETENTION_DAYS = 730
 
 
 # ── What is due (shared by the purges and the admin dry-run count) ──────
@@ -85,6 +96,11 @@ def _anon_paid_waitlist_due(db: Session, now: datetime):
     )
 
 
+def _egenkontrol_due(db: Session, now: datetime):
+    cutoff = now - timedelta(days=EGENKONTROL_RETENTION_DAYS)
+    return db.query(FoodCheckEntry.id).filter(FoodCheckEntry.recorded_at < cutoff)
+
+
 def _count(q) -> int:
     return int(q.count() or 0)
 
@@ -97,6 +113,7 @@ def dry_run_counts(db: Session, now: datetime | None = None) -> dict:
         "whatsapp_messages": _count(_whatsapp_due(db, now)),
         "magic_link_tokens": _count(_magic_link_due(db, now)),
         "anonymous_paid_waitlist": _count(_anon_paid_waitlist_due(db, now)),
+        "egenkontrol_entries": _count(_egenkontrol_due(db, now)),
     }
 
 
@@ -244,6 +261,17 @@ def purge_anonymous_paid_waitlist(*, enabled: bool | None = None, now: datetime 
                        batch=batch, max_batches=max_batches, label="anonymous_paid_waitlist")
 
 
+def purge_old_egenkontrol_entries(*, now: datetime | None = None, batch: int = BATCH,
+                                  max_batches: int = MAX_BATCHES) -> dict:
+    """Delete egenkontrol readings recorded more than 730 days ago. ALWAYS
+    ON (no flag), like the online-waitlist purge: /privacy promises it. Counts
+    are logged, never a name or a value. The Postgres immutability trigger is
+    BEFORE UPDATE only, so this DELETE is allowed."""
+    return _delete_due(_egenkontrol_due, FoodCheckEntry, FoodCheckEntry.recorded_at,
+                       enabled=True, now=now or utc_now(),
+                       batch=batch, max_batches=max_batches, label="egenkontrol_entries")
+
+
 # ── The nightly step ─────────────────────────────────────────────────────
 
 _PURGES = (
@@ -254,6 +282,7 @@ _PURGES = (
     ("whatsapp_messages", "purge_old_whatsapp_messages"),
     ("magic_link_tokens", "purge_expired_magic_links"),
     ("anonymous_paid_waitlist", "purge_anonymous_paid_waitlist"),
+    ("egenkontrol_entries", "purge_old_egenkontrol_entries"),
 )
 
 

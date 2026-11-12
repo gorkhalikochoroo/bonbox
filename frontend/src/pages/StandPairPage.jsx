@@ -74,6 +74,12 @@ export default function StandPairPage() {
     try {
       const res = await api.post("/stand/join", { code: c });
       const path = res?.data?.path || "";
+      // A kitchen iPad's code (egenkontrol): the server sends it to its own
+      // screen, which the door build does not carry — a full page load there.
+      if (res?.data?.surface === "kitchen" && /^\/kitchen\/[A-Za-z0-9_-]{8,128}$/.test(path)) {
+        window.location.assign(path);
+        return;
+      }
       const token = path.split("/").filter(Boolean).pop();
       if (!token) throw new Error("no token");
       setVenue(res?.data?.venue || null);

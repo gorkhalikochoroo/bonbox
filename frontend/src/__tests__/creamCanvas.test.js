@@ -197,6 +197,8 @@ describe("3. the browser bar in light", () => {
       "/e/:slug/checkout": "white", "/e/:slug/success": "white", "/t/:ticket_id": "white", "/r/:slug": "white",
       "/g/buy/:slug": "white", "/g/:token": "white", "/reservations/stand": "white", "/stand": "white",
       "/stand/:standToken": "white", "/staff/schedule/stand": "paper", "/staff": "paper", "/:slug": "white", "*": "white",
+      // Egenkontrol R1a: the paired kitchen iPad (its own gray-50 page, like /stand/<token>).
+      "/kitchen": "white", "/kitchen/:kitchenToken": "white",
     };
     const outside = all.filter((r) => !inLayout(r.at)).map((r) => r.path);
     expect(outside.sort()).toEqual(Object.keys(OUTSIDE).sort());

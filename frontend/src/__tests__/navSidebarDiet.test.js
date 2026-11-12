@@ -213,7 +213,7 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
   // business_type "restaurant" → archetype food_service (config/archetypes.js).
   const opts = { businessType: "restaurant", archetypeId: "food_service" };
 
-  it("renders 20 rows, in order, with the six jobs on the spine", () => {
+  it("renders 21 rows, in order, with the six jobs on the spine", () => {
     expect(sidebarRoutes(opts)).toEqual([
       // ── the spine: Home + Sales + Expenses, then jobs 1-5 in landing order.
       //    Everything below the hairline is the detail.
@@ -231,6 +231,7 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
       "/cashflow",
       "/imports",
       // stock — the DETAIL rows keep the LAGER header
+      "/egenkontrol",   // Egenkontrol R1a (food service + bar), first under LAGER
       "/expiry",
       "/waste",
       // reports & MOMS — every compliance row intact, in the same order
@@ -257,11 +258,12 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
     ]);
   });
 
-  it("is 20 rows whether or not this owner runs Events", () => {
+  it("is 21 rows whether or not this owner runs Events", () => {
     // Before the promotion this was 20 / 21 — the founder's own account
-    // carried the extra row. It no longer can.
-    expect(sidebarRoutes(opts)).toHaveLength(20);
-    expect(sidebarRoutes({ ...opts, usageDormant: new Set() })).toHaveLength(20);
+    // carried the extra row. It no longer can. (20 → 21 on 12 Nov 2026: the
+    // Egenkontrol row, food service + bar only.)
+    expect(sidebarRoutes(opts)).toHaveLength(21);
+    expect(sidebarRoutes({ ...opts, usageDormant: new Set() })).toHaveLength(21);
   });
 
   it("dropped exactly the four C12b rows and nothing else", () => {

@@ -484,6 +484,12 @@ const DoorScanPage = lazyRetry(() => import("./pages/DoorScanPage"));
 const ReservationPublicPage = lazyRetry(() => import("./pages/ReservationPublicPage"));
 const ReservationsPage = lazyRetry(() => import("./pages/ReservationsPage"));
 const StandPairPage = lazyRetry(() => import("./pages/StandPairPage"));
+// Egenkontrol (R1a). The owner's page lives inside Layout; the kitchen iPad's
+// screen (/kitchen/<token>) is a paired device like /stand — outside
+// ProtectedRoute and Layout, authenticated by the token in its path. Both are
+// their own lazy chunks, and nothing under src/stand imports either.
+const EgenkontrolPage = lazyRetry(() => import("./pages/EgenkontrolPage"));
+const KitchenPage = lazyRetry(() => import("./pages/KitchenPage"));
 
 /**
  * A paired host-stand device. The api client reads the token straight from
@@ -943,6 +949,13 @@ function AppRoutes() {
             here cannot expose anything the device is not entitled to. */}
         <Route path="/stand" element={<StandPairPage />} />
         <Route path="/stand/:standToken" element={<StandTokenRoute />} />
+        {/* The paired kitchen iPad (egenkontrol). Same deal as /stand: no
+            login, the token in the path is the credential, and the backend
+            scopes it to the kitchen wrappers in routers/kitchen_link.py
+            (today, staff, entries, undo, folder, unpair) and 404s the rest.
+            /kitchen alone reopens the pairing this iPad remembers. */}
+        <Route path="/kitchen" element={<KitchenPage />} />
+        <Route path="/kitchen/:kitchenToken" element={<KitchenPage />} />
         {/* Same deal for the week grid: OUTSIDE <Layout /> so the schedule gets
             the whole window. The grid is 7 day-columns wide and the sidebar
             costs it ~250px of exactly the axis it needs most — this is the
@@ -991,6 +1004,10 @@ function AppRoutes() {
           {/* INVENTORY pillar — covers stock + its sub-surfaces (waste,
               expiry) and the opt-in verticals (wine-list, bar-pour). */}
           <Route path="/inventory" element={<PillarGate pillar="inventory"><InventoryPage /></PillarGate>} />
+          {/* Egenkontrol — temperature readings, the Kontrolmappe and the
+              kitchen iPad. Every seat reads today; the page and the server
+              decide who records, who sees the folder and who sets it up. */}
+          <Route path="/egenkontrol" element={<EgenkontrolPage />} />
           {/* C7 Intelligence collapse — smart-staffing + weather-smart folded
               into the Schedule page's forecast panel. Legacy routes stay
               registered as permanent redirects so old bookmarks / push links

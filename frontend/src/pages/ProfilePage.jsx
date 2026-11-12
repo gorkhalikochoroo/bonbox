@@ -49,6 +49,7 @@ import BusinessLookup, { countryFromCurrency } from "../components/BusinessLooku
 import OperatingProfileSection from "../components/OperatingProfileSection";
 import SmartStaffingCard from "../components/SmartStaffingCard";
 import DeviceShareSettingsCard from "../components/DeviceShareSettingsCard";
+import EgenkontrolDeleteNotice from "../components/egenkontrol/EgenkontrolDeleteNotice";
 import { resetAllTips } from "../components/DismissibleTip";
 import { CookieSettingsButton } from "../components/CookieConsent";
 import { localIso } from "../utils/dateFormat";
@@ -2170,6 +2171,9 @@ export default function ProfilePage() {
 
               {deleteConfirm && (
                 <div className="pt-4 mt-2 border-t border-red-200/70 dark:border-red-900/50 space-y-3">
+                  {/* Egenkontrol readings go with the account: offer the
+                      Kontrolmappe PDF first (renders nothing without readings). */}
+                  <EgenkontrolDeleteNotice />
                   <p className="text-sm text-red-700 dark:text-red-300 font-medium">
                     {t("deleteConfirmWarning") ||
                       "This deletes your account and the data in it straight away: sales, expenses, inventory, reports. We keep the change log, the security and error logs, the images of your accounting documents (for about 6 years) and, if there are invoices for you, the customer record at Stripe (for 5 years from the end of the financial year) and the invoices, which stay at Stripe — see § 4 of the Terms of Service. An active subscription stops at the same moment. Download your data and PDFs first. Enter your password to confirm."}

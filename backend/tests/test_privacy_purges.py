@@ -417,6 +417,7 @@ def test_dry_run_counts_match_what_the_purges_would_do(Session):
     assert pp.dry_run_counts(s, now=NOW) == {
         "waitlist_guest_pii": 1, "whatsapp_messages": 1,
         "magic_link_tokens": 2, "anonymous_paid_waitlist": 1,
+        "egenkontrol_entries": 0,   # Egenkontrol R1a: 730-day readings purge
     }
 
 

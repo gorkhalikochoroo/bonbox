@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.stand_link import StandLink
+from app.models.kitchen_link import KitchenLink
 from app.models.user import User
 from app.routers import reservations as R
 from app.services import audit_service
@@ -160,7 +161,12 @@ def create_stand_link(
     code = None
     for _ in range(8):
         candidate = _gen_code()
-        clash = db.query(StandLink.id).filter(StandLink.join_code == candidate).first()
+        # Codes are unique across stand_links AND kitchen_links: both are
+        # redeemed at POST /stand/join, which looks in both tables.
+        clash = (
+            db.query(StandLink.id).filter(StandLink.join_code == candidate).first()
+            or db.query(KitchenLink.id).filter(KitchenLink.join_code == candidate).first()
+        )
         if not clash:
             code = candidate
             break
@@ -274,29 +280,55 @@ def stand_join(payload: JoinRequest, request: Request, db: Session = Depends(get
     if not (_CODE_LEN <= len(code) <= 12) or any(c not in _ALPHABET for c in code):
         raise HTTPException(status_code=404, detail={"error": "unknown_code"})
 
+    def _redeemable(row) -> bool:
+        # One rule for both device tables: no such code, revoked, already
+        # redeemed and expired are all the same "no".
+        return not (
+            row is None
+            or row.code_used_at is not None
+            or row.code_expires_at is None
+            or row.code_expires_at <= utc_now()
+        )
+
     link = (
         db.query(StandLink)
         .filter(StandLink.join_code == code, StandLink.active.is_(True))
         .first()
     )
-    # One 404 for: no such code, revoked, already redeemed, expired. Anything
-    # more specific is an oracle.
-    if (
-        link is None
-        or link.code_used_at is not None
-        or link.code_expires_at is None
-        or link.code_expires_at <= utc_now()
-    ):
+    if _redeemable(link):
+        link.code_used_at = utc_now()
+        link.last_seen_at = utc_now()
+        db.commit()
+        owner = _owner(db, link)
+        return {
+            "path": f"/stand/{link.token}",
+            "venue": getattr(owner, "business_name", None),
+            "surface": "stand",
+        }
+
+    # Egenkontrol R1a: the kitchen iPad pairs at the same door (bonbox.dk/stand
+    # → "Forbind denne enhed"), through this same function, so it shares this
+    # route's 8/minute bucket and the global join brake. Same checks, same 404.
+    kitchen = (
+        db.query(KitchenLink)
+        .filter(KitchenLink.join_code == code, KitchenLink.active.is_(True))
+        .first()
+    )
+    # One 404 for: no such code, revoked, already redeemed, expired — in either
+    # table. Anything more specific is an oracle.
+    if not _redeemable(kitchen):
         raise HTTPException(status_code=404, detail={"error": "unknown_code"})
 
-    link.code_used_at = utc_now()
-    link.last_seen_at = utc_now()
+    kitchen.code_used_at = utc_now()
+    kitchen.last_seen_at = utc_now()
+    owner = _owner(db, kitchen)
+    audit_service.record(db, owner, "kitchen.link_redeemed", "kitchen_link", kitchen.id,
+                         after={"label": kitchen.label}, actor_type="kitchen_device")
     db.commit()
-
-    owner = _owner(db, link)
     return {
-        "path": f"/stand/{link.token}",
+        "path": f"/kitchen/{kitchen.token}",
         "venue": getattr(owner, "business_name", None),
+        "surface": "kitchen",
     }
 
 

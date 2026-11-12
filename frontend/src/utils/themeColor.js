@@ -70,7 +70,7 @@ export const PAPER_PATHS = Object.freeze([
   "/khata", "/faktura", "/faktura/review", "/customers", "/mileage", "/loans", "/imports", "/bank-import",
   "/payment-imports", "/budgets", "/team", "/staff/schedule", "/staff/hours", "/staff/time-registration",
   "/staff/tips", "/staff/payroll", "/more", "/subscription", "/bookkeeping-export", "/month-end", "/insights",
-  "/daily-report", "/channel-settings", "/connections", "/accountant/clients",
+  "/daily-report", "/channel-settings", "/connections", "/accountant/clients", "/egenkontrol",
   "/admin", "/admin/training", "/admin/support",
 ]);
 /** Paper routes with a dynamic tail (/workshop/job/:id). */
