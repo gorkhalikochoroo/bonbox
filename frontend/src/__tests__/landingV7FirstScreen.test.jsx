@@ -149,6 +149,10 @@ describe("landingV7.css's first-screen part", () => {
     const used = new Set([...box.querySelectorAll("[class]")].flatMap((e) => [...e.classList]));
     // classes that only carry meaning for the motion or a test hook
     for (const c of ["d1", "d2", "d3", "d4"]) used.delete(c);
+    // the kit wordmark's own classes (BonBoxWordmark: the app's utilities); on the landing the part styles the logo's
+    // svgs itself (.lp7 .brand svg), so the first screen never waits for the app's sheet to place them
+    for (const c of ["block", "shrink-0"]) used.delete(c);
+    expect(part).toMatch(/\.lp7 \.brand svg\{display:block;flex:none\}/);
     expect([...used].filter((c) => !inPart.has(c))).toEqual([]);
     // and nothing after the part can reach a first-screen element's look: the rest names none of the first screen's
     // own blocks (top bar, hero, stage)

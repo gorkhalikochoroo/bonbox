@@ -33,7 +33,7 @@ const PICS = '/static/landing-v7/'
 export const HERO_IMG_V7 = Object.freeze({
   src: `${PICS}sched-draft.webp`,
   srcset: `${PICS}sched-draft-700.webp 700w, ${PICS}sched-draft-1100.webp 1100w, ${PICS}sched-draft.webp 1600w`,
-  sizes: '(max-width: 719px) calc(100vw - 40px), (max-width: 1099px) calc(84vw - 40px), 968px',
+  sizes: '(max-width: 719px) calc(100vw - 40px), (max-width: 1099px) calc(84vw - 40px), (max-width: 1599px) 1040px, 1180px',
 })
 // The stage's 3D rise (the design's arrival) plays only on a wide screen with a fine pointer: on a phone or a tablet the
 // stage sits at the first screen's foot, half in view, and the rise would only delay its picture. LandingV7Page bootState
@@ -42,7 +42,7 @@ export const RISE_QUERY_V7 = '(hover: hover) and (pointer: fine) and (min-width:
 const STAFF_IMG = {
   src: `${PICS}staff.webp`,
   srcset: `${PICS}staff-320.webp 320w, ${PICS}staff.webp 640w`,
-  sizes: '(max-width: 719px) 40vw, (max-width: 1099px) 22vw, 280px',
+  sizes: '(max-width: 719px) 40vw, (max-width: 1099px) 22vw, (max-width: 2303px) 300px, 360px',
 }
 
 /** The first-screen part of landingV7.css (raw text). */
@@ -84,12 +84,45 @@ const KEYS = ['nav.label', 'nav.shifts', 'nav.tables', 'nav.till', 'nav.addons',
 export const FIRST_SCREEN_KEYS_V7 = ['lang.word', ...KEYS.filter(Boolean)].map((k) => 'landingV7.' + k)
 const LANG = { da: { name: 'Dansk', short: 'DK' }, en: { name: 'English', short: 'ENG' } }
 
+// The logo (12 Nov 2026): the kit's mark on the forest tile and the kit's wordmark, as TopBar.jsx draws them with
+// components/BonBoxMark.jsx (size 26) and components/BonBoxWordmark.jsx (height 19, title ""). The paths, the viewBox and
+// the wordmark's proportions are read from those two files, so this screen can never draw another b or another word.
+const MARK_SIZE_V7 = 26
+const WORD_HEIGHT_V7 = 19
+const stringConst = (src, name) => {
+  const m = src.match(new RegExp(`const ${name} =\\s*((?:"[^"]*"\\s*\\+?\\s*)+);`))
+  if (!m) throw new Error(`landingFirstScreenV7: ${name} not found`)
+  return [...m[1].matchAll(/"([^"]*)"/g)].map((x) => x[1]).join('')
+}
+const numberConst = (src, name) => {
+  const m = src.match(new RegExp(`const ${name} = ([\\d.]+);`))
+  if (!m) throw new Error(`landingFirstScreenV7: ${name} not found`)
+  return Number(m[1])
+}
+/** The top bar's logo as React writes it: { mark, word } (the two <svg>s) plus the facts they are drawn from. */
+export function logoV7() {
+  const markSrc = read('components/BonBoxMark.jsx')
+  const wordSrc = read('components/BonBoxWordmark.jsx')
+  const markPath = stringConst(markSrc, 'BONBOX_MARK_PATH')
+  const wordPath = stringConst(wordSrc, 'BONBOX_WORDMARK_PATH')
+  const vb = wordSrc.match(/export const BONBOX_WORDMARK_VIEWBOX = "([^"]+)";/)
+  if (!vb) throw new Error('landingFirstScreenV7: BONBOX_WORDMARK_VIEWBOX not found')
+  const width = Math.round(((WORD_HEIGHT_V7 * numberConst(wordSrc, 'VIEW_W')) / numberConst(wordSrc, 'VIEW_H')) * 10) / 10
+  if (!/^[\d. MVHACLQZmvhaclqz-]+$/.test(markPath + wordPath)) throw new Error('landingFirstScreenV7: unexpected characters in a logo path')
+  return {
+    markPath, wordPath,
+    mark: `<svg width="${MARK_SIZE_V7}" height="${MARK_SIZE_V7}" viewBox="0 0 24 24" fill="currentColor" class="" aria-hidden="true"><path d="${markPath}"></path></svg>`,
+    word: `<svg width="${width}" height="${WORD_HEIGHT_V7}" viewBox="${vb[1]}" fill="currentColor" focusable="false" class="block shrink-0" aria-hidden="true"><path d="${wordPath}"></path></svg>`,
+  }
+}
+
 // TopBar.jsx + Hero.jsx as React renders them before they are armed (attribute order and all)
 const ICON = 'fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"'
 export function firstScreenTemplateV7() {
+  const logo = logoV7()
   return '<div id="lp6-first" class="lp7" lang="{L}">' +
     '<header class="top" id="top"><div class="wrap">' +
-    '<a class="brand" href="#top" aria-label="BonBox"><span class="mark" aria-hidden="true">b</span>BonBox</a>' +
+    `<a class="brand" href="#top" aria-label="BonBox"><span class="mark" aria-hidden="true">${logo.mark}</span>${logo.word}</a>` +
     '<nav class="nav" aria-label="{0}"><a href="#vagterne">{1}</a><a href="#bordene">{2}</a><a href="#kassen">{3}</a><a href="#tilvalg">{4}</a><a href="#priser">{5}</a></nav>' +
     '<div class="top-actions"><div class="lang">' +
     '<button type="button" class="lang-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="lp7-lang-menu" aria-label="{6}">' +

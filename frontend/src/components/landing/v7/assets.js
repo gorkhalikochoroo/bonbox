@@ -34,9 +34,14 @@ export const IMG = Object.freeze({
   bookPt: phone("book-pt"),
 });
 
+/* The hero's sizes follow its stage (landingV7.css, 12 Nov 2026): from 1100 px the iPad's screen is 0.815 x the stage, which
+ * is at most the column (1440 px of content up to a 2300 px window, 1600 px at 2560) and never taller than the window, so
+ * up to a 1600 px window it draws about 790-1040 px wide on a laptop's window (1366 x 768 to 1440 x 900; up to 1174 on a
+ * taller one) and up to 1300 px beyond (1180 picks the 1600 px file at 1x); the
+ * phone's screen is 0.2256 x the stage: at most ~325 px up to a 2300 px window (the 320 px file at 1x), ~360 px beyond. */
 export const SIZES = Object.freeze({
-  heroTablet: "(max-width: 719px) calc(100vw - 40px), (max-width: 1099px) calc(84vw - 40px), 968px",
-  heroPhone: "(max-width: 719px) 40vw, (max-width: 1099px) 22vw, 280px",
+  heroTablet: "(max-width: 719px) calc(100vw - 40px), (max-width: 1099px) calc(84vw - 40px), (max-width: 1599px) 1040px, 1180px",
+  heroPhone: "(max-width: 719px) 40vw, (max-width: 1099px) 22vw, (max-width: 2303px) 300px, 360px",
   wide: "(max-width: 1099px) calc(100vw - 48px), 1040px",
   duo: "(max-width: 719px) 42vw, 240px",
   trio: "(max-width: 719px) 30vw, 200px",
