@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url'
 import { bookingGraph, buildBookingDict, pickBookingWords } from './scripts/bookingDict.mjs'
 import { bookingBootScript } from './scripts/bookingBoot.mjs'
 import { appDictionaries, standHtml, standWords } from './scripts/standBuild.mjs'
-import { HERO_IMG_V7, firstScreenCssV7, firstScreenFacesV7, firstScreenScriptV7 } from './scripts/landingFirstScreenV7.mjs'
+import {
+  APP_DOC_V7, HERO_IMG_V7, LANDING_DOC_V7, firstScreenCssV7, firstScreenFacesV7, firstScreenScriptV7, landingDocumentV7,
+} from './scripts/landingFirstScreenV7.mjs'
 
 // The front door's page module (landing v7, 12 Nov 2026; App.jsx loadLanding). preloadLanding, landingFirstScreen and
 // htmlDiet find its chunk by this; the Vagtplan build has none. The v6 page (pages/LandingV6Page.jsx) is unrouted.
@@ -265,6 +267,39 @@ function htmlDiet() {
   }
 }
 
+// ── The landing's own document (landing v7 speed, 12 Nov 2026) ──
+// "/" and "/v2" get their own HTML: the finished index.html (every hook above has run) plus the hero picture's phone cut
+// (scripts/landingFirstScreenV7.mjs landingDocumentV7), so on a phone the first screen's largest paint is in the document
+// instead of a 23 KB download behind it. Every other address keeps today's document, byte for byte, as app.html.
+// vercel.json: "/" and "/v2" → /landing.html, everything else → /app.html. Vercel serves a real file before any rewrite, and
+// "/" is index.html's address, so the Vercel build (VERCEL=1, set by Vercel at build time) leaves index.html out: the
+// rewrite then decides. Every other build keeps index.html as it is: the native apps (Capacitor loads index.html, Xcode
+// Cloud runs `npm run build` too), `vite preview` and any host without these rewrites. Should VERCEL ever be missing on
+// Vercel, "/" simply gets index.html, today's document: slower on a phone, never broken (app.html is in every build);
+// `npm run healthcheck:prod` after a deploy warns when it does (scripts/lib/frontDoor.mjs).
+// Only the web build (the one with a landing chunk); the Vagtplan build is untouched. Its hook is generateBundle (order
+// "post"): it runs after Vite has written index.html through every transformIndexHtml hook, htmlDiet included, wherever it
+// sits in the plugin list.
+export function landingDocument() {
+  return {
+    name: 'bonbox-landing-document',
+    apply: 'build',
+    generateBundle: {
+      order: 'post',
+      handler(_opts, bundle) {
+        const chunks = Object.values(bundle)
+        if (!chunks.some((c) => c.type === 'chunk' && c.facadeModuleId && LANDING_PAGE.test(c.facadeModuleId))) return
+        const index = bundle['index.html']
+        if (!index || index.type !== 'asset') return this.error('landingDocument: the build has no index.html to start from')
+        const html = typeof index.source === 'string' ? index.source : Buffer.from(index.source).toString('utf8')
+        this.emitFile({ type: 'asset', fileName: APP_DOC_V7, source: html })
+        this.emitFile({ type: 'asset', fileName: LANDING_DOC_V7, source: landingDocumentV7(html) })
+        if (process.env.VERCEL === '1') delete bundle['index.html']
+      },
+    },
+  }
+}
+
 // ── The Vagtplan app shells' icon links (Android walk, 11 Nov 2026) ──
 // The native shells (dist-scheduler, npm run build:scheduler) start at "/", so the head script's /s/<token> swap to
 // the Vagtplan icons never ran before the WebView fetched /favicon.ico — and Capacitor's Android local server answers
@@ -403,7 +438,7 @@ export default defineConfig({
   // screen's build, which loads those instead of a second copy.
   plugins: [
     react(), preloadDictionary(), preloadLanding(), bookingBoot(), landingFirstScreen(), bootDictionary(), bookingDictionary(), guestWordsPortuguese(),
-    standHtml(), standWords(), appDictionaries(), schedulerIcons(), htmlDiet(),
+    standHtml(), standWords(), appDictionaries(), schedulerIcons(), landingDocument(), htmlDiet(),
   ],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline

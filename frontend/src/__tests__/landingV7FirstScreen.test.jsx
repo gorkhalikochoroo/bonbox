@@ -3,7 +3,7 @@
  *
  * Pins:
  *   - the markup the inline script writes is React's first render of TopBar + Hero (before they are armed), in Danish
- *     and in English, so nothing moves at takeover;
+ *     and in English, so nothing moves at takeover; also as the landing's own document (dist/landing.html) draws it;
  *   - the three committed font cuts hold every character the first screen draws at their weight;
  *   - one first-screen part in landingV7.css, and every first-screen class is styled inside it;
  *   - the hero picture's strings (preload, first screen, page) and the rise query are one;
@@ -27,6 +27,7 @@ import Hero from "../components/landing/v7/Hero";
 import { HERO_TABLET, RISE_QUERY } from "../components/landing/v7/assets";
 import {
   FIRST_FACES_V7, HERO_IMG_V7, RISE_QUERY_V7, firstScreenCssV7, firstScreenMarkupV7, firstScreenRangeV7, firstScreenScriptV7,
+  landingDocumentV7,
 } from "../../scripts/landingFirstScreenV7.mjs";
 import { FIRST_FONTS_V7, FIRST_FONT_FILE_V7, firstScreenCharsV7 } from "../../scripts/landingFirstFontsV7.mjs";
 
@@ -71,6 +72,52 @@ describe("the first screen is React's first render", () => {
     expect(m).toContain("&lt;img src=x onerror=alert(1)&gt; &amp; &quot;q&quot;");
     expect(m).not.toContain("<img src=x");
     expect(firstScreenMarkupV7("da", DICTS)).toContain(`fra ${FROM_PRICE} kr./md.`);
+  });
+});
+
+/* Landing v7 speed (12 Nov 2026): "/" and "/v2" are served their own document (dist/landing.html: index.html plus the hero
+ * picture's phone cut; vite.config.js landingDocument, landingV7Document.test.js). Its first screen, drawn by the script
+ * the built document really carries, is React's first render too. The build's html hooks run here without htmlDiet
+ * (esbuild does not start under jsdom; landingV7Document.test.js runs the dieted document in node). */
+describe("the landing's own document: its first screen is React's first render", () => {
+  async function landingDoc() {
+    const { default: config } = await import("../../vite.config.js");
+    const src = fs.readFileSync(path.join(FRONTEND, "index.html"), "utf8")
+      .replace('<script type="module" src="/src/main.jsx"></script>', "")
+      .replace("</head>", '<script type="module" crossorigin src="/assets/index-1.js"></script>\n<link rel="stylesheet" crossorigin href="/assets/index-3.css">\n</head>');
+    const bundle = {
+      "assets/L.js": { type: "chunk", fileName: "assets/L.js", facadeModuleId: "/r/frontend/src/pages/LandingV7Page.jsx", imports: [], viteMetadata: { importedCss: new Set() } },
+      "assets/da-x.js": { type: "chunk", fileName: "assets/da-x.js", facadeModuleId: "/r/frontend/src/i18n/da.js" },
+      "assets/en-x.js": { type: "chunk", fileName: "assets/en-x.js", facadeModuleId: "/r/frontend/src/i18n/en.js" },
+    };
+    let html = src;
+    for (const p of config.plugins.flat().filter((x) => x && x.transformIndexHtml && x.transformIndexHtml.order === "post" && x.name !== "bonbox-html-diet")) {
+      html = await p.transformIndexHtml.handler(html, { bundle });
+    }
+    return landingDocumentV7(html);
+  }
+  function drawFrom(doc, lang) {
+    const code = [...doc.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).find((x) => x.includes("lp6-first") && x.includes("insertAdjacentHTML"));
+    const root = document.createElement("div");
+    root.id = "root";
+    const anchor = document.createElement("i");
+    root.appendChild(anchor);
+    document.body.appendChild(root);
+    window.__lp6First = { lang };
+    const d = { currentScript: anchor, getElementById: (id) => document.getElementById(id), querySelector: (s) => document.querySelector(s), head: document.head, createElement: (t) => document.createElement(t), addEventListener: () => {} };
+    new Function("window", "document", "location", code)(window, d, { search: "" });
+    anchor.remove();
+    const first = document.getElementById("lp6-first");
+    const out = { lang: first.getAttribute("lang"), inner: first.innerHTML };
+    root.remove();
+    return out;
+  }
+  it.each(["da", "en"])("%s: the document's script draws React's top bar and hero, attribute for attribute", async (lang) => {
+    const doc = await landingDoc();
+    expect(doc).toContain('<style id="lp7-hero">');
+    const drawn = drawFrom(doc, lang);
+    expect(drawn.lang).toBe(lang);
+    expect(drawn.inner).toBe(reactFirst(lang));
   });
 });
 
