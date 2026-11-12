@@ -13,12 +13,15 @@ Locks under test:
     05:30 and 06:30 Copenhagen time, today_local, a daily close date, the
     reservation book's "today", the brief greeting hour, the shift-reminder
     clock, the sign-up day, gavekort's business date;
-  - a Portuguese venue gets Lisbon (or Madeira / the Azores when stored);
-    another non-DK country keeps its stored zone; EUR with no country is
-    Copenhagen;
+  - a non-DKK Portuguese venue gets Lisbon (or Madeira / the Azores when
+    stored); any other non-DKK owner keeps its stored zone when valid —
+    whatever the country, since BusinessProfile.country defaults to "DK"
+    (12 Nov refinement: an NPR owner on Asia/Katmandu keeps Kathmandu, the
+    NPR owners on Europe/Copenhagen keep Copenhagen);
   - venue_tz_name and the staff feed's feed_zone are ONE rule;
   - the country costs no query for a DKK owner and one per owner object
-    otherwise, however many times the helpers are called.
+    otherwise, however many times the helpers are called; the shift-reminder
+    sweep and the nightly owner_patterns run read it in ONE query per batch.
 
 Run: cd backend && python3 -m pytest tests/test_venue_timezone.py -q
 """
@@ -290,9 +293,18 @@ def test_a_lisbon_venue_business_day_is_lisbon(db, monkeypatch):
     ("Europe/Berlin", "EUR", "DE", "Europe/Berlin"),     # other country: its stored zone
     ("Not/AZone", "EUR", "DE", "Europe/Copenhagen"),     # invalid -> Copenhagen
     (None, "EUR", "DE", "Europe/Copenhagen"),
-    ("Europe/Lisbon", "EUR", "", "Europe/Copenhagen"),   # no country = Denmark
-    ("Europe/Lisbon", "EUR", _NO_PROFILE, "Europe/Copenhagen"),
+    # 12 Nov, changed on purpose: no / DK country is the column's default,
+    # not Denmark, for a non-DKK owner -> its stored zone (was Copenhagen).
+    ("Europe/Lisbon", "EUR", "", "Europe/Lisbon"),
+    ("Europe/Lisbon", "EUR", _NO_PROFILE, "Europe/Lisbon"),
+    ("Asia/Katmandu", "NPR", "DK", "Asia/Katmandu"),      # the 1 NPR owner abroad
+    ("Europe/Copenhagen", "NPR", "DK", "Europe/Copenhagen"),  # the 19 NPR owners
+    ("Europe/Stockholm", "SEK", "DK", "Europe/Stockholm"),
+    ("Not/AZone", "GBP", "DK", "Europe/Copenhagen"),     # invalid -> Copenhagen
+    (None, "NPR", "DK", "Europe/Copenhagen"),
+    # DKK: unchanged.
     ("Europe/Lisbon", "DKK", "PT", "Europe/Copenhagen"),  # a DKK owner: always CPH
+    ("Asia/Katmandu", "DKK", "DK", "Europe/Copenhagen"),
 ])
 def test_other_countries_and_edges(db, tz, currency, country, want):
     u = _owner(db, tz, currency=currency, country=country)
@@ -309,8 +321,25 @@ def test_other_countries_and_edges(db, tz, currency, country, want):
                                 "Not/AZone"])
 def test_venue_tz_name_is_the_feed_rule(country, currency, tz):
     feed = ics_timezone.feed_zone(country, currency, tz)
-    want = feed if feed and feed != "Not/AZone" else "Europe/Copenhagen"
-    assert venue_tz_name(country, currency, tz) == want
+    # feed_zone now drops an invalid zone itself (None = Copenhagen).
+    assert feed != "Not/AZone"
+    assert venue_tz_name(country, currency, tz) == (feed or "Europe/Copenhagen")
+    if (currency or "").strip().upper() in ("", "DKK"):
+        assert feed is None        # DKK: Copenhagen whatever the country / zone
+
+
+def test_an_npr_owner_in_kathmandu_runs_on_kathmandu_days(db, monkeypatch):
+    """The production NPR owner with Asia/Katmandu stored (country DK by
+    default): the business day is Kathmandu's (UTC+5:45), not Copenhagen's."""
+    u = _owner(db, "Asia/Katmandu", currency="NPR", country="DK")
+    ktm = ZoneInfo("Asia/Kathmandu")
+    _freeze(monkeypatch, datetime(2026, 11, 13, 5, 30, tzinfo=ktm))   # 00:45 CPH
+    assert business_today_local(u) == date(2026, 11, 12)
+    _freeze(monkeypatch, datetime(2026, 11, 13, 6, 30, tzinfo=ktm))   # 01:45 CPH
+    assert business_today_local(u) == date(2026, 11, 13)
+    start, end = business_day_window(u)
+    assert start == datetime(2026, 11, 13, 6, 0, tzinfo=ktm).astimezone(UTC)
+    assert end == datetime(2026, 11, 14, 6, 0, tzinfo=ktm).astimezone(UTC)
 
 
 def test_a_light_object_with_currency_follows_the_venue_rule():
@@ -359,6 +388,69 @@ def test_a_foreign_venue_costs_one_query_per_owner_object(db, engine):
         stop()
     assert len(seen) == 1 and "business_profiles" in seen[0]
     assert owner_tz_name(u) == "Europe/Lisbon"
+
+
+def _country_lookups(seen):
+    """(per-owner lookups, batch lookups) of the business country."""
+    hits = [q for q in seen if "business_profiles.country" in q]
+    per_owner = [q for q in hits if "business_profiles.user_id = " in q]
+    batch = [q for q in hits if "business_profiles.user_id IN" in q]
+    return len(per_owner), len(batch)
+
+
+def _foreign_fleet(db):
+    """Three non-DKK owners (one per country path) and one DKK owner."""
+    return [
+        _owner(db, "Asia/Katmandu", currency="NPR", country="DK"),
+        _owner(db, "Asia/Tokyo", currency="EUR", country="PT"),
+        _owner(db, "Europe/Stockholm", currency="SEK", country=_NO_PROFILE),
+        _owner(db, "Asia/Tokyo", currency="DKK", country="DK"),
+    ]
+
+
+def test_the_shift_reminder_sweep_reads_countries_in_one_query(db, engine, monkeypatch):
+    from app.jobs import shift_reminder_jobs as jobs
+    from app.models.staff import StaffMember
+    owners = _foreign_fleet(db)
+    for o in owners:
+        db.add(StaffMember(id=uuid.uuid4(), user_id=o.id, name="Agnes", role="server",
+                           shift_reminder_minutes=60))
+    db.commit()
+    db.expunge_all()               # the sweep loads its own owner rows
+    zones = []
+    real = jobs._local_now
+    monkeypatch.setattr(jobs, "_local_now", lambda u: (zones.append(owner_tz_name(u)), real(u))[1])
+    seen, stop = _count_sql(engine)
+    try:
+        jobs.send_due_shift_reminders(db)
+    finally:
+        stop()
+    assert _country_lookups(seen) == (0, 1)
+    assert sorted(zones) == sorted(["Asia/Katmandu", "Europe/Lisbon", "Europe/Stockholm",
+                                    "Europe/Copenhagen"])
+
+
+def test_the_nightly_patterns_run_reads_countries_in_one_query(db, engine, monkeypatch):
+    from app.services import owner_patterns
+    _foreign_fleet(db)
+    db.expunge_all()               # the run loads its own owner rows
+    zones = []
+
+    def _fake_run_for_user(u, _db):      # what the detectors do: today_local, often
+        for _ in range(5):
+            today_local(u)
+        zones.append(owner_tz_name(u))
+        return 0
+    monkeypatch.setattr(owner_patterns, "run_for_user", _fake_run_for_user)
+    seen, stop = _count_sql(engine)
+    try:
+        out = owner_patterns.run_for_all_users(db)
+    finally:
+        stop()
+    assert out["processed"] == 4
+    assert _country_lookups(seen) == (0, 1)
+    assert sorted(zones) == sorted(["Asia/Katmandu", "Europe/Lisbon", "Europe/Stockholm",
+                                    "Europe/Copenhagen"])
 
 
 def test_a_carried_country_costs_no_query(db, engine):

@@ -8,9 +8,11 @@ from the owner's browser at every login (useAuth.syncTimezoneIfChanged), so
 a Danish owner who logged in from Kathmandu or Los Angeles carried that zone
 into "today", the 06:00 business day, daily close and reservations. Since
 12 Nov the zone is `venue_tz_name` — the same rule as the staff calendar
-feed (ics_timezone.feed_zone): a DKK owner or a DK / unset country is always
-Europe/Copenhagen; Portugal is Lisbon (or Madeira / the Azores when stored);
-any other country keeps its stored zone.
+feed (ics_timezone.feed_zone): a DKK (or unset-currency) owner is always
+Europe/Copenhagen; a non-DKK owner in Portugal is Lisbon (or Madeira / the
+Azores when stored); any other non-DKK owner keeps its stored zone when it
+is valid. BusinessProfile.country defaults to "DK", so it is no signal for
+a non-DKK owner.
 
 Uses Python's stdlib `zoneinfo` (>=3.9).
 """
@@ -18,8 +20,8 @@ Uses Python's stdlib `zoneinfo` (>=3.9).
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from app.services.ics_timezone import feed_zone, is_dkk_owner
+from zoneinfo import ZoneInfo
+from app.services.ics_timezone import feed_zone, is_dkk_owner, zone_ok
 from app.utils.time import utc_now
 
 
@@ -41,12 +43,7 @@ _UNSET = object()
 _UNKNOWN = object()  # couldn't check (no session / the lookup failed)
 
 
-def _zone_ok(name: str) -> bool:
-    try:
-        ZoneInfo(name)
-        return True
-    except (ZoneInfoNotFoundError, ValueError, TypeError):
-        return False
+_zone_ok = zone_ok
 
 
 def venue_tz_name(country: str | None, currency: str | None,
@@ -54,12 +51,13 @@ def venue_tz_name(country: str | None, currency: str | None,
     """The IANA zone a venue's business day runs in.
 
     ONE rule with the staff calendar feed (ics_timezone.feed_zone):
-      - a DKK (or unset-currency) owner, or a DK / empty / missing country
-        -> Europe/Copenhagen, whatever users.timezone says;
-      - Portugal -> Europe/Lisbon, unless the stored zone is Europe/Lisbon,
-        Atlantic/Madeira or Atlantic/Azores;
-      - any other country -> the stored zone.
-    An invalid zone name falls back to Europe/Copenhagen.
+      - a DKK (or unset-currency) owner -> Europe/Copenhagen, whatever
+        users.timezone says;
+      - a non-DKK owner in Portugal (PT / PRT) -> Europe/Lisbon, unless the
+        stored zone is Europe/Lisbon, Atlantic/Madeira or Atlantic/Azores;
+      - any other non-DKK owner (country DK — the column's default — empty,
+        or another) -> the stored zone.
+    An invalid or missing zone name falls back to Europe/Copenhagen.
     """
     name = feed_zone(country, currency, stored_tz) or DEFAULT_TZ
     return name if _zone_ok(name) else DEFAULT_TZ
@@ -101,6 +99,25 @@ def _business_country(user):
     except Exception:  # noqa: BLE001 — a read-only object just isn't cached
         pass
     return country
+
+
+def prime_business_country(db, users) -> None:
+    """Carry BusinessProfile.country on every non-DKK owner in `users`, from
+    ONE query — for a job that walks many owners, so the zone helpers never
+    look the country up owner by owner. DKK owners need no country at all."""
+    foreign = [u for u in users
+               if u is not None and not is_dkk_owner(getattr(u, "currency", None))]
+    if not foreign:
+        return
+    from app.models.business_profile import BusinessProfile
+    rows = (
+        db.query(BusinessProfile.user_id, BusinessProfile.country)
+        .filter(BusinessProfile.user_id.in_([u.id for u in foreign]))
+        .all()
+    )
+    countries = {uid: (c or "") for uid, c in rows}
+    for u in foreign:
+        setattr(u, COUNTRY_ATTR, countries.get(u.id, ""))
 
 
 def owner_tz_name(user) -> str:
@@ -208,7 +225,8 @@ def business_day_window(user, target_date: date | None = None) -> tuple[datetime
     """UTC [start, end) for the user's local business day.
 
     Combines the venue's timezone (`venue_zone`: Europe/Copenhagen for a
-    Danish venue, whatever the owner's browser said) with their cutoff hour (`BusinessProfile.day_cutoff_hour`, default 6).
+    DKK owner, whatever the owner's browser said) with their cutoff hour
+    (`BusinessProfile.day_cutoff_hour`, default 6).
     A 02:00 CEST event belongs to YESTERDAY's business day — that's the
     drift we're squashing across dashboard / property report / live KPIs.
 
@@ -296,6 +314,7 @@ def business_day_window_local(user, target_date: date | None = None) -> tuple[da
 # this module is a one-stop shop for time/TZ helpers.
 __all__ = [
     "venue_tz_name",
+    "prime_business_country",
     "owner_tz_name",
     "venue_zone",
     "now_local",

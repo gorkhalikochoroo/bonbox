@@ -292,7 +292,10 @@ def frozen_day(monkeypatch, frozen_stamp):
                                 "Europe/Lisbon", None])
 @pytest.mark.parametrize("currency, country", [
     ("DKK", "DK"), ("DKK", ""), ("DKK", _NO_PROFILE), ("DKK", "PT"),
-    ("EUR", "DK"), ("EUR", ""), ("EUR", _NO_PROFILE),
+    # 12 Nov rule refinement: the EUR + DK / "" / no-profile rows moved to
+    # test_a_non_dkk_owner_follows_the_stored_zone_whatever_the_country —
+    # BusinessProfile.country defaults to "DK", so it is no signal for a
+    # non-DKK owner. Every DKK row here is unchanged.
 ])
 def test_a_danish_or_dkk_venue_gets_the_old_file_whatever_the_owner_zone(
         client, db, frozen_day, tz, currency, country):
@@ -300,6 +303,39 @@ def test_a_danish_or_dkk_venue_gets_the_old_file_whatever_the_owner_zone(
     r = client.get("/api/portal/tokTZ/schedule.ics")
     assert r.status_code == 200
     assert r.text == _old_danish_file()
+
+
+# ─── 2d. A non-DKK owner: the stored zone, whatever the (default) country ──
+# Changed on purpose (12 Nov, lead's decision): BusinessProfile.country is
+# "DK" by default for every profile, so a non-DKK owner with country DK is
+# not evidence of a Danish venue. Outside Portugal a non-DKK owner's feed is
+# its stored users.timezone when valid, else the old Copenhagen file.
+# Production: 19 NPR owners store Europe/Copenhagen (their file is unchanged,
+# byte for byte); 1 NPR owner stores Asia/Katmandu (now Kathmandu).
+
+@pytest.mark.parametrize("currency", ["NPR", "EUR", "SEK"])
+@pytest.mark.parametrize("country", ["DK", "", _NO_PROFILE])
+@pytest.mark.parametrize("tz", ["Europe/Copenhagen", None, "Not/AZone"])
+def test_a_non_dkk_owner_on_copenhagen_or_no_zone_keeps_the_old_file(
+        client, db, frozen_day, tz, currency, country):
+    _seed(db, tz, currency=currency, country=country, shifts=_shifts())
+    r = client.get("/api/portal/tokTZ/schedule.ics")
+    assert r.status_code == 200
+    assert r.text == _old_danish_file()
+
+
+@pytest.mark.parametrize("currency", ["NPR", "EUR", "GBP"])
+@pytest.mark.parametrize("country", ["DK", "", _NO_PROFILE])
+@pytest.mark.parametrize("tz", ["Asia/Katmandu", "Asia/Tokyo", "Europe/London"])
+def test_a_non_dkk_owner_follows_the_stored_zone_whatever_the_country(
+        client, db, tz, currency, country):
+    _seed(db, tz, currency=currency, country=country)
+    r = client.get("/api/portal/tokTZ/schedule.ics")
+    assert r.status_code == 200
+    assert f"X-WR-TIMEZONE:{tz}\r\n" in r.text
+    assert f"TZID:{tz}\r\n" in r.text
+    assert f"DTSTART;TZID={tz}:" in r.text
+    assert "Copenhagen" not in r.text
 
 
 @pytest.mark.parametrize("tz, want", [
@@ -324,11 +360,21 @@ def test_a_portuguese_venue_gets_a_portuguese_zone(client, db, tz, want):
 
 @pytest.mark.parametrize("country, currency, tz, want", [
     ("DK", "DKK", "Asia/Tokyo", None),
-    ("", "EUR", "Asia/Tokyo", None),
-    (None, "EUR", "Europe/Lisbon", None),
-    ("dk", "EUR", "Europe/Lisbon", None),
+    ("DK", "DKK", "Asia/Katmandu", None),          # a DKK owner abroad: Copenhagen
+    ("", "DKK", "America/Los_Angeles", None),
+    # 12 Nov, changed on purpose: country DK / "" / None is the column's
+    # default, not a signal, so a non-DKK owner follows its stored zone
+    # (these three rows said None — Copenhagen — before).
+    ("", "EUR", "Asia/Tokyo", "Asia/Tokyo"),
+    (None, "EUR", "Europe/Lisbon", "Europe/Lisbon"),
+    ("dk", "EUR", "Europe/Lisbon", "Europe/Lisbon"),
+    ("DK", "NPR", "Asia/Katmandu", "Asia/Katmandu"),           # the 1 NPR owner abroad
+    ("DK", "NPR", "Europe/Copenhagen", "Europe/Copenhagen"),   # the 19: same file
+    ("DK", "SEK", "Not/AZone", None),                          # invalid -> Copenhagen
+    ("DK", "GBP", "", None),
     ("PT", "DKK", "Europe/Lisbon", None),          # a DKK owner: always Copenhagen
     ("PT", None, "Europe/Lisbon", None),           # currency unset = the DKK default
+    ("PT", "", "Europe/Lisbon", None),
     (" pt ", "eur", "Atlantic/Azores", "Atlantic/Azores"),
     ("PT", "EUR", "Asia/Tokyo", "Europe/Lisbon"),
     ("PRT", "EUR", "", "Europe/Lisbon"),

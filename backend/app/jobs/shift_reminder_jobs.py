@@ -24,7 +24,7 @@ Three things it must never do, in the order they would hurt:
      opt-in.
 
 Timezone: shift date + start_time are LOCAL to the owner's business, so the
-comparison is done in the owner's timezone and only then turned into UTC.
+comparison is done in the venue's timezone (tz_utils.venue_zone).
 """
 
 from __future__ import annotations
@@ -95,8 +95,15 @@ def send_due_shift_reminders(db: Session) -> dict:
     for m in members:
         by_owner.setdefault(m.user_id, []).append(m)
 
+    # Owners, then every non-DKK owner's business country, in one query each
+    # before the loop — the venue's zone needs the country, and a per-owner
+    # lookup ran on every sweep.
+    from app.services.tz_utils import prime_business_country
+    owners = {u.id: u for u in db.query(User).filter(User.id.in_(list(by_owner))).all()}
+    prime_business_country(db, owners.values())
+
     for owner_id, owner_members in by_owner.items():
-        owner = db.query(User).filter(User.id == owner_id).first()
+        owner = owners.get(owner_id)
         if not owner:
             continue
         now_local = _local_now(owner)
