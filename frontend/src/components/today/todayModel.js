@@ -298,6 +298,43 @@ export function buildNeeds(today, findings, { hiddenPillars } = {}) {
   return out;
 }
 
+/**
+ * How many rows the needs-you read is expected to add to "Kræver dig" while
+ * it has not answered — read off /today's own badges, which run the very same
+ * server detectors: a booking request waiting for the owner's answer, and
+ * yesterday's missing kasserapport. It only SIZES the "Tjekker …" place the
+ * answer will land in (TodayDashboard holds that many rows where buildNeeds
+ * puts the findings), so the answer fills it instead of pushing the cards
+ * below. Never shown, never a count, never "all clear": the other detectors
+ * cannot be told from /today, so a row of theirs still arrives late.
+ *
+ * @param {object} today  GET /api/today payload
+ * @param {{hiddenPillars?: Set<string>, isDismissed?: (f: {code: string, meta: object}) => boolean}} opts
+ *        isDismissed: the owner's "Skjul" — a finding they hid will not come.
+ */
+export function expectedLateRows(today, { hiddenPillars, isDismissed } = {}) {
+  const b = today?.badges || {};
+  const hidden = hiddenPillars instanceof Set ? hiddenPillars : new Set();
+  const gone = typeof isDismissed === "function" ? isDismissed : () => false;
+  let n = 0;
+  const waiting = Number(b.reservations) || 0;
+  if (waiting > 0 && !hidden.has("reservations")
+    && !gone({ code: "unconfirmed_reservations", meta: { count: waiting } })) n += 1;
+  if ((Number(b.daily_close) || 0) > 0) {
+    // The detector's day is always yesterday (diagnostics_service).
+    let yday = null;
+    try {
+      const d = new Date(`${today.business_day}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - 1);
+      yday = Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    } catch { yday = null; }
+    // buildNeeds drops it on a day the venue's hours say it was shut.
+    const shut = !!(yday && (today?.close?.days || []).find((d) => d && d.date === yday && d.venue_closed));
+    if (!shut && !(yday && gone({ code: "close_missing", meta: { date: yday } }))) n += 1;
+  }
+  return n;
+}
+
 /** Sidebar / tab badges: a route gets a count only when there is something to act on. */
 export function navBadges(badges) {
   const b = badges || {};

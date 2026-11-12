@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  buildNeeds, closeSteps, defaultService, greetingKey, heatCells, isFreshAccount,
+  buildNeeds, closeSteps, defaultService, expectedLateRows, greetingKey, heatCells, isFreshAccount,
   laborLine, navBadges, plural, salesTile, shiftState, splitService, staffSummary, trendKey,
 } from "../components/today/todayModel";
 
@@ -146,6 +146,35 @@ describe("Kræver dig — only what the owner can act on", () => {
       { code: "stale_bank_feed", meta: { days: 4 }, deep_link: "/connections" },
     ]);
     for (const n of needs) expect(typeof n.to).toBe("string");
+  });
+});
+
+describe("the needs-you rows held for, from /today's own badges (sizing only)", () => {
+  const today = (badges, over = {}) => ({ business_day: day, badges, close: { days: [] }, ...over });
+  const keyOf = (f) => `${f.code}|${f.meta?.date ?? f.meta?.count ?? ""}`;
+
+  it("a waiting booking request and yesterday's missing kasserapport are each one row", () => {
+    expect(expectedLateRows(today({ reservations: 0, schedule: 4, daily_close: 0 }))).toBe(0);
+    expect(expectedLateRows(today({ reservations: 3, schedule: 0, daily_close: 0 }))).toBe(1);
+    expect(expectedLateRows(today({ reservations: 1, schedule: 0, daily_close: 1 }))).toBe(2);
+    // the unpublished week is not late: /today already carries it
+    expect(expectedLateRows(today({ reservations: 0, schedule: 6, daily_close: 1 }))).toBe(1);
+  });
+
+  it("never holds for what will not come: hidden bookings, a dismissed finding, a shut day", () => {
+    expect(expectedLateRows(today({ reservations: 2, daily_close: 0 }), { hiddenPillars: new Set(["reservations"]) })).toBe(0);
+    const gone = new Set(["unconfirmed_reservations|2", "close_missing|2026-11-11"]);
+    const isDismissed = (f) => gone.has(keyOf(f));
+    expect(expectedLateRows(today({ reservations: 2, daily_close: 1 }), { isDismissed })).toBe(0);
+    // a changed count re-surfaces the request row (the needs-you key carries the count)
+    expect(expectedLateRows(today({ reservations: 3, daily_close: 0 }), { isDismissed })).toBe(1);
+    const shut = today({ reservations: 0, daily_close: 1 }, { close: { days: [{ date: "2026-11-11", status: "none", venue_closed: true }] } });
+    expect(expectedLateRows(shut)).toBe(0);
+  });
+
+  it("no badges (an older payload) holds nothing", () => {
+    expect(expectedLateRows({ business_day: day })).toBe(0);
+    expect(expectedLateRows(null)).toBe(0);
   });
 });
 

@@ -6,6 +6,9 @@
  * findings are known, and the "before opening" state.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 
@@ -19,8 +22,8 @@ vi.mock("../hooks/useLanguage", () => ({
     t: (k, vars) => (vars && typeof vars === "object" ? `${k}(${Object.entries(vars).map(([a, b]) => `${a}=${b}`).join(",")})` : k),
   }),
 }));
-const who = vi.hoisted(() => ({ type: "restaurant" }));
-vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1", business_type: who.type, currency: "DKK", role: "owner" } }) }));
+const who = vi.hoisted(() => ({ type: "restaurant", currency: "DKK" }));
+vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1", business_type: who.type, currency: who.currency, role: "owner" } }) }));
 vi.mock("../hooks/usePillars", () => ({ usePillars: () => ({ hiddenPillars: new Set() }) }));
 
 import TodayDashboard from "../components/today/TodayDashboard";
@@ -69,6 +72,7 @@ beforeEach(() => {
   post.mockReset();
   try { localStorage.clear(); } catch { /* none */ }
   who.type = "restaurant";
+  who.currency = "DKK";
 });
 
 function Where() {
@@ -77,11 +81,12 @@ function Where() {
 }
 
 const WAITING = [{ code: "unconfirmed_reservations", severity: "info", deep_link: "/reservations", meta: { count: 1 } }];
+const FORECAST = { foresight: { available: true, deadline: { date: "2027-03-01", days_until: 109, period_label: "2. halvår" }, moms: { realized: 83520, expected: 113834 }, action: { weekly_rate: 7200, weeks: 15, already_covered: false } } };
 
-function mount(data, { findings = WAITING, needsYou = null, initialAt = null } = {}) {
+function mount(data, { findings = WAITING, needsYou = null, forecast = null, initialAt = null } = {}) {
   get.mockImplementation((url) => {
     if (url === "/today") return Promise.resolve({ data });
-    if (url === "/cashflow/forecast") return Promise.resolve({ data: { foresight: { available: true, deadline: { date: "2027-03-01", days_until: 109, period_label: "2. halvår" }, moms: { realized: 83520, expected: 113834 }, action: { weekly_rate: 7200, weeks: 15, already_covered: false } } } });
+    if (url === "/cashflow/forecast") return forecast ? forecast() : Promise.resolve({ data: FORECAST });
     if (url === "/diagnostics/needs-you") return needsYou ? needsYou() : Promise.resolve({ data: { findings } });
     return Promise.resolve({ data: null });
   });
@@ -171,6 +176,145 @@ describe("I dag — mid-service", () => {
       day_state: "after_close",
     }));
     expect(screen.getByText(/^tdTrendHigher\(weekday=/)).toBeInTheDocument();
+  });
+});
+
+/* The late reads (needs-you, the MOMS forecast) answer after the first paint.
+   Their places are held from that paint, so their arrival moves nothing: the
+   greeting line keeps its lines (the hero never drops), Kræver dig keeps its
+   height, the MOMS card keeps its column. jsdom has no layout, so these pin
+   the structure the zero-shift measurement rests on (headless Chromium,
+   390x844 + 1440x900, both reads 450 ms late: CLS 0, hero drop 0). */
+describe("I dag — the late reads land in places held for them", () => {
+  const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const later = () => {
+    const box = {};
+    const call = () => new Promise((res, rej) => { box.ok = res; box.fail = rej; });
+    return { box, call };
+  };
+  const needsCard = () => document.getElementById("td-needs");
+  const rows = () => [...needsCard().querySelectorAll(".td-li")].map((r) => (
+    r.classList.contains("td-pending") ? "held" : (r.querySelector(".td-li-t") || r.querySelector(".td-li-s")).textContent
+  ));
+
+  it("the greeting line holds the needs-you answer's place, as wide as its widest wording, from the first paint", async () => {
+    const nq = later();
+    mount(payload(), { needsYou: nq.call });
+    const slot = document.querySelector(".td-head-sum .td-head-needs");
+    expect(slot).not.toBeNull();
+    // every wording it will ever hold (today.css draws them invisibly over it)
+    expect(slot.dataset.sizer.split("\n")).toEqual(["tdNeedsLink(count=8)", "tdAllCaughtUp", "tdNeedsCheckingShort"]);
+    expect(slot.textContent).toBe("tdNeedsCheckingShort");
+    expect(screen.queryByText("tdAllCaughtUp")).toBeNull();
+    await waitFor(() => expect(typeof nq.box.ok).toBe("function"));
+    nq.box.ok({ data: { findings: WAITING } });
+    await waitFor(() => expect(slot.querySelector("a")).not.toBeNull());
+    // the SAME element holds the answer — nothing was put in around it
+    expect(document.querySelector(".td-head-sum .td-head-needs")).toBe(slot);
+    expect(slot.textContent).toBe("tdNeedsLink(count=2)");
+    expect(slot.querySelector("a").getAttribute("href")).toBe("#td-needs");
+  });
+
+  it("an empty summary still has its line (the shop's case), and a failed read keeps the place, saying nothing", async () => {
+    mount(payload({ day_state: "open", reservations: { ...payload().reservations, has_book: false } }), {
+      needsYou: () => Promise.reject(new Error("offline")),
+    });
+    const sum = document.querySelector(".td-head-sum");
+    expect(sum.querySelector(".td-head-needs")).not.toBeNull();
+    await waitFor(() => expect(screen.getByText("tdNeedsCouldNotCheck")).toBeInTheDocument());
+    const slot = sum.querySelector(".td-head-needs");
+    expect(slot).not.toBeNull();
+    expect(slot.textContent).toBe("\u00a0");
+    expect(screen.queryByText("tdAllCaughtUp")).toBeNull();
+  });
+
+  it("Kræver dig holds the rows /today's badges announce, right where the findings land", async () => {
+    const nq = later();
+    mount(payload({ revisor: { has_accountant_email: false, schedule: null } }), { needsYou: nq.call });
+    // the week, the held place for the waiting request (badges.reservations = 1), the revisor
+    expect(rows()).toEqual(["tdNeedPublishTitle(week=46)", "held", "tdNeedRevisorTitle"]);
+    const held = needsCard().querySelector(".td-pending");
+    expect(held.textContent).toBe("tdNeedsChecking");
+    // as tall as the row that replaces it: the icon's square and the button's height
+    expect(held.querySelector(".td-li-ic.td-hold")).not.toBeNull();
+    expect(held.querySelector(".td-hold-btn")).not.toBeNull();
+    expect(needsCard().querySelector(".td-count, .td-clear")).toBeNull();
+    await waitFor(() => expect(typeof nq.box.ok).toBe("function"));
+    nq.box.ok({ data: { findings: WAITING } });
+    await waitFor(() => expect(rows()).toEqual(["tdNeedPublishTitle(week=46)", "tdNeedOneRequestTitle(name=Petersen)", "tdNeedRevisorTitle"]));
+    expect(needsCard().querySelector(".td-count").textContent).toBe("3");
+  });
+
+  it("nothing announced: no held row that would only vanish — 'Tjekker …' waits where the count goes", async () => {
+    const nq = later();
+    mount(payload({ badges: { reservations: 0, schedule: 6, daily_close: 0 } }), { needsYou: nq.call });
+    expect(rows()).toEqual(["tdNeedPublishTitle(week=46)"]);
+    expect(needsCard().querySelector(".td-card-h .td-checking").textContent).toBe("tdNeedsCheckingShort");
+    await waitFor(() => expect(typeof nq.box.ok).toBe("function"));
+    nq.box.ok({ data: { findings: [] } });
+    await waitFor(() => expect(needsCard().querySelector(".td-count")).not.toBeNull());
+    expect(needsCard().querySelector(".td-checking")).toBeNull();
+    expect(rows()).toEqual(["tdNeedPublishTitle(week=46)"]);
+  });
+
+  it("nothing known and nothing announced: the one line the card ends on either way", async () => {
+    const nq = later();
+    mount(payload({ schedule: { week_start: "2026-11-09", week_number: 46, drafts: 0 }, badges: { reservations: 0, schedule: 0, daily_close: 0 } }), { needsYou: nq.call });
+    const held = needsCard().querySelectorAll(".td-pending");
+    expect(held).toHaveLength(1);
+    expect(held[0].style.minHeight).toBe("52px");
+    expect(held[0].querySelector(".td-hold-btn")).toBeNull();
+    await waitFor(() => expect(typeof nq.box.ok).toBe("function"));
+    nq.box.ok({ data: { findings: [] } });
+    await waitFor(() => expect(screen.getByText("tdNothingNeedsYou")).toBeInTheDocument());
+    expect(screen.getByText("tdNothingNeedsYou").closest(".td-li").style.minHeight).toBe("52px");
+  });
+
+  it("the MOMS card holds its column until the forecast answers — the same section, before Timer, no figure yet", async () => {
+    const fc = later();
+    mount(payload(), { forecast: fc.call });
+    const moms = () => document.getElementById("td-moms-h")?.closest("section");
+    const held = moms();
+    expect(held).toBeTruthy();
+    expect(held.getAttribute("aria-busy")).toBe("true");
+    expect(held.nextElementSibling.querySelector("#td-hours-h")).not.toBeNull();
+    expect(held.textContent).not.toMatch(/~|tdDeadline|tdSetAsideWeekly/);
+    await waitFor(() => expect(typeof fc.box.ok).toBe("function"));
+    fc.box.ok({ data: FORECAST });
+    await waitFor(() => expect(screen.getByText(/^~7\.200/)).toBeInTheDocument());
+    expect(moms()).toBe(held);
+    expect(held.hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("no MOMS deadline after all: the held place goes", async () => {
+    const fc = later();
+    mount(payload(), { forecast: fc.call });
+    expect(document.getElementById("td-moms-h")).not.toBeNull();
+    await waitFor(() => expect(typeof fc.box.ok).toBe("function"));
+    fc.box.ok({ data: { foresight: { available: false, reason: "no_moms_config" } } });
+    await waitFor(() => expect(document.getElementById("td-moms-h")).toBeNull());
+  });
+
+  it("outside DKK no MOMS place is held before the answer", () => {
+    who.currency = "EUR";
+    mount(payload(), { forecast: () => new Promise(() => {}) });
+    expect(document.getElementById("td-moms-h")).toBeNull();
+  });
+
+  it("today.css draws the greeting line's place as one unbreakable box sized by every wording", () => {
+    const css = readFileSync(join(SRC, "components", "today", "today.css"), "utf8");
+    expect(css).toMatch(/\.td-head-needs \{ display: inline-grid; \}/);
+    // the sizer: every wording, one per line, invisible and without height
+    const after = css.match(/^\.td-head-needs::after \{([^}]*)\}/m)[1];
+    for (const rule of [/content: attr\(data-sizer\)/, /white-space: pre/, /height: 0/, /overflow: hidden/, /visibility: hidden/]) expect(after).toMatch(rule);
+    // all in one cell; no touch-target floor making the link's line taller
+    const cell = css.match(/\.td-head-needs > \*, \.td-head-needs::after \{([^}]*)\}/)[1];
+    expect(cell).toMatch(/grid-area: 1 \/ 1/);
+    expect(cell).toMatch(/min-height: 0/);
+    expect(cell).toMatch(/white-space: nowrap/);
+    // a held row is as tall as a finding's row on a touch device too
+    expect(css).toMatch(/\.td-hold-btn \{ flex: none; width: 0; height: 40px; \}/);
+    expect(css).toMatch(/@media \(pointer: coarse\) \{ \.td-hold-btn \{ height: 44px; \} \}/);
   });
 });
 

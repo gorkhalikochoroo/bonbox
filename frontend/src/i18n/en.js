@@ -12045,6 +12045,7 @@ export const en = {
     tdAllClear: "All clear",
     tdNothingNeedsYou: "Nothing needs you right now.",
     tdNeedsChecking: "Checking whether anything needs you …",
+    tdNeedsCheckingShort: "Checking …",
     tdNeedsCouldNotCheck: "Couldn't check everything right now — trying again shortly.",
     tdStaffSumBefore: "{n} {word} · first in at {time}",
     tdStaffSum: "{n} {word} · {on} on shift now",

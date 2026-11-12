@@ -37,7 +37,7 @@ import { formatOwnerMoney } from "../../utils/currency";
 import { dateLocale } from "../../utils/dateFormat";
 import { DATED_CODES, RENDERERS, keyFor, loadDismissed, saveDismissal, skipParamFor } from "../needsYouRenderers";
 import {
-  buildNeeds, chartWindow, closeSteps, defaultService, greetingKey, heatCells, hhmm,
+  buildNeeds, chartWindow, closeSteps, defaultService, expectedLateRows, greetingKey, heatCells, hhmm,
   laborLine, minutesOf, plural, relMinutes, salesTile, shiftState, splitService, staffSummary, tonightCovers,
 } from "./todayModel";
 import { introStamp, useTodayIntro } from "./todayMotion";
@@ -98,6 +98,10 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   const [data, setData] = useState(initial);
   const [fetchedAt, setFetchedAt] = useState(() => (initial && initialAt ? initialAt : Date.now()));
   const [foresight, setForesight] = useState(() => peekGet("/cashflow/forecast")?.foresight || null);
+  // Has the MOMS forecast read answered (or failed)? Until it has, a DKK
+  // venue's MOMS card keeps its place in the row (MomsCard without data), so
+  // its arrival never moves the Timer card or the row under it.
+  const [foresightSettled, setForesightSettled] = useState(() => !!peekGet("/cashflow/forecast"));
   // The owner's dismissals ("Skjul"), shared with the old Home's queue.
   const [dismissed, setDismissed] = useState(loadDismissed);
   const dismissedRef = useRef(dismissed);
@@ -140,6 +144,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
       setClockNow(at);
     }
     if (fc.status === "fulfilled") setForesight(fc.value?.data?.foresight || null);
+    setForesightSettled(true);
     if (nq.status === "fulfilled" && Array.isArray(nq.value?.data?.findings)) {
       setFindings(nq.value.data.findings);
       setFindingsFailed(false);
@@ -205,6 +210,12 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   const known = Array.isArray(findings);
   const visibleFindings = known ? findings.filter((f) => !(keyFor(f) in dismissed)) : null;
   const needs = buildNeeds(data, visibleFindings, { hiddenPillars });
+  // Until needs-you answers: how many of its rows /today's badges say are on
+  // the way — Kræver dig holds their place (sizing only, never shown).
+  const expected = known ? 0 : expectedLateRows(data, { hiddenPillars, isDismissed: (f) => keyFor(f) in dismissed });
+  // The MOMS card's place: held while its read is out for a DKK venue (every
+  // DKK account has a MOMS deadline); elsewhere it only appears once it has data.
+  const momsSlot = !!foresight?.available || (!foresightSettled && currency === "DKK");
 
   const closeTo = "/daily-close";
   const newBookingTo = "/reservations?new=1";
@@ -222,12 +233,27 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
             <p className="td-head-date">{longDate(data.business_day)} · {hhmm(nowMin)}</p>
             <h1 className="td-head-h1 td-h">{greeting}</h1>
             <p className="td-head-sum">
-              {summary}{summary && known ? " " : ""}
-              {known && (
-                <a href="#td-needs">
-                  {needs.length ? t("tdNeedsLink", { count: needs.length }) : t("tdAllCaughtUp")}
-                </a>
-              )}
+              {summary}{summary ? " " : ""}
+              {/* The needs-you answer's place, there from the first paint and
+                  as wide as its widest wording (data-sizer, drawn invisibly by
+                  today.css): "Tjekker …" until the answer, then the link — the
+                  line never re-wraps and the hero never drops. Never "all
+                  caught up" before the answer; after a failed read, nothing.
+                  (8: the most rows Kræver dig can hold — the week, the six
+                  detectors, the revisor — so the count is always one digit.) */}
+              <span className="td-head-needs" data-sizer={[
+                t("tdNeedsLink", { count: 8 }), t("tdAllCaughtUp"), t("tdNeedsCheckingShort"),
+              ].join("\n")}>
+                {known ? (
+                  <a href="#td-needs">
+                    {needs.length ? t("tdNeedsLink", { count: needs.length }) : t("tdAllCaughtUp")}
+                  </a>
+                ) : findingsFailed ? (
+                  <span aria-hidden="true">{"\u00a0"}</span>
+                ) : (
+                  <span className="td-head-wait">{t("tdNeedsCheckingShort")}</span>
+                )}
+              </span>
             </p>
           </div>
           <div className="td-head-actions">
@@ -251,7 +277,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
         {/* DOM order is the phone's (canvas: Kræver dig before the book); on a
             wide page the grid areas put the book left, Kræver dig + Personale right. */}
         <div className={`td-grid${showRsv ? "" : " no-res"}`}>
-          <Needs t={t} needs={needs} known={known} failed={findingsFailed} navigate={navigate} onDismiss={dismiss} isAppointments={isAppointments} />
+          <Needs t={t} needs={needs} known={known} failed={findingsFailed} expected={expected} navigate={navigate} onDismiss={dismiss} isAppointments={isAppointments} />
           {showRsv && (
             <Bookings t={t} rsv={rsv} day={data.business_day} cutoff={cutoff} nowMin={nowMin}
               isFood={isFood} isAppointments={isAppointments} canWalkIn={canWalkIn} newBookingTo={newBookingTo} walkInTo={walkInTo} />
@@ -264,7 +290,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
         <div className="td-bottom">
           <CloseCard t={t} close={data.close} day={data.business_day} money={money} before={before} closeTo={closeTo} />
           <div className="td-minis">
-            {foresight?.available && <MomsCard t={t} fs={foresight} money={money} />}
+            {momsSlot && <MomsCard t={t} fs={foresight?.available ? foresight : null} money={money} />}
             {staffOn && data.labor && (data.labor.planned_total > 0 || data.labor.logged_total > 0) && (
               <HoursCard t={t} labor={data.labor} day={data.business_day} />
             )}
@@ -660,21 +686,71 @@ function needWords(t, item, isAppointments = false) {
   };
 }
 
-function Needs({ t, needs, known, failed, navigate, onDismiss, isAppointments }) {
+function Needs({ t, needs, known, failed, expected = 0, navigate, onDismiss, isAppointments }) {
   // Not known yet: no count and no "all clear" — the rows we DO know (the
-  // unpublished week, the revisor set-up) still show, with a quiet line
-  // saying the rest is being checked (or could not be).
-  // "Tjekker …" never pulses: at most one fade in, inside the visit's intro.
-  const pending = !known && (
-    <div className="td-li td-pending" style={{ minHeight: needs.length ? 40 : 52 }}>
-      <span className="td-li-body"><span className="td-li-s">{failed ? t("tdNeedsCouldNotCheck") : t("tdNeedsChecking")}</span></span>
+  // unpublished week, the revisor set-up) still show, and the answer's rows
+  // get their place held from the first paint, so it fills that place
+  // instead of pushing the cards below:
+  //   • as many rows as /today's badges say are coming (`expected`), right
+  //     where buildNeeds puts the findings — after the week, before the
+  //     revisor — the first one saying the rest is being checked;
+  //   • none expected and nothing known: the one line the card ends on either
+  //     way ("Tjekker …" → "Intet kræver dig lige nu.", both 52 px);
+  //   • none expected but known rows: no held row (it would only vanish) —
+  //     "Tjekker …" sits in the header, where the count will go.
+  // A failed read says so in the held row; with none held, in a line of its
+  // own (the error path's one move). "Tjekker …" never pulses: at most one
+  // fade in, inside the visit's intro.
+  const note = failed ? t("tdNeedsCouldNotCheck") : t("tdNeedsChecking");
+  // (A failed read keeps one held row for its note, never empty ones.)
+  const held = known ? 0 : Math.max(failed ? Math.min(expected, 1) : expected, needs.length ? 0 : 1);
+  const lone = !needs.length && !expected;
+  // A held row is as tall as the row that takes its place, and its note sits
+  // where that row's words will: the icon's square, and — for a finding — its
+  // button's height (td-hold-btn); nothing visible but the note.
+  const holding = Array.from({ length: held }, (_, i) => (
+    <div key={`held${i}`} className="td-li td-pending" style={lone ? { minHeight: 52 } : undefined} aria-hidden={i > 0 ? "true" : undefined}>
+      <span className="td-li-ic td-hold" aria-hidden="true" />
+      <span className="td-li-body">{i === 0 && <span className="td-li-s">{note}</span>}</span>
+      {!lone && <span className="td-hold-btn" aria-hidden="true" />}
     </div>
-  );
+  ));
+  // buildNeeds: the week first, then the server's findings, the revisor last.
+  const cut = needs.findIndex((item) => item.kind === "revisor");
+  const head = cut < 0 ? needs : needs.slice(0, cut);
+  const tail = cut < 0 ? [] : needs.slice(cut);
+  const row = (item) => {
+    const w = needWords(t, item, isAppointments);
+    if (!w) return null;
+    const Icon = w.Icon;
+    return (
+      <div key={item.id} className="td-li td-row">
+        <span className={`td-li-ic t-${w.tone}`}><Icon size={18} aria-hidden="true" /></span>
+        <span className="td-li-body">
+          <span className="td-li-t">{w.title}</span>
+          {w.sub && <span className="td-li-s">{w.sub}</span>}
+        </span>
+        <button type="button" className="td-btn td-btn-sm td-btn-soft" onClick={() => navigate(item.to)}>
+          {w.action}
+        </button>
+        {/* The same "Skjul" the old Home's queue has, on the server's
+            findings only (the week and the revisor go away by doing). */}
+        {item.kind === "finding" && (
+          // Skjul hides it here and now: an outcome, one light tap (iOS app).
+          <button type="button" className="td-x" onClick={() => { feel.soft(); onDismiss(item); }} aria-label={t("nyqDismiss")} title={t("nyqDismiss")}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    );
+  };
   return (
     <section id="td-needs" aria-labelledby="td-needs-h" aria-live="polite" aria-busy={!known && !failed} className="td-card td-a-needs td-rise" style={{ animationDelay: "210ms" }}>
       <div className="td-card-h" style={{ justifyContent: "flex-start", gap: 8 }}>
         <h2 id="td-needs-h" className="td-card-title td-h">{t("tdNeedsTitle")}</h2>
-        {known && (needs.length > 0 ? <span className="td-count">{needs.length}</span> : <span className="td-clear">{t("tdAllClear")}</span>)}
+        {known
+          ? (needs.length > 0 ? <span className="td-count">{needs.length}</span> : <span className="td-clear">{t("tdAllClear")}</span>)
+          : (!held && !failed && <span className="td-checking">{t("tdNeedsCheckingShort")}</span>)}
       </div>
       {known && needs.length === 0 && (
         <div className="td-li" style={{ minHeight: 52 }}>
@@ -682,32 +758,14 @@ function Needs({ t, needs, known, failed, navigate, onDismiss, isAppointments })
           <span className="td-li-body"><span className="td-li-s">{t("tdNothingNeedsYou")}</span></span>
         </div>
       )}
-      {needs.map((item) => {
-        const w = needWords(t, item, isAppointments);
-        if (!w) return null;
-        const Icon = w.Icon;
-        return (
-          <div key={item.id} className="td-li td-row">
-            <span className={`td-li-ic t-${w.tone}`}><Icon size={18} aria-hidden="true" /></span>
-            <span className="td-li-body">
-              <span className="td-li-t">{w.title}</span>
-              {w.sub && <span className="td-li-s">{w.sub}</span>}
-            </span>
-            <button type="button" className="td-btn td-btn-sm td-btn-soft" onClick={() => navigate(item.to)}>
-              {w.action}
-            </button>
-            {/* The same "Skjul" the old Home's queue has, on the server's
-                findings only (the week and the revisor go away by doing). */}
-            {item.kind === "finding" && (
-              // Skjul hides it here and now: an outcome, one light tap (iOS app).
-              <button type="button" className="td-x" onClick={() => { feel.soft(); onDismiss(item); }} aria-label={t("nyqDismiss")} title={t("nyqDismiss")}>
-                <X size={16} aria-hidden="true" />
-              </button>
-            )}
-          </div>
-        );
-      })}
-      {pending}
+      {head.map(row)}
+      {holding}
+      {tail.map(row)}
+      {!known && failed && !held && (
+        <div className="td-li td-pending" style={{ minHeight: 40 }}>
+          <span className="td-li-body"><span className="td-li-s">{note}</span></span>
+        </div>
+      )}
     </section>
   );
 }
@@ -844,6 +902,24 @@ function CloseCard({ t, close, day, money, before, closeTo }) {
 const MOMS_DELAY_MS = 340;
 
 function MomsCard({ t, fs, money }) {
+  // No data yet (the forecast read is out): the card holds its place in the
+  // row — the same section, so the figures land inside it, never a card
+  // pushed in beside Timer. No figure and no deadline before the answer.
+  if (!fs) {
+    return (
+      <section aria-labelledby="td-moms-h" aria-busy="true" className="td-card td-rise" style={{ animationDelay: `${MOMS_DELAY_MS}ms` }}>
+        <div className="td-k-h">
+          <div className="td-k-title">
+            <span className="td-k-ic"><Receipt size={16} aria-hidden="true" /></span>
+            <h2 id="td-moms-h" className="td-card-title td-h">MOMS</h2>
+          </div>
+        </div>
+        <div className="td-k-b td-moms-wait">
+          <span className="td-li-s td-pending">{t("loading")}</span>
+        </div>
+      </section>
+    );
+  }
   const rate = fs.action && !fs.action.already_covered ? fs.action.weekly_rate : null;
   const realized = fs.moms?.realized;
   const expected = fs.moms?.expected;

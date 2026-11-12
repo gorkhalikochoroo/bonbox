@@ -11722,6 +11722,7 @@ export const da = {
     tdAllClear: "Alt klaret",
     tdNothingNeedsYou: "Intet kræver dig lige nu.",
     tdNeedsChecking: "Tjekker, om noget kræver dig …",
+    tdNeedsCheckingShort: "Tjekker …",
     tdNeedsCouldNotCheck: "Kunne ikke tjekke alt lige nu — prøver igen om lidt.",
     tdStaffSumBefore: "{n} {word} · første møder kl. {time}",
     tdStaffSum: "{n} {word} · {on} på vagt nu",

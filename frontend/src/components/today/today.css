@@ -242,6 +242,16 @@ html[data-modality="touch"] .td-page .td-row.vp-tint[data-pressed] {
 .td-head-h1 { margin: 4px 0 0; font-size: clamp(28px, 3vw, 40px); font-weight: 600; letter-spacing: -0.035em; line-height: 1.05; }
 .td-head-sum { margin: 6px 0 0; font-size: 15.5px; color: var(--td-muted); max-width: 640px; text-wrap: pretty; }
 .td-head-sum a { color: var(--td-green); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+/* The needs-you answer's place in the greeting line ("Tjekker …" → "2 ting
+   kræver dig."). One unbreakable box, as wide as the widest of its wordings
+   from the first paint: the visible one and, drawn invisibly over it with no
+   height, every other (data-sizer, one per line). So the answer arriving
+   never re-wraps the line and never drops the hero under it. */
+.td-head-needs { display: inline-grid; }
+/* min-height 0: a grid item is a block, and index.css gives every touch-device
+   `a` a 44px floor — the link was (and stays) a line of text. */
+.td-head-needs > *, .td-head-needs::after { grid-area: 1 / 1; justify-self: start; white-space: nowrap; min-height: 0; }
+.td-head-needs::after { content: attr(data-sizer); white-space: pre; font-weight: 600; height: 0; overflow: hidden; visibility: hidden; }
 .td-head-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .td-quick { display: none; }
 
@@ -301,7 +311,8 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 .td-intro .td-now-l,
 .td-intro .td-closeline,
 .td-intro .td-closeline-l { animation: tdFade var(--td-dur-base) var(--td-ease-out) 760ms backwards; }
-.td-intro .td-pending { animation: tdFade var(--td-dur-fast) var(--td-ease-out) backwards; }
+.td-intro .td-pending,
+.td-intro .td-checking { animation: tdFade var(--td-dur-fast) var(--td-ease-out) backwards; }
 .td-intro .td-week-plan {
   transform-origin: 50% 100%;
   animation: tdBarIn var(--td-dur-slow) var(--td-ease-out) backwards;
@@ -378,6 +389,14 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 .td-x:focus-visible { outline: 2px solid var(--td-ink); outline-offset: 2px; }
 .td-count { display: inline-grid; place-items: center; height: 22px; min-width: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 999px; background: var(--td-ink); color: var(--td-card); font-size: 11.5px; font-weight: 700; }
 .td-clear { display: inline-flex; height: 22px; padding: 0 9px; align-items: center; border-radius: 999px; background: var(--td-green-soft); color: var(--td-green); font-size: 11.5px; font-weight: 700; }
+/* A held row (the needs-you answer's place): invisible but for its note, as
+   tall as what replaces it — the icon's square, and a finding's button
+   (td-btn-sm, 40px; index.css lifts a touch device's buttons to 44px). */
+.td-hold { visibility: hidden; }
+.td-hold-btn { flex: none; width: 0; height: 40px; }
+@media (pointer: coarse) { .td-hold-btn { height: 44px; } }
+/* "Tjekker …" where the count will go (Kræver dig with known rows, none held). */
+.td-checking { display: inline-flex; height: 22px; align-items: center; font-size: 12.5px; color: var(--td-muted); }
 .td-person { display: flex; align-items: center; gap: 12px; padding: 9px 20px; border-top: 1px solid var(--td-line-2); }
 .td-ava { width: 34px; height: 34px; flex: none; border-radius: 50%; color: #F7F5F0; display: grid; place-items: center; font-size: 11.5px; font-weight: 700; }
 .td-person-b { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -419,6 +438,8 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 .td-cell.c-future { border: 1px dashed var(--td-line-2); }
 .td-legend-k { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; color: var(--td-muted); }
 .td-legend-k span { display: inline-flex; align-items: center; gap: 5px; }
+/* The MOMS card holding its place until the forecast answers (~ its body + foot). */
+.td-moms-wait { min-height: 150px; }
 .td-meter { height: 8px; border-radius: 999px; background: var(--td-chip); overflow: hidden; }
 .td-meter > span { display: block; height: 100%; border-radius: 999px; background: var(--td-green); transform-origin: left; }
 .td-week { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 6px; align-items: end; height: 60px; }
