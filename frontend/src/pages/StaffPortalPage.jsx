@@ -7434,7 +7434,11 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
           ? { padding: "8px 10px 10px", borderTop: `1px solid ${DIVIDER}`, background: CARD }
           : BAR_V3
           ? {
-            bottom: kbOpen ? `${kb}px` : aboveDock(8),
+            // In a phone browser it also sits above the cookie banner while
+            // that is up (--bb-consent-h; the banner sits on the dock and
+            // covered the composer — Vagtplan 1.6). 0 once answered, and in
+            // the app, which never shows the banner.
+            bottom: kbOpen ? `${kb}px` : `calc(${aboveDock(8)} + var(--bb-consent-h, 0px))`,
             left: "max(12px, env(safe-area-inset-left, 0px))",
             right: "max(12px, env(safe-area-inset-right, 0px))",
             maxWidth: 560,
