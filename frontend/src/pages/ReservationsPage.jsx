@@ -122,7 +122,8 @@ import FloorPlan from "../components/FloorPlan";
 import { deriveFloorState, fmtTime } from "../utils/floorState";
 // Reservations v2 (canvas 11 Nov 2026): the "I dag" numbers, the live row
 // words, who on the waitlist a table seats now, and the week's day strip.
-import { liveStatus, needsAction, peakSeats, firstWaiting, waitlistFits, weekStrip, addDays } from "../utils/tonight";
+import useMinuteNow from "../hooks/useMinuteNow";
+import { liveStatus, minutesAtTable, needsAction, peakSeats, firstWaiting, waitlistFits, weekStrip, addDays } from "../utils/tonight";
 import TonightStrip from "../components/reservations/TonightStrip";
 import WeekStrip from "../components/reservations/WeekStrip";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -595,7 +596,11 @@ export default function ReservationsPage() {
         <PageTitle t={t} isProvider={apptWords} websiteHref="/reservations?tab=settings&show=website" />
       )}
       {!__STAND_BUILD__ && !isHostStand && (
-      <div className="lg:flex lg:items-center lg:justify-between lg:gap-4">
+      // The week strip sits beside the tabs from 1440 (the canvas's width).
+      // Below that it has its own row: at 1024–1330 beside the 224 px app
+      // sidebar its ~490 px squeezed the tabs, and "Indsigt"/"Indstillinger"
+      // scrolled out of a row with no visible scrollbar (review SHOULD 6).
+      <div className="min-[1440px]:flex min-[1440px]:items-center min-[1440px]:justify-between min-[1440px]:gap-4">
       <TabPills
         tabs={[
           // Salon (provider) reads "Aftaler" (the appointment book) instead of
@@ -645,7 +650,7 @@ export default function ReservationsPage() {
         // tabs belong to the title (they are the page's sections).
         className="max-sm:-mt-2"
       />
-      {tab === "book" && <div ref={setWeekSlot} className="hidden lg:flex shrink-0 empty:hidden" />}
+      {tab === "book" && <div ref={setWeekSlot} className="hidden lg:flex lg:mt-3 min-[1440px]:mt-0 shrink-0 empty:hidden" />}
       </div>
       )}
 
@@ -965,16 +970,13 @@ function ComingSoonView({ icon, title, body }) {
 // draggable tables, chairs, zone bands, and edit/save). The tap + seat-now
 // handlers are passed straight through so FloorPlan reuses the page's shared
 // ReservationDrawer + SeatNowSheet.
-function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow, onResourcesChanged, canArrange = true, fixtures = [], fitToScreen = false }) {
+function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow, onResourcesChanged, canArrange = true, fixtures = [], fitToScreen = false, onFit = null }) {
   // Tick every 60s so the floor is LIVE, not a snapshot: a seated table that
   // crosses its end-time flips to "overdue" (red) on its own, and upcoming
   // ETAs ("om 25 min") count down — no manual refresh. This is the difference
   // between a pretty diagram and a tool a host trusts mid-service.
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), 60000);
-    return () => clearInterval(id);
-  }, []);
+  // On the minute, the same tick as the list beside it (useMinuteNow).
+  const nowMs = useMinuteNow();
   const cells = useMemo(
     () => deriveFloorState(reservations, resources, nowMs),
     [reservations, resources, nowMs],
@@ -1012,6 +1014,7 @@ function FloorView({ reservations, resources, t, businessType, onSelect, onSeatN
         canArrange={canArrange}
         fixtures={fixtures}
         fitToScreen={fitToScreen}
+        onFit={onFit}
       />
     </Suspense>
   );
@@ -3736,11 +3739,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // Live minute tick so a confirmed booking that's past its time surfaces as
   // "forsinket" (late) in the list as service runs — the Floor/Timeline had a
   // now-line, the list (the screen owners stare at) didn't. Cheap 60s re-render.
-  const [nowTs, setNowTs] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNowTs(Date.now()), 60000);
-    return () => clearInterval(id);
-  }, []);
+  // On the minute (useMinuteNow): the door screen's clock and the "late"
+  // words turn when the host's watch does, not up to 59 s later.
+  const nowTs = useMinuteNow();
   // Venteliste (waitlist) — active count for the cockpit + the parties the
   // backend surfaces when a booking is cancelled/no-showed (a table just freed).
   const [waitlistCount, setWaitlistCount] = useState(0);
@@ -6101,6 +6102,34 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // The list with the live room beside it (canvas): the owner page from
   // 1280, the door screen (no app sidebar) from 1100 — an iPad in landscape.
   const sideWide = useMediaQuery(standalone ? "(min-width: 1100px)" : "(min-width: 1280px)");
+  // …but only while the room FITS that column (fix round, review MUST 3): on
+  // an iPad in landscape the column is ~470 × 294 px, and a dinner room's
+  // tables cannot shrink below floorFit's MIN_SCALE — they overlapped, and at
+  // the door a host could tap the wrong table and seat a party there. When
+  // the drawn room still overlaps, the list goes back to the whole width
+  // (the room one lens away) until the window is wider than it was, or the
+  // tables change.
+  const [sideCramp, setSideCramp] = useState(null); // { w: innerWidth, key }
+  const sideRoomKey = useMemo(
+    () => resources.map((x) => `${x.id}:${x.pos_x ?? ""}:${x.pos_y ?? ""}:${x.capacity_seats ?? ""}:${x.size_scale ?? ""}:${x.rotation_deg ?? ""}:${x.shape ?? ""}`).join("|") +
+      "#" + (fixtures || []).length,
+    [resources, fixtures],
+  );
+  const onSideFit = useCallback(
+    ({ left }) => {
+      if (left > 0 && typeof window !== "undefined") setSideCramp({ w: window.innerWidth, key: sideRoomKey });
+    },
+    [sideRoomKey],
+  );
+  const sideCramped = !!sideCramp && sideCramp.key === sideRoomKey;
+  useEffect(() => {
+    if (!sideCramped) return undefined;
+    const grow = () => {
+      if (window.innerWidth > sideCramp.w) setSideCramp(null);
+    };
+    window.addEventListener("resize", grow);
+    return () => window.removeEventListener("resize", grow);
+  }, [sideCramped, sideCramp]);
   const weekOn = !__STAND_BUILD__ && !standalone && !!weekSlot && wideOwner;
   const [weekStart, setWeekStart] = useState(() => day);
   useEffect(() => {
@@ -6517,6 +6546,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       primary = { label: apptWords ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatAction", "Seat"), to: "seated" };
     else if (r.status === "seated")
       primary = { label: t("rsvpCompleteAction", "Complete"), to: "completed" };
+    // A LATE party (5+ min past its time, today) carries the decision on the
+    // row — "20 min forsinket · Udeblevet", as every canvas board draws it —
+    // beside Seat for when they do walk in. setStatus asks before it records
+    // the no-show (the table row's own confirm). Below 1360 px (1920 with the
+    // room beside the list) this row is the book, so without it the no-show
+    // was only in the drawer.
+    const noShowLate = r.status === "confirmed" && !!lateMin;
     const busy = actioningId === r.id;
     return (
       <div
@@ -6598,7 +6634,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               // status goes under the place instead (Push 8 review).
               (checkedInWords && r.status === "seated")
                 ? "flex-wrap gap-x-2.5 gap-y-0.5"
-                : "gap-2.5")
+                // Below 380 px the live word ("Om 5 min", "53 min") goes
+                // under the table instead of cutting it ("Hjørne…"): the
+                // table is what the host reads the row for. Wraps only when
+                // the line cannot hold it all.
+                : "gap-2.5 max-[379px]:flex-wrap max-[379px]:gap-y-0.5")
             }
             data-row-meta=""
           >
@@ -6658,7 +6698,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-orange-500 dark:bg-orange-400" role="img" aria-label={t("rsvpLegLate", "Late")} />
               : r.status === "confirmed"
               ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-sky-500 dark:bg-sky-400" role="img" aria-label={labels.confirmed || "confirmed"} />
-              : <span className="shrink-0"><StatusInline status={r.status} label={labels[r.status] || r.status} /></span>}
+              : <span className="shrink-0"><StatusInline
+                  status={r.status}
+                  label={labels[r.status] || r.status}
+                  // Below 380 px the minutes say it ("● 48 min"): "Ved
+                  // bordet" beside them cut the TABLE's name first, and the
+                  // table is what the host reads the row for. Screen readers
+                  // keep the word.
+                  labelClassName={r.status === "seated" && minutesAtTable(r, nowTs) != null && isViewingToday ? "max-[379px]:sr-only" : ""}
+                /></span>}
             {/* Reservations v2: the live word — "in 10 min" for the next
                 party, minutes at the table for a seated one. */}
             {!overMin && !lateMin && <LiveWord live={liveStatus(r, nowTs, isViewingToday)} t={t} className="shrink-0" />}
@@ -6702,29 +6750,52 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </div>
           )}
         </div>
-        {primary && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation();
-              setStatus(r, primary.to);
-            }}
-            // 36px in a ~60px list row. In dark a raised grey, not the white
-            // primary slab: repeated down a list of bookings, white blocks were
-            // the loudest thing on the screen.
-            // Filled only when it is the next thing to do (due within 30 min,
-            // late, seated, or a request): six identical black "Sæt til bords"
-            // down a phone list said nothing about which one comes first.
-            className={
-              "h-9 min-h-0! px-3 shrink-0 rounded-lg text-xs font-semibold disabled:opacity-50 active:scale-95 transition " +
-              (primary.to !== "seated" || (r.starts_at && new Date(r.starts_at).getTime() - nowTs <= 30 * 60000)
-                ? "bg-gray-900 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500"
-                : "border border-gray-300 text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-800")
-            }
-          >
-            {primary.label}
-          </button>
+        {(primary || noShowLate) && (
+          // Two choices on a late row: stacked on a phone (the name keeps its
+          // width), side by side from sm up.
+          <div className={"shrink-0 flex gap-1.5 " + (noShowLate ? "max-sm:flex-col max-sm:items-stretch sm:items-center" : "items-center")}>
+            {primary && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setStatus(r, primary.to);
+                }}
+                // 36px in a ~60px list row. In dark a raised grey, not the white
+                // primary slab: repeated down a list of bookings, white blocks were
+                // the loudest thing on the screen.
+                // Filled only when it is the next thing to do (due within 30 min,
+                // seated, or a request): six identical black "Sæt til bords"
+                // down a phone list said nothing about which one comes first.
+                // A late party is not here yet: Seat and Udeblevet are two
+                // equal outlined choices.
+                className={
+                  "min-h-0! px-3 shrink-0 rounded-lg text-xs font-semibold disabled:opacity-50 active:scale-95 transition " +
+                  (noShowLate ? "h-8 sm:h-9 " : "h-9 ") +
+                  (!noShowLate && (primary.to !== "seated" || (r.starts_at && new Date(r.starts_at).getTime() - nowTs <= 30 * 60000))
+                    ? "bg-gray-900 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500"
+                    : "border border-gray-300 text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-800")
+                }
+              >
+                {primary.label}
+              </button>
+            )}
+            {noShowLate && (
+              <button
+                type="button"
+                disabled={busy}
+                data-row-noshow=""
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setStatus(r, "no_show");
+                }}
+                className="h-8 sm:h-9 min-h-0! px-3 shrink-0 rounded-lg text-xs font-semibold border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-500/50 dark:text-red-300 dark:hover:bg-red-950/30 disabled:opacity-50 active:scale-95 transition"
+              >
+                {t("rsvpNoShowAction", "No-show")}
+              </button>
+            )}
+          </div>
         )}
       </div>
     );
@@ -6880,6 +6951,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // live room from 1280 (sideFloorOn, below).
   const sideFloorOn =
     sideWide &&
+    !sideCramped &&
     view === "liste" &&
     tableFloor &&
     !isProvider &&
@@ -7528,6 +7600,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   setDay(d);
                   setDayPickerOpen(false);
                 }}
+                // The door screen loads the rail on first use: if it cannot
+                // (offline), its "Close" must close the popover, or the host
+                // is stuck behind the overlay until the wifi is back.
+                onClose={() => setDayPickerOpen(false)}
                 t={t}
                 apptWords={apptWords}
               />
@@ -8051,7 +8127,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           reads the night and the room at once. Below that, exactly as
           before: the list, with the room one lens away. */}
       {sideFloorOn ? (
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(360px,42%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(520px,40%)] gap-5 items-start" data-rv2-split="">
+        // Half the width for the room until 1680: at 42 % an eight-table
+        // dinner room had ~460 px at 1440 (and on the door screen's iPad in
+        // landscape), where tables overlap even drawn at floorFit's smallest
+        // legible size — the list's compact rows need far less.
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(360px,50%)] min-[1680px]:grid-cols-[minmax(0,1fr)_minmax(560px,44%)] gap-5 items-start" data-rv2-split="">
           <div className="min-w-0 space-y-4">{listBlock}</div>
           <aside
             aria-labelledby="rv2-side-floor-h"
@@ -8082,6 +8162,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               // than a sideways scroll (the door screen's fit).
               fitToScreen
               fixtures={fixtures}
+              // Tables still overlapping at the smallest legible size: the
+              // list takes the width back (sideCramp above).
+              onFit={onSideFit}
             />
           </aside>
         </div>
@@ -8353,12 +8436,12 @@ function LiveWord({ live, t, long = false, className = "" }) {
   );
 }
 
-function StatusInline({ status, label }) {
+function StatusInline({ status, label, labelClassName = "" }) {
   const s = STATUS_INLINE[status] || STATUS_INLINE.completed;
   return (
     <span className={"inline-flex items-center gap-1.5 min-w-0 " + s.text}>
       <span className={"w-1.5 h-1.5 rounded-full shrink-0 " + s.dot} aria-hidden="true" />
-      <span className="truncate">{label}</span>
+      <span className={"truncate " + labelClassName}>{label}</span>
     </span>
   );
 }

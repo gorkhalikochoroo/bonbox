@@ -19,7 +19,8 @@ const bk = (o) => ({ id: o.id || Math.random().toString(36).slice(2), party_size
 
 describe("liveStatus", () => {
   it("seated: minutes since seated_at, never the booked time", () => {
-    const r = bk({ status: "seated", starts_at: "2026-11-12T17:30:00", ends_at: "2026-11-12T19:30:00", seated_at: "2026-11-12T17:32:00Z" });
+    const r = bk({ status: "seated", starts_at: "2026-11-12T17:30:00", ends_at: "2026-11-12T19:30:00", // A UTC stamp of 17.32 venue time, whatever zone the suite runs in.
+      seated_at: new Date(at("17:32")).toISOString() });
     expect(liveStatus(r, at("18:20"))).toEqual({ kind: "seated", min: 48, over: 0 });
     const noStamp = { ...r, seated_at: null };
     expect(liveStatus(noStamp, at("18:20")).min).toBeNull();
@@ -59,6 +60,21 @@ describe("peakSeats", () => {
     expect(peakSeats(rows)).toEqual({ peak: 10, at: "19.00" });
   });
 
+  it("a party that has left still counts: the peak never shrinks as the night empties", () => {
+    // 19.30: 25 booked. By 21.00 most have eaten and gone (completed) — the
+    // booked peak is still 25 at 19.30, never 8 (review 12 Nov, MUST 1).
+    const rows = [
+      bk({ party_size: 10, status: "completed", starts_at: "2026-11-12T18:00:00", ends_at: "2026-11-12T20:00:00" }),
+      bk({ party_size: 7, status: "completed", starts_at: "2026-11-12T19:00:00", ends_at: "2026-11-12T21:00:00" }),
+      bk({ party_size: 8, status: "seated", starts_at: "2026-11-12T19:30:00", ends_at: "2026-11-12T21:30:00" }),
+      bk({ party_size: 4, status: "no_show", starts_at: "2026-11-12T19:30:00", ends_at: "2026-11-12T21:30:00" }),
+    ];
+    expect(peakSeats(rows)).toEqual({ peak: 25, at: "19.30" });
+    // After the last party leaves the night still reads as booked.
+    const allGone = rows.map((r) => (r.status === "seated" ? { ...r, status: "completed" } : r));
+    expect(peakSeats(allGone)).toEqual({ peak: 25, at: "19.30" });
+  });
+
   it("a held online request holds nothing; an empty day is 0 with no time", () => {
     const held = bk({ status: "requested", source: "public", party_size: 2, held: { reason: "check" }, starts_at: "2026-11-12T19:00:00", ends_at: "2026-11-12T20:00:00" });
     expect(peakSeats([held])).toEqual({ peak: 0, at: null });
@@ -83,14 +99,34 @@ describe("needsAction", () => {
 });
 
 describe("waitlist", () => {
-  it("firstWaiting: the longest wait among waiting or told", () => {
+  it("firstWaiting: the first real party in the server's order, never a held one", () => {
+    // The server lists real guests first (FIFO), then held entries — even a
+    // held entry that came in earlier (reservations.py list_waitlist).
     const e = [
-      { id: "b", status: "waiting", created_at: "2026-11-12T17:20:00" },
-      { id: "a", status: "notified", created_at: "2026-11-12T17:08:00" },
       { id: "c", status: "converted", created_at: "2026-11-12T16:00:00" },
+      { id: "a", status: "notified", created_at: "2026-11-12T17:08:00" },
+      { id: "b", status: "waiting", created_at: "2026-11-12T17:20:00" },
+      { id: "bot", status: "waiting", held: true, created_at: "2026-11-12T16:30:00" },
     ];
     expect(firstWaiting(e).id).toBe("a");
+    expect(firstWaiting([e[3]])).toBeNull();
     expect(firstWaiting([])).toBeNull();
+  });
+
+  it("waitlistFits: a held entry, or a party waiting for later, is never told 'free now'", () => {
+    const resources = [{ id: "t3", kind: "table", label: "3", capacity_seats: 4, is_active: true }];
+    const entries = [
+      { id: "later", status: "waiting", party_size: 2, desired_from: "2026-11-12T20:00:00", desired_to: "2026-11-12T21:00:00" },
+      { id: "around", status: "waiting", party_size: 2, desired_from: "2026-11-12T18:30:00" },
+      { id: "bot", status: "waiting", party_size: 2, held: true },
+      { id: "any", status: "waiting", party_size: 2 },
+    ];
+    const at1730 = waitlistFits({ entries, reservations: [], resources, nowMs: at("17:30"), sittingFor: () => 90 });
+    expect([...at1730.keys()]).toEqual(["any"]);
+    const at1800 = waitlistFits({ entries, reservations: [], resources, nowMs: at("18:00"), sittingFor: () => 90 });
+    expect([...at1800.keys()]).toEqual(["around", "any"]);
+    const at1950 = waitlistFits({ entries, reservations: [], resources, nowMs: at("19:50"), sittingFor: () => 90 });
+    expect([...at1950.keys()]).toEqual(["later", "any"]);
   });
 
   it("waitlistFits: a table free for the whole sitting, never one booked within it", () => {

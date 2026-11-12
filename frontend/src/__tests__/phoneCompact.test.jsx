@@ -526,7 +526,11 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // it on first use (its JS budget); the day helpers to utils/serviceDay.js.
     // Each moved file is pinned below. Was { onClick: 79, ariaLabel: 59,
     // role: 36, button: 57, tKeys: 715 }.
-    "pages/ReservationsPage.jsx": { onClick: 75, onChange: 53, onSubmit: 10, ariaLabel: 55, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 35, title: 24, id: 23, testid: 23, Button: 24, button: 53, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 689 },
+    // Fix round (12 Nov 2026) ADDED, nothing removed: the compact row's
+    // Udeblevet on a late party (+1 button, +1 onClick, +1 disabled) — the
+    // phone, the iPad, the door screen and the list beside the room had the
+    // no-show only in the drawer. Was { onClick: 75, button: 53, disabled: 27 }.
+    "pages/ReservationsPage.jsx": { onClick: 76, onChange: 53, onSubmit: 10, ariaLabel: 55, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 35, title: 24, id: 23, testid: 23, Button: 24, button: 54, Link: 5, disabled: 28, to: 5, href: 3, tKeys: 689 },
     "components/reservations/DayRail.jsx": { onClick: 4, ariaLabel: 4, role: 1, button: 4, tKeys: 26 },
     "utils/serviceDay.js": { tKeys: 3 },
     "components/reservations/EditBookingSheet.jsx": { onClick: 7, onChange: 7, onSubmit: 1, ariaLabel: 2, ariaPressed: 1, role: 3, id: 7, Button: 5, button: 2, disabled: 2, tKeys: 30 },

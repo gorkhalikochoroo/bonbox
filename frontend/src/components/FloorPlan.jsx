@@ -736,6 +736,11 @@ export default function FloorPlan({
   // resources: they carry no seats, live in their own table, and the booking
   // engine cannot see them. Never merge this into `cells`.
   fixtures = [],
+  // Told how the room fitted the size it is drawn at (view mode, once it has
+  // been measured): { left, scale, w, h } — `left` > 0 means tables still
+  // overlap at the smallest legible size. The list's side room uses it to
+  // step aside rather than draw tables on top of each other (rv2 fix round).
+  onFit = null,
 }) {
   // Account-level venue archetype — drives the section vocabulary (noun,
   // icon, empty state, hints, zone presets). Per-resource provider overrides
@@ -1017,10 +1022,16 @@ export default function FloorPlan({
   const fitted = useMemo(
     () =>
       editing
-        ? { scale: 1, pos: {}, moved: 0 }
+        ? { scale: 1, pos: {}, moved: 0, left: 0 }
         : fitRoom(cells, layout, canvasSize, shownFixtures),
     [editing, cells, layout, canvasSize, shownFixtures],
   );
+  const onFitRef = useRef(onFit);
+  onFitRef.current = onFit;
+  useEffect(() => {
+    if (editing || !canvasSize.w || !canvasSize.h || !onFitRef.current) return;
+    onFitRef.current({ left: fitted.left || 0, scale: fitted.scale, w: canvasSize.w, h: canvasSize.h });
+  }, [editing, fitted, canvasSize]);
 
   // Combined parties on the floor (view mode): the links between their
   // tables, each marked `near` when the two stand together (comboLinks), and

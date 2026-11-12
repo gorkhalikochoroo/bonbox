@@ -167,7 +167,12 @@ describe("2 · a finished row on a phone", () => {
   it("a live row keeps its one line (no wrap)", async () => {
     renderStand();
     await waitFor(() => expect(compactRowOf("Birk")).toBeTruthy());
-    expect(compactRowOf("Birk").querySelector("[data-row-meta]").className).not.toMatch(/flex-wrap/);
+    // Reservations v2 fix round (12 Nov 2026, review SHOULD 10): from 380 px
+    // up the live row never wraps; below 380 it may, only so the live word
+    // goes under the table instead of cutting the table's name.
+    const cls = compactRowOf("Birk").querySelector("[data-row-meta]").className;
+    expect(cls).not.toMatch(/(^|\s)flex-wrap(\s|$)/);
+    expect(cls).toMatch(/(^|\s)max-\[379px\]:flex-wrap(\s|$)/);
   });
 });
 

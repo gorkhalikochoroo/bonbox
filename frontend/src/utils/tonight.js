@@ -11,7 +11,7 @@
 //                    venue's seats ("25/28 kl. 19.30"), never a percentage.
 //   needsAction    — late parties (the 5-minute grace of serviceClock) and
 //                    requests waiting for a yes.
-//   firstWaiting   — who has waited longest on the Venteliste.
+//   firstWaiting   — the first real party on the Venteliste (server order).
 //   waitlistFits   — which waiting party a table seats NOW, for their whole
 //                    sitting — the stand's own seatingNow rule, so the
 //                    waitlist and the drop-in row can never disagree.
@@ -27,8 +27,11 @@ import { isHeldForCheck } from "./bookingHeld";
 /** A confirmed party starting within this many minutes reads "in N min". */
 export const SOON_MIN = 15;
 
-/** Statuses a seat is booked under (the server's BOOKED_COVER_STATUSES). */
-const HOLDING = ["requested", "confirmed", "seated"];
+/** Statuses a booked peak counts: the server's BOOKED_COVER_STATUSES
+ *  (confirmed, seated, completed — a party that has eaten and left was still
+ *  booked at 19.30, so the peak never shrinks as the night empties) plus a
+ *  request nobody has answered yet, unless it is HELD (isHeldForCheck). */
+const HOLDING = ["requested", "confirmed", "seated", "completed"];
 
 const startMs = (r) => {
   const v = r?.starts_at ? new Date(r.starts_at).getTime() : NaN;
@@ -134,16 +137,32 @@ export function needsAction(reservations, nowMs, onToday = true) {
 
 const WAITING = ["waiting", "notified"];
 
-/** The party that has waited longest (still waiting or told), or null. */
+/** The first REAL party on the Venteliste (still waiting or told), or null.
+ *  The server's order is the truth (GET /reservations/waitlist): real guests
+ *  first-come-first-served, then the entries it HELD (a robot's, a phone the
+ *  owner marked as spam). A held entry is never named here. */
 export function firstWaiting(entries) {
-  const live = (entries || []).filter((e) => e && WAITING.includes(e.status || "waiting"));
-  if (!live.length) return null;
-  return [...live].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))[0];
+  return (entries || []).find((e) => e && !e.held && WAITING.includes(e.status || "waiting")) || null;
+}
+
+/** A waiting party's wished-for time, as a window in ms: [from − 15 min,
+ *  to] — or ±30 min around a single "around 20.00" — or null when the party
+ *  named no time (any time suits them). */
+const WISH_LEAD_MS = 15 * 60000;
+const WISH_AROUND_MS = 30 * 60000;
+export function wishWindow(e) {
+  const from = e?.desired_from ? new Date(e.desired_from).getTime() : NaN;
+  if (!Number.isFinite(from)) return null;
+  const to = e?.desired_to ? new Date(e.desired_to).getTime() : NaN;
+  return Number.isFinite(to) && to >= from
+    ? [from - WISH_LEAD_MS, to]
+    : [from - WISH_AROUND_MS, from + WISH_AROUND_MS];
 }
 
 /**
  * Which waiting parties a seating fits NOW: Map(entry id → { label, tableIds,
- * seats }). The drop-in row's rule (seatingNow): free for the party's whole
+ * seats }). Only a real party (never a HELD entry) whose wished-for time
+ * holds now, or who named none (wishWindow). The drop-in row's rule (seatingNow): free for the party's whole
  * sitting, the smallest single table first, else the tables the venue joins.
  * `sittingFor(n)` is the venue's turn time; without it (rules not loaded)
  * nothing is claimed — an empty map.
@@ -152,7 +171,10 @@ export function waitlistFits({ entries, reservations, resources, nowMs, sittingF
   const out = new Map();
   if (typeof sittingFor !== "function" || !Array.isArray(resources) || !resources.length || !nowMs) return out;
   for (const e of entries || []) {
-    if (!e || !WAITING.includes(e.status || "waiting")) continue;
+    if (!e || e.held || !WAITING.includes(e.status || "waiting")) continue;
+    // A party waiting for 20.00 is not told "free now" at 17.30.
+    const wish = wishWindow(e);
+    if (wish && (nowMs < wish[0] || nowMs > wish[1])) continue;
     const size = Number(e.party_size) || 0;
     if (!size) continue;
     const seat = seatingNow({ reservations, resources, nowMs, size, sittingMin: sittingFor(size), combine });

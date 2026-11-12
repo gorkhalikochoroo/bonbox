@@ -95,6 +95,11 @@ export default function TonightStrip({
   const pct = totalTables > 0 ? Math.min(1, seatedTables / totalTables) : 0;
   const wlFirst = waitlist?.first;
   const peakSeats = peak?.seats || 0;
+  // The phone keeps the two cells it hides when they matter (the cockpit
+  // strip's rule before v2): the booked peak from 85 % of the seats (coral
+  // past them), and the Venteliste whenever someone is on it.
+  const phonePeak = known && peakSeats > 0 && (peak?.peak || 0) >= 0.85 * peakSeats;
+  const phoneWl = known && (waitlist?.count || 0) > 0 && typeof onWaitlist === "function";
 
   return (
     <section
@@ -184,7 +189,10 @@ export default function TonightStrip({
               ? t("rsvpUtilNoSeats", "set table seats")
               : peak?.at
                 ? t("rsvpTnPeakAt", "seats at {time}", { time: peak.at })
-                : t("rsvpTnPeakNone", "No bookings yet")
+                // Never "no bookings" over a night that has covers.
+                : covers > 0
+                  ? null
+                  : t("rsvpTnPeakNone", "No bookings yet")
         }
         className="max-lg:hidden"
       />
@@ -196,12 +204,43 @@ export default function TonightStrip({
           known && waitlist
             ? wlFirst
               ? `${wlFirst.name || t("rsvpGuest", "Guest")} · ${wlFirst.party}`
-              : t("rsvpTnWlNone", "No one waiting")
+              // Only held entries waiting (check them first): not "no one".
+              : waitlist.count > 0
+                ? null
+                : t("rsvpTnWlNone", "No one waiting")
             : null
         }
         onClick={onWaitlist}
         className="max-lg:hidden"
       />
+      {(phonePeak || phoneWl) && (
+        <div
+          className="lg:hidden order-last col-span-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3.5 py-2.5 border-t border-[var(--rv-hair)] text-[13px]"
+          data-tonight-phone-extra=""
+        >
+          {phonePeak && (
+            <span className="inline-flex items-baseline gap-1.5 min-w-0" data-tonight="peak-phone">
+              <span className="text-[var(--rv-muted)]">{t("rsvpTnPeak", "Booked peak")}</span>
+              <span className={"rv2-num font-semibold " + (peak.peak > peakSeats ? "text-[var(--rv-coral)]" : "text-[var(--rv-ink)]")}>
+                {peak.peak}/{peakSeats}
+              </span>
+              {peak.at ? <span className="text-[var(--rv-muted)]">{t("rsvpTnPeakAt", "seats at {time}", { time: peak.at })}</span> : null}
+            </span>
+          )}
+          {phoneWl && (
+            <button
+              type="button"
+              onClick={onWaitlist}
+              className="rv2-tint ml-auto inline-flex items-center gap-1.5 h-8 px-2.5 -mr-1 rounded-lg font-medium text-[var(--rv-ink)]"
+              data-tonight="waitlist-phone"
+            >
+              {t("rsvpTnWaitlist", "Waitlist")}
+              <span className="rv2-num font-semibold">{waitlist.count}</span>
+              <span aria-hidden="true" className="text-[var(--rv-muted)]">›</span>
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }

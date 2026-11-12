@@ -7,7 +7,7 @@
  * Every number from the book on screen; before it answers, "—".
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
-import { render, waitFor, within, screen, fireEvent } from "@testing-library/react";
+import { render, waitFor, within, screen, fireEvent, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../services/api", () => ({
@@ -145,6 +145,14 @@ describe("I dag — the day's six numbers", () => {
     await waitFor(() => expect(cell("waitlist").textContent).toContain("Kristensen · 2"));
   });
 
+  it("a held entry is never the one named; only held entries waiting is not 'no one waiting'", async () => {
+    mockApi({ wait: [{ ...WAIT[0], id: "bot", guest_name: "Robot", held: true }] });
+    renderOwner();
+    await waitFor(() => expect(cell("waitlist").textContent).toMatch(/1/));
+    expect(cell("waitlist").textContent).not.toContain("Robot");
+    expect(cell("waitlist").textContent).not.toContain("No one waiting");
+  });
+
   it("an unreadable waitlist says nothing about who is waiting", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/reservations/waitlist") return Promise.reject(new Error("offline"));
@@ -179,6 +187,24 @@ describe("the evening list's live words", () => {
     // Hansen (not late) keeps the quiet icon-only no-show? Not due yet → none.
     const hanRow = [...document.querySelectorAll("tr")].find((tr) => tr.textContent.includes("Hansen"));
     expect(within(hanRow).queryByRole("button", { name: /No-show/ })).toBeNull();
+  });
+
+  it("the compact row (phone, iPad, door screen, beside the room) carries Udeblevet on a late party, beside Seat", async () => {
+    renderOwner();
+    await waitFor(() => expect(document.querySelector('[data-status="late"]')).not.toBeNull());
+    const late = [...document.querySelectorAll('[data-status="late"]')].find((n) => n.textContent.includes("Petersen"));
+    expect(late).toBeTruthy();
+    const noShow = late.querySelector("[data-row-noshow]");
+    expect(noShow.textContent).toBe("No-show");
+    expect(within(late).getByRole("button", { name: "Seat" })).toBeTruthy();
+    // Not late (Hansen at 18.30): no Udeblevet on the row.
+    const han = [...document.querySelectorAll("[data-status]")].find((n) => n.textContent.includes("Hansen") && n.getAttribute("role") === "button");
+    expect(han.querySelector("[data-row-noshow]")).toBeNull();
+    // It records the no-show (after the confirm), and does not open the drawer.
+    fireEvent.click(noShow);
+    await waitFor(() =>
+      expect(api.patch.mock.calls.some(([url, body]) => String(url).includes("pet") && body?.status === "no_show")).toBe(true),
+    );
   });
 
   it("Needs you opens the late party's booking", async () => {
@@ -241,5 +267,37 @@ describe("the host stand header (canvas Host.dc.html)", () => {
     const labels = [...document.querySelectorAll("[data-walkin]")].map((b) => b.textContent);
     expect(labels[0]).toMatch(/^1/);
     expect(labels[5]).toMatch(/^6\+/);
+  });
+});
+
+describe("TonightStrip on a phone (below lg): the two cells it hides come back when they matter", () => {
+  let TonightStrip;
+  beforeAll(async () => {
+    TonightStrip = (await import("../components/reservations/TonightStrip")).default;
+  });
+  const t = (_k, fb, vars) => String(fb).replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? vars[k] : m));
+  const strip = (props) => render(<TonightStrip t={t} known covers={40} bookings={14} totalTables={10} {...props} />);
+
+  it("the booked peak from 85 % of the seats (coral past them), the waitlist whenever someone waits", () => {
+    const onWaitlist = vi.fn();
+    strip({ peak: { peak: 25, at: "19.30", seats: 28 }, waitlist: { count: 2, first: null }, onWaitlist });
+    const extra = document.querySelector("[data-tonight-phone-extra]");
+    expect(extra.className).toContain("lg:hidden");
+    expect(document.querySelector('[data-tonight="peak-phone"]').textContent).toContain("25/28");
+    fireEvent.click(document.querySelector('[data-tonight="waitlist-phone"]'));
+    expect(onWaitlist).toHaveBeenCalled();
+  });
+
+  it("a quiet night keeps the phone card short: no peak under 85 %, no waitlist chip at 0", () => {
+    strip({ peak: { peak: 12, at: "19.30", seats: 28 }, waitlist: { count: 0, first: null }, onWaitlist: vi.fn() });
+    expect(document.querySelector("[data-tonight-phone-extra]")).toBeNull();
+  });
+
+  it("never 'No bookings yet' over a night that has covers", () => {
+    strip({ peak: { peak: 0, at: null, seats: 28 }, waitlist: { count: 0, first: null } });
+    expect(document.querySelector('[data-tonight="peak"]').textContent).not.toContain("No bookings yet");
+    cleanup();
+    strip({ covers: 0, bookings: 0, peak: { peak: 0, at: null, seats: 28 }, waitlist: { count: 0, first: null } });
+    expect(document.querySelector('[data-tonight="peak"]').textContent).toContain("No bookings yet");
   });
 });
