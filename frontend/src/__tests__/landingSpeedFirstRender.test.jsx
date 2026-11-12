@@ -126,7 +126,7 @@ describe("App.jsx landingBoot: only the prospect's landing waits", () => {
     const app = read("App.jsx");
     expect(app).toMatch(/export const landingBoot = import\.meta\.env\.VITE_APP_MODE !== "scheduler" && landingFirstPaint\(\)\s*\? loadLanding\(\)\.then\(\(m\) => \{ LandingNow = m\.default; \}, \(\) => \{\}\)\s*: null;/);
     expect(app).toContain("const [Now] = useState(() => LandingNow);");
-    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingV6Page \/>\}\s*<FirstScreenHandover \/>\s*<\/Suspense>/);
+    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingFrontPage \/>\}\s*<FirstScreenHandover \/>\s*<\/Suspense>/);
   });
 });
 
@@ -135,7 +135,7 @@ describe("LandingRoute in the first render", () => {
     vi.resetModules();
     window.history.replaceState({}, "", "/");
     localStorage.setItem("lang", "da");
-    if (landing) vi.doMock("../pages/LandingV6Page", landing);
+    if (landing) vi.doMock("../pages/LandingV7Page", landing);
     vi.doMock("../hooks/useAuth", async (orig) => ({ ...(await orig()), useAuth: () => ({ user: null, loading: true }) }));
     const app = await import("../App.jsx");
     const { LanguageProvider } = await import("../hooks/useLanguage");
@@ -149,7 +149,7 @@ describe("LandingRoute in the first render", () => {
     </MemoryRouter>
   );
   afterEach(() => {
-    vi.doUnmock("../pages/LandingV6Page");
+    vi.doUnmock("../pages/LandingV7Page");
     vi.doUnmock("../hooks/useAuth");
   });
 
@@ -158,7 +158,7 @@ describe("LandingRoute in the first render", () => {
     await app.landingBoot;
     const { container } = render(ui(app));
     // synchronously after the first render: no Suspense fallback in between
-    expect(container.querySelector('.lp6[data-page="landing"]')).not.toBeNull();
+    expect(container.querySelector('.lp7[data-page="landing"]')).not.toBeNull();
     expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
   });
 
@@ -181,7 +181,7 @@ describe("LandingRoute in the first render", () => {
     arrive();
     expect(await screen.findByRole("heading", { level: 1 }, { timeout: 5000 })).toBeTruthy();
     expect(container.contains(first)).toBe(false);
-    expect(container.querySelector('.lp6[data-page="landing"]')).not.toBeNull();
+    expect(container.querySelector('.lp7[data-page="landing"]')).not.toBeNull();
     root.remove();
   });
 

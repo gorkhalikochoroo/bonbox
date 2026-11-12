@@ -85,7 +85,7 @@ describe("the stage's Inter files ride with the first wave", () => {
     const { default: config } = await import("../../vite.config.js");
     const p = config.plugins.flat().find((x) => x && x.name === "bonbox-preload-landing");
     const bundle = {
-      "assets/L.js": { type: "chunk", fileName: "assets/L.js", facadeModuleId: "/r/frontend/src/pages/LandingV6Page.jsx", imports: [], viteMetadata: { importedCss: new Set() } },
+      "assets/L.js": { type: "chunk", fileName: "assets/L.js", facadeModuleId: "/r/frontend/src/pages/LandingV7Page.jsx", imports: [], viteMetadata: { importedCss: new Set() } },
       a: { type: "asset", fileName: "assets/inter-latin-600-normal-c.woff2" },
       b: { type: "asset", fileName: "assets/inter-latin-400-normal-a.woff2" },
       c: { type: "asset", fileName: "assets/inter-latin-500-normal-b.woff2" },

@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { da } from "../i18n/da.js";
 import { en } from "../i18n/en.js";
 import { FROM_PRICE } from "../lib/planPrices";
-import { firstScreenMarkup } from "../../scripts/landingFirstScreen.mjs";
+import { firstScreenMarkupV7 } from "../../scripts/landingFirstScreenV7.mjs";
 
 const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const INDEX = fs.readFileSync(path.join(FRONTEND, "index.html"), "utf8");
@@ -25,9 +25,9 @@ const BUILT = INDEX
   .replace('<script type="module" src="/src/main.jsx"></script>', "")
   .replace("</head>", '<script type="module" crossorigin src="/assets/index-1.js"></script>\n<link rel="modulepreload" crossorigin href="/assets/vendor-react-2.js">\n<link rel="stylesheet" crossorigin href="/assets/index-3.css">\n</head>');
 const BUNDLE = {
-  "assets/LandingV6Page-abc.js": {
-    type: "chunk", fileName: "assets/LandingV6Page-abc.js", facadeModuleId: "/repo/frontend/src/pages/LandingV6Page.jsx",
-    imports: ["assets/index-1.js"], viteMetadata: { importedCss: new Set(["assets/LandingV6Page-abc.css"]) },
+  "assets/LandingV7Page-abc.js": {
+    type: "chunk", fileName: "assets/LandingV7Page-abc.js", facadeModuleId: "/repo/frontend/src/pages/LandingV7Page.jsx",
+    imports: ["assets/index-1.js"], viteMetadata: { importedCss: new Set(["assets/LandingV7Page-abc.css"]) },
   },
   "assets/index-1.js": { type: "chunk", fileName: "assets/index-1.js", facadeModuleId: "/repo/frontend/index.html", imports: [] },
   "assets/da-x.js": { type: "chunk", fileName: "assets/da-x.js", facadeModuleId: "/repo/frontend/src/i18n/da.js" },
@@ -89,7 +89,7 @@ describe("the built document without its comments", () => {
       win, { pathname: "/", hash: "", protocol: "https:" }, { getItem: () => null },
       { cookie: "", head: { appendChild: () => {} }, createElement: () => ({}), documentElement: {} },
       { languages: ["en-GB"], language: "en-GB" }, { getEntriesByType: () => [{ type: "navigate" }] });
-    expect(win.__lp6First).toEqual({ lang: "en", app: "en", fonts: ["/assets/inter-latin-400-normal-a.woff2"] });
+    expect(win.__lp6First).toEqual({ lang: "en", app: "en", fonts: ["/assets/inter-latin-400-normal-a.woff2"], later: [] }); // landing v7: + the page's own fonts (none in this bundle)
     // the booking boot: a guest's booking page is marked at parse time
     const booking = scripts.find((x) => x.includes("__bbBooking=") || x.includes("__bbBooking ="));
     const bw = { matchMedia: () => ({ matches: false }), fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }), AbortController };
@@ -100,12 +100,13 @@ describe("the built document without its comments", () => {
     // the first screen
     const first = scripts.find((x) => x.includes("lp6-first") && x.includes("insertAdjacentHTML"));
     let written = null;
-    const fakeRoot = { querySelectorAll: () => [], addEventListener: () => {} };
+    const fakeRoot = { querySelectorAll: () => [], querySelector: () => null, addEventListener: () => {} };
     new Function("window", "document", "location", first)(
       { __lp6First: { lang: "da" } },
       { currentScript: { insertAdjacentHTML: (w, h) => { written = h; } }, getElementById: () => fakeRoot, head: { appendChild: () => {} }, createElement: () => ({}), addEventListener: () => {} },
       { search: "" });
-    expect(written).toBe(firstScreenMarkup("da", { da, en, price: FROM_PRICE }));
+    // landing v7 (12 Nov 2026): the first screen is the v7 page's (scripts/landingFirstScreenV7.mjs)
+    expect(written).toBe(firstScreenMarkupV7("da", { da, en, price: FROM_PRICE }));
   });
 
   it("a build without a landing chunk (the Vagtplan app) is untouched by it", async () => {

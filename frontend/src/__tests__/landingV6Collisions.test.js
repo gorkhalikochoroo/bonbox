@@ -70,7 +70,18 @@ describe("landing v6 — the page's class names", () => {
 
 describe("landing v6 — no other stylesheet in src/ styles the page's classes", () => {
   it("no rule in any other .css under src/ names a class the page uses", () => {
-    const sheets = walk(SRC).filter((p) => p.endsWith(".css") && p !== PAGE_CSS);
+    // landing v7 (12 Nov 2026): landingV7.css reuses some of these names, but every one of its rules is scoped to the v7
+    // page's root (.lp7, or html:has(.lp7)), which the v6 page never carries: it cannot reach the v6 page
+    // (landingV7Page.test.jsx holds the v7 sheet to that scope)
+    const scopedToV7 = (file) => {
+      let all = true;
+      postcss.parse(read(file)).walkRules((r) => {
+        if (inKeyframes(r)) return;
+        if (!r.selectors.every((x) => /^(\.lp7\b|html:has\(\.lp7\)|:root:has\(#lp6-first\))/.test(x.trim()))) all = false;
+      });
+      return all;
+    };
+    const sheets = walk(SRC).filter((p) => p.endsWith(".css") && p !== PAGE_CSS && !(p.endsWith("landingV7.css") && scopedToV7(p)));
     expect(sheets.map((p) => relative(SRC, p))).toContain("index.css");
     const hits = [];
     for (const file of sheets) {

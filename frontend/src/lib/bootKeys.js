@@ -24,7 +24,9 @@
 // Landing v6 (port step 7, PORT_PLAN 1.9 / 2.4): the front door is the v6 page, whose every key is landingV6.*.
 // "landingV2" and "landingPlan" (the old landing and its floor plan, no longer routed) left the list, so the boot
 // copy in the entry holds only what the first paint can show.
-export const BOOT_PREFIXES = ["landingV6", "cookie"];
+// Landing v7 (12 Nov 2026): the front door is the v7 page (every key landingV7.*); landingV6 left the list as v2 did, the
+// v6 page being unrouted.
+export const BOOT_PREFIXES = ["landingV7", "cookie"];
 
 /** Single keys outside those prefixes that the banner or landing reads. */
 export const BOOT_KEYS = ["suCookieMore", "close"];

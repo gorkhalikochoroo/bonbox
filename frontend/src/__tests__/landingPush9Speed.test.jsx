@@ -31,12 +31,12 @@ import { isLandingPath, landingFirstPaint, mightBeSignedIn } from "../lib/landin
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => fs.readFileSync(path.join(SRC, rel), "utf8");
-// What the front door renders: the v6 page and its components, and the cookie banner (port step 7: re-pointed
-// from the old landing's v2 dir, which is no longer routed).
+// What the front door renders: the v7 page and its components, and the cookie banner (port step 7: re-pointed
+// from the old landing's v2 dir, which is no longer routed; landing v7, 12 Nov 2026: re-pointed from v6, now unrouted).
 const FILES = [
-  "pages/LandingV6Page.jsx",
+  "pages/LandingV7Page.jsx",
   "components/CookieConsent.jsx",
-  ...fs.readdirSync(path.join(SRC, "components/landing/v6")).filter((f) => /\.jsx?$/.test(f)).map((f) => `components/landing/v6/${f}`),
+  ...fs.readdirSync(path.join(SRC, "components/landing/v7")).filter((f) => /\.jsx?$/.test(f)).map((f) => `components/landing/v7/${f}`),
 ];
 
 afterEach(() => {
@@ -69,16 +69,16 @@ describe("the boot dictionary", () => {
   it("is the dictionaries' own text (generated, never a second copy)", () => {
     for (const k of Object.keys(BOOT.da)) expect(BOOT.da[k], k).toBe(da[k]);
     for (const k of Object.keys(BOOT.en)) expect(BOOT.en[k], k).toBe(en[k]);
-    // the v6 page's ~130 keys + the banner's ~20 (port step 7; it was ~300 with the old landing's)
+    // the v7 page's ~190 keys + the banner's ~20 (landing v7; ~150 with v6's, ~300 with the old landing's)
     expect(Object.keys(BOOT.da).length).toBeGreaterThan(120);
     expect(Object.keys(BOOT.da).length).toBeLessThan(400);
   });
 
-  it("holds the whole v6 page and nothing of the old, unrouted landing", () => {
-    const v6 = Object.keys(da).filter((k) => k.startsWith("landingV6."));
-    expect(v6.length).toBeGreaterThan(100);
-    for (const k of v6) expect(BOOT.da[k] && BOOT.en[k], k).toBeTruthy();
-    const old = Object.keys(BOOT.da).filter((k) => k.startsWith("landingV2") || k.startsWith("landingPlan"));
+  it("holds the whole v7 page and nothing of the old, unrouted landings (v2, v6)", () => {
+    const v7 = Object.keys(da).filter((k) => k.startsWith("landingV7."));
+    expect(v7.length).toBeGreaterThan(100);
+    for (const k of v7) expect(BOOT.da[k] && BOOT.en[k], k).toBeTruthy();
+    const old = Object.keys(BOOT.da).filter((k) => k.startsWith("landingV2") || k.startsWith("landingPlan") || k.startsWith("landingV6"));
     expect(old).toEqual([]);
   });
 });
@@ -99,7 +99,7 @@ describe("the language provider renders the landing on it", () => {
       const { t, fullReady } = useLanguage();
       return (
         <div>
-          <span data-testid="cta">{t("landingV6.cta")}</span>
+          <span data-testid="cta">{t("landingV7.cta")}</span>
           <span data-testid="ready">{String(fullReady)}</span>
         </div>
       );
@@ -163,9 +163,9 @@ describe("App: only the landing paints on boot keys; it does not wait for /auth/
         </MemoryRouter>,
       );
     const { container } = view();
-    // the v6 landing (a lazy chunk with no fallback of its own)
+    // the v7 landing (a lazy chunk with no fallback of its own)
     expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
-    expect(container.querySelector('.lp6[data-page="landing"]')).not.toBeNull();
+    expect(container.querySelector('.lp7[data-page="landing"]')).not.toBeNull();
     expect(screen.queryByTestId("page-loader")).toBeNull();
     cleanup();
     document.cookie = "bonbox_csrf=abc; path=/";
@@ -186,11 +186,11 @@ describe("App: only the landing paints on boot keys; it does not wait for /auth/
     );
     const { container, rerender } = render(ui());
     await screen.findByRole("heading", { level: 1 });
-    const root = container.querySelector(".lp6");
+    const root = container.querySelector(".lp7");
     expect(root).not.toBeNull();
     auth.loading = false; // /auth/me answered: no user
     await act(async () => rerender(ui()));
-    expect(container.querySelector(".lp6")).toBe(root); // the same node: React kept the instance
+    expect(container.querySelector(".lp7")).toBe(root); // the same node: React kept the instance
     vi.doUnmock("../hooks/useLanguage");
     vi.doUnmock("../hooks/useAuth");
   });
@@ -222,12 +222,12 @@ describe("lib/landingBoot", () => {
 
 describe("vite.config.js preloadLanding: the landing chunk downloads with the page (port step 7, PORT_PLAN 1.9)", () => {
   const BUNDLE = {
-    "assets/LandingV6Page-abc.js": {
+    "assets/LandingV7Page-abc.js": {
       type: "chunk",
-      fileName: "assets/LandingV6Page-abc.js",
-      facadeModuleId: "/repo/frontend/src/pages/LandingV6Page.jsx",
+      fileName: "assets/LandingV7Page-abc.js",
+      facadeModuleId: "/repo/frontend/src/pages/LandingV7Page.jsx",
       imports: ["assets/index-1.js", "assets/shared-2.js"],
-      viteMetadata: { importedCss: new Set(["assets/LandingV6Page-abc.css"]) },
+      viteMetadata: { importedCss: new Set(["assets/LandingV7Page-abc.css"]) },
     },
     "assets/index-1.js": { type: "chunk", fileName: "assets/index-1.js", facadeModuleId: "/repo/frontend/index.html", imports: [] },
   };
@@ -257,8 +257,8 @@ describe("vite.config.js preloadLanding: the landing chunk downloads with the pa
     const out = await (await plugin())(HTML, { bundle: BUNDLE });
     const m = out.match(/<meta charset="UTF-8" \/><script>\/\*dictionary\*\/<\/script><script>([\s\S]*?)<\/script>/);
     expect(m, out).not.toBeNull();
-    expect(m[1]).toContain('var j=["/assets/LandingV6Page-abc.js","/assets/shared-2.js"]'); // not the entry again
-    expect(m[1]).toContain('c=["/assets/LandingV6Page-abc.css"]');
+    expect(m[1]).toContain('var j=["/assets/LandingV7Page-abc.js","/assets/shared-2.js"]'); // not the entry again
+    expect(m[1]).toContain('c=["/assets/LandingV7Page-abc.css"]');
   });
 
   it("preloads on / and /v2 for a visitor with no session sign; never for a session, the native app or another page", async () => {
@@ -267,9 +267,9 @@ describe("vite.config.js preloadLanding: the landing chunk downloads with the pa
     for (const at of ["/", "/v2", "/v2/"]) {
       const links = run(script, { path: at });
       expect(links.map((l) => `${l.rel} ${l.as || ""} ${l.href}`.replace("  ", " ")), at).toEqual([
-        "modulepreload /assets/LandingV6Page-abc.js",
+        "modulepreload /assets/LandingV7Page-abc.js",
         "modulepreload /assets/shared-2.js",
-        "preload style /assets/LandingV6Page-abc.css",
+        "preload style /assets/LandingV7Page-abc.css",
       ]);
       for (const l of links) expect(l.crossOrigin).toBe(""); // = Vite's own preload links, so the style preload is used
     }
@@ -287,12 +287,12 @@ describe("vite.config.js preloadLanding: the landing chunk downloads with the pa
   it("App.jsx: the landing is lazy behind its own fallback-free Suspense, started early, folded out of the Vagtplan build", () => {
     const app = read("App.jsx");
     expect(app).not.toMatch(/import LandingV2Page/);
-    expect(app).toMatch(/const loadLanding = \(\) => import\("\.\/pages\/LandingV6Page"\);/);
-    expect(app).toMatch(/const LandingV6Page = import\.meta\.env\.VITE_APP_MODE === "scheduler"\s*\?/);
+    expect(app).toMatch(/const loadLanding = \(\) => import\("\.\/pages\/LandingV7Page"\);/);
+    expect(app).toMatch(/const LandingFrontPage = import\.meta\.env\.VITE_APP_MODE === "scheduler"\s*\?/);
     // Speed step 1 (10 Nov 2026): the early import's result is kept (landingBoot) and the resolved page renders in
     // React's first commit; the fallback, still no spinner, keeps the HTML's first screen (KeepFirstScreen) or is empty
     expect(app).toMatch(/export const landingBoot = import\.meta\.env\.VITE_APP_MODE !== "scheduler" && landingFirstPaint\(\)\s*\? loadLanding\(\)/);
-    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingV6Page \/>\}\s*<FirstScreenHandover \/>\s*<\/Suspense>/);
+    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingFrontPage \/>\}\s*<FirstScreenHandover \/>\s*<\/Suspense>/);
     expect(app).not.toMatch(/<Suspense fallback=\{<PageLoader \/>\}>\s*\{Now/);
     expect(app).toMatch(/<Route path="\/v2" element=\{<LandingRoute \/>\} \/>/);
     expect(app.match(/(?:: |return |element=\{)<LandingRoute \/>/g)).toHaveLength(3); // both PublicOrDashboard branches + /v2

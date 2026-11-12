@@ -129,8 +129,9 @@ describe("M3 — index.html says what the landing says", () => {
     expect(d).toBeTruthy();
     expect(meta("property", "og:description")).toBe(d);
     expect(meta("name", "twitter:description")).toBe(d);
-    expect(d).toContain("caféer, restauranter, barer og saloner");
-    expect(da.landingV2HeroAudience).toContain("caféer, restauranter, barer og saloner");
+    // landing v7 (12 Nov 2026): the description is the v7 page's own, with its hero's audience
+    expect(d).toContain("caféer, restauranter og barer");
+    expect(da["landingV7.hero.eyebrow"].toLowerCase()).toContain("caféer, restauranter og barer");
   });
 
   it("no payroll wording, no 'one app', no bookkeeping claim — in meta, keywords or JSON-LD", () => {

@@ -67,9 +67,11 @@ describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal only", 
     .map((f) => path.relative(SRC, f).split(path.sep).join("/"))
     .sort();
 
-  it("only the portal entry (the page + its vagtplan.css) references them; main.jsx does not", () => {
-    expect(importers("@fontsource/sora")).toEqual(["components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
-    expect(importers("@fontsource/dm-sans")).toEqual(["components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+  // Landing v7 (12 Nov 2026): the v7 landing draws in the same house family, from its own lazy chunk
+  // (components/landing/v7/styles.js); still never the app entry.
+  it("only the portal entry (the page + its vagtplan.css) and the v7 landing's chunk reference them; main.jsx does not", () => {
+    expect(importers("@fontsource/sora")).toEqual(["components/landing/v7/styles.js", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+    expect(importers("@fontsource/dm-sans")).toEqual(["components/landing/v7/styles.js", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
     expect(read("main.jsx")).not.toMatch(/sora|dm-sans/i);
     // The stylesheet itself is imported by the portal page and nowhere else.
     expect(importers("staff/vagtplan.css")).toEqual(["pages/StaffPortalPage.jsx"]);

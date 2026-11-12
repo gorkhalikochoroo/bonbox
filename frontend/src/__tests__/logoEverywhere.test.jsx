@@ -211,10 +211,12 @@ describe("the share image and the public demo pages", () => {
 
   // Landing v6 (port step 5/6, PORT_PLAN 2.6): the card is og-image-v4.png, the v6 page's own (a new name, so no
   // scraper's cache answers with v3's picture). v2 and v3 stay in public/ for pages that already reference them.
-  it("index.html shares og-image-v4.png (a new name, 1200 x 630); v2 and v3 stay", () => {
+  // Landing v7 (12 Nov 2026): the card is og-image-v7.png, the v7 design's own (a new name again); v2, v3 and v4 stay.
+  it("index.html shares og-image-v7.png (a new name, 1200 x 630); v2, v3 and v4 stay", () => {
     const html = readFileSync(join(SRC, "..", "index.html"), "utf8");
-    expect(html).toContain('<meta property="og:image" content="https://www.bonbox.dk/og-image-v4.png" />');
-    expect(html).toContain('<meta name="twitter:image" content="https://www.bonbox.dk/og-image-v4.png" />');
+    expect(html).toContain('<meta property="og:image" content="https://www.bonbox.dk/og-image-v7.png" />');
+    expect(html).toContain('<meta name="twitter:image" content="https://www.bonbox.dk/og-image-v7.png" />');
+    expect(pngSize(join(PUBLIC, "og-image-v7.png"))).toEqual([1200, 630]);
     expect(html).not.toMatch(/content="[^"]*og-image-v[23]\.png/);
     expect(html).toContain('<meta property="og:image:width" content="1200" />');
     expect(html).toContain('<meta property="og:image:height" content="630" />');
