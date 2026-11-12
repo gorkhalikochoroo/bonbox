@@ -42,7 +42,7 @@ import { beatFor, useHeroBeat, useBeatWindow, BREAK_MS } from "../components/sta
 import { installPressFeel } from "../components/staff/pressFeel";
 import { feel } from "../components/staff/feel"; // the haptic words (1.4); the clock's own lines stay on haptic
 import { forgetAll, recall, remember } from "../components/staff/tabMemory";
-import BusyLabel from "../components/staff/BusyLabel";
+import BusyLabel, { useDoneFlash, DONE_HOLD_MS } from "../components/staff/BusyLabel";
 import { parseServerTime } from "../utils/serverTime";
 import { routeUrl, placeSearchUrl, isAndroidDevice } from "../utils/routeUrl";
 import { scheduleFeedUrl, webcalUrl, googleSubscribeUrl } from "../utils/calendarFeed";
@@ -1284,12 +1284,16 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
       {error && (
         <div className="text-xs text-red-400">{error}</div>
       )}
+      {/* The wait has a look (premium feel 1.7): same size and colour, a
+          ring after 300 ms; the "sent" card is its answer. It dims only when
+          it can't send (no date). */}
       <button
         onClick={submit}
         disabled={submitting || !date}
-        className="w-full py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50 vp-press vp-l"
+        aria-busy={submitting || undefined}
+        className={`w-full py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition${submitting ? "" : " disabled:opacity-50"} vp-press vp-l`}
       >
-        {submitting ? t("portalSending", "Sending…") : t("portalSickSubmit", "Send")}
+        <BusyLabel busy={submitting}>{submitting ? t("portalSending", "Sending…") : t("portalSickSubmit", "Send")}</BusyLabel>
       </button>
       <div className="text-[10px] text-gray-400 text-center leading-snug">
         {/* Was "Your owner will be notified". Measured 2026-09-03: this
@@ -1341,6 +1345,9 @@ function addDaysToDate(d, days) {
 function useScheduleConfirm({ token, shifts, onConfirmed, allShifts }) {
   const { t } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
+  // "Jeg har set det" shows its check for 900 ms (premium feel 1.7); the
+  // dashed "Vagten er bekræftet" takes over only after it (afterDoneHold).
+  const [done, flashDone] = useDoneFlash();
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
@@ -1372,11 +1379,12 @@ function useScheduleConfirm({ token, shifts, onConfirmed, allShifts }) {
         shift_ids: publishedShifts.filter((sh) => !sh.confirmed_at).map((sh) => sh.id),
       });
       feel.soft(); // a quiet physical ack — confirm is routine, not ceremonial
+      flashDone();
       const n = res?.data?.confirmed_count ?? 0;
       setFeedback(n > 0
         ? `✓ ${n === 1 ? t("portalConfirmCountOne", "{n} shift confirmed", { n }) : t("portalConfirmCount", "{n} shifts confirmed", { n })}`
         : `✓ ${t("portalConfirmAlready", "Already confirmed")}`);
-      onConfirmed?.();
+      afterDoneHold(() => onConfirmed?.());
       setTimeout(() => setFeedback(""), 4000);
     } catch (e) {
       setError(errText(e, t("portalConfirmFailed", "Couldn't confirm. Try again.")));
@@ -1399,6 +1407,7 @@ function useScheduleConfirm({ token, shifts, onConfirmed, allShifts }) {
     allConfirmed,
     unconfirmedElsewhere,
     submitting,
+    done,
     submit,
     feedback,
     error,
@@ -1921,6 +1930,26 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
   );
 }
 
+// Busy → done (premium feel 1.7, components/staff/BusyLabel.jsx). When a yes
+// would remove or replace the button at once (the confirmed card replaces
+// "Jeg har set det", a claimed shift leaves its list on the reload, an
+// accepted swap turns terminal), the reload waits until the check has shown —
+// only when motion is allowed. Without it (and in jsdom, which has no
+// matchMedia) it runs at once, exactly as before. The haptic and the line
+// that says what happened are immediate either way.
+function afterDoneHold(fn) {
+  if (motionAllowed()) setTimeout(fn, DONE_HOLD_MS);
+  else fn();
+}
+
+/** useDoneFlash for one row among many: [doneId, flash(id)]. doneId is the
+    row whose check is showing (DONE_HOLD_MS), else null. */
+function useDoneFor() {
+  const [shown, flash] = useDoneFlash();
+  const [id, setId] = useState(null);
+  return [shown ? id : null, (x) => { setId(x); flash(); }];
+}
+
 // ── Åbne vagter — staff claim ───────────────────────────────────────────────
 // Open shifts the owner posted that this staffer can pick up one-tap (PULL
 // model — appears only when there's something to take, never a notification
@@ -1934,6 +1963,7 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
 function useOpenShiftClaim(token, onClaimed) {
   const { t, lang } = useLanguage();
   const [claiming, setClaiming] = useState(null);
+  const [doneId, flashDone] = useDoneFor();
   const [msg, setMsg] = useState("");
   const [where, setWhere] = useState(null);
 
@@ -1944,9 +1974,10 @@ function useOpenShiftClaim(token, onClaimed) {
     try {
       await portalApi.post(`/portal/${token}/open-shifts/${id}/claim`);
       feel.done();
+      flashDone(id);   // the check lands with the haptic; the pill stays disabled while it shows
       setMsg(t("portalOpenClaimed", "Added to your schedule."));
       setTimeout(() => setMsg(""), 3500);  // clear the confirmation after the moment
-      onClaimed?.();
+      afterDoneHold(() => onClaimed?.());
     } catch (err) {
       const code = err?.response?.data?.detail?.code;
       if (code === "already_taken" || code === "shift_overlap") feel.warn();   // refused
@@ -1959,7 +1990,7 @@ function useOpenShiftClaim(token, onClaimed) {
       setClaiming(null);
     }
   };
-  return { claiming, msg, where, claim };
+  return { claiming, doneId, msg, where, claim };
 }
 
 /** The span of an open shift, for its meta line ("6 t"). */
@@ -1972,18 +2003,22 @@ function openSpanHours(o) {
   return mins / 60;
 }
 
-/** The "Tag den" pill — pale pine on ivory (canvas). */
-function TakeItButton({ onClick, busy, label, testId }) {
+/** The "Tag den" pill — pale pine on ivory (canvas). While the claim is out
+    it keeps its size, colour and name (a ring after 300 ms, never "…" or a
+    dim); on a yes its check holds 900 ms and it stays disabled, so a second
+    tap can never claim the shift twice (premium feel 1.7). */
+function TakeItButton({ onClick, busy, done = false, label, testId }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={busy}
+      disabled={busy || done}
+      aria-busy={busy || undefined}
       data-testid={testId}
-      className="shrink-0 inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+      className="shrink-0 inline-flex items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
       style={{ height: 44, padding: "0 16px", borderRadius: 999, background: SOFT, color: PINE, font: "600 14px/1 var(--font-text)" }}
     >
-      {busy ? "…" : label}
+      <BusyLabel busy={busy} done={done}>{label}</BusyLabel>
     </button>
   );
 }
@@ -2094,6 +2129,7 @@ function OpenShiftsClaimCard({ rows, claimer, ownShifts, businessType }) {
                   <TakeItButton
                     onClick={() => claimer.claim(o.id, "open")}
                     busy={claimer.claiming === o.id}
+                    done={claimer.doneId === o.id}
                     label={t("portalOpenClaim", "Take it")}
                   />
                 </div>
@@ -2790,20 +2826,22 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     </BusyLabel>
                   </button>
                 ) : confirm.show && !confirm.allConfirmed ? (
+                  /* Busy → done (premium feel 1.7): no "…", no dim — a ring
+                     after 300 ms, then the check for 900 ms (still disabled),
+                     then the dashed card below takes over. */
                   <button
                     type="button"
                     onClick={confirm.submit}
-                    disabled={confirm.submitting}
+                    disabled={confirm.submitting || confirm.done}
+                    aria-busy={confirm.submitting || undefined}
                     data-testid="portal-seen-it"
-                    className="inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className="inline-flex items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     style={brassBtn}
                   >
-                    {confirm.submitting ? "…" : (
-                      <>
-                        <Check size={18} strokeWidth={2.25} aria-hidden className="shrink-0" />
-                        <span className="truncate">{t("portalSeenIt")}</span>
-                      </>
-                    )}
+                    <BusyLabel busy={confirm.submitting} done={confirm.done}>
+                      <Check size={18} strokeWidth={2.25} aria-hidden className="shrink-0" />
+                      <span className="truncate">{t("portalSeenIt")}</span>
+                    </BusyLabel>
                   </button>
                 ) : confirm.show ? (
                   <div
@@ -3386,6 +3424,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                             <TakeItButton
                               onClick={() => claimer.claim(o.id, "week")}
                               busy={claimer.claiming === o.id}
+                              done={claimer.doneId === o.id}
                               label={t("portalOpenClaim", "Take it")}
                               testId="portal-week-take"
                             />
@@ -5120,6 +5159,7 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
   const [showPropose, setShowPropose] = useState(false);
   const [showSell, setShowSell] = useState(false);
   const [claimBusy, setClaimBusy] = useState(null);
+  const [claimDone, flashClaimDone] = useDoneFor();   // the claimed give-away's check (1.7)
   const [claimErr, setClaimErr] = useState("");
   // The shift being worked is never offered, even in the minutes between an
   // early clock-in and its planned start, when the start-time rule alone
@@ -5169,7 +5209,8 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
     try {
       await portalApi.post(`/portal/${token}/give-aways/${id}/claim`);
       feel.done(); // you just picked up a shift — a real moment
-      reload();
+      flashClaimDone(id);
+      afterDoneHold(reload);   // it leaves the pool on the reload: after its check (1.7)
     } catch (err) {
       const st = err?.response?.status;
       if (st === 409 || st === 422) feel.warn();   // refused (taken, overlaps you)
@@ -5286,6 +5327,7 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
                       <TakeItButton
                         onClick={() => claimGiveaway(g.id)}
                         busy={claimBusy === g.id}
+                        done={claimDone === g.id}
                         label={t("portalOpenClaim", "Take it")}
                       />
                     )}
@@ -5350,10 +5392,16 @@ function fmtSwapDay(iso, lang) {
 function SwapRow({ swap, token, onChanged }) {
   const { t, lang } = useLanguage();
   const [busy, setBusy] = useState(false);
+  // Busy → done (premium feel 1.7): only the tapped button gets the busy
+  // look; its sibling keeps the dim. Accepter's check holds 900 ms, with
+  // both buttons still disabled, before the re-read turns the row terminal.
+  const [tapped, setTapped] = useState(null);   // "accept" | "decline" | "withdraw"
+  const [acceptDone, flashAccept] = useDoneFlash();
   // { text, sticky } — sticky survives the re-read turning the row terminal.
   const [rowErr, setRowErr] = useState(null);
 
   const respond = async (accept) => {
+    setTapped(accept ? "accept" : "decline");
     setBusy(true);
     setRowErr(null);
     try {
@@ -5361,8 +5409,14 @@ function SwapRow({ swap, token, onChanged }) {
         `/portal/${token}/swap-requests/${swap.id}/respond`,
         { accept },
       );
-      if (accept) feel.done(); else feel.soft();
-      onChanged();
+      if (accept) {
+        feel.done();
+        flashAccept();
+        afterDoneHold(onChanged);
+      } else {
+        feel.soft();
+        onChanged();
+      }
     } catch (err) {
       // A refusal used to vanish: the button just stopped spinning. Now the
       // staffer reads why (e.g. the trade would double-book them) and the
@@ -5391,6 +5445,7 @@ function SwapRow({ swap, token, onChanged }) {
   };
 
   const withdraw = async () => {
+    setTapped("withdraw");
     setBusy(true);
     try {
       await portalApi.post(`/portal/${token}/swap-requests/${swap.id}/withdraw`);
@@ -5517,22 +5572,24 @@ function SwapRow({ swap, token, onChanged }) {
           <button
             type="button"
             onClick={() => respond(true)}
-            disabled={busy}
+            disabled={busy || acceptDone}
+            aria-busy={(busy && tapped === "accept") || undefined}
             data-testid="swap-accept"
             className={`flex-1 min-h-[44px] vp-press ${FOCUS_RING}`}
-            style={pineBtn(busy)}
+            style={pineBtn(busy && tapped !== "accept")}
           >
-            {t("portalSwapAccept", "Accept")}
+            <BusyLabel busy={busy && tapped === "accept"} done={acceptDone}>{t("portalSwapAccept", "Accept")}</BusyLabel>
           </button>
           <button
             type="button"
             onClick={() => respond(false)}
-            disabled={busy}
+            disabled={busy || acceptDone}
+            aria-busy={(busy && tapped === "decline") || undefined}
             data-testid="swap-decline"
-            className={`flex-1 min-h-[44px] vp-press disabled:opacity-50 ${FOCUS_RING}`}
+            className={`flex-1 min-h-[44px] vp-press${busy && tapped === "decline" ? "" : " disabled:opacity-50"} ${FOCUS_RING}`}
             style={BTN_QUIET}
           >
-            {t("portalSwapDecline", "Decline")}
+            <BusyLabel busy={busy && tapped === "decline"}>{t("portalSwapDecline", "Decline")}</BusyLabel>
           </button>
         </div>
       )}
@@ -5542,10 +5599,11 @@ function SwapRow({ swap, token, onChanged }) {
             type="button"
             onClick={withdraw}
             disabled={busy}
-            className={`min-h-[44px] inline-flex items-center vp-press disabled:opacity-50 ${FOCUS_RING}`}
+            aria-busy={busy || undefined}
+            className={`min-h-[44px] inline-flex items-center vp-press ${FOCUS_RING}`}
             style={{ padding: "0 16px", borderRadius: 999, ...CARD_BOX, color: INK, font: "600 13px/1 var(--font-text)" }}
           >
-            {t("portalSwapWithdraw", "Withdraw")}
+            <BusyLabel busy={busy}>{t("portalSwapWithdraw", "Withdraw")}</BusyLabel>
           </button>
         </div>
       )}
@@ -5647,10 +5705,11 @@ function GiveawaySellModal({ token, ownShifts, liveShiftId = null, onClose, onOf
         type="button"
         onClick={submit}
         disabled={!pickedId || submitting}
+        aria-busy={submitting || undefined}
         className={`w-full vp-press vp-l ${FOCUS_RING}`}
-        style={pineBtn(!pickedId || submitting, BTN_FULL)}
+        style={pineBtn(!pickedId, BTN_FULL)}
       >
-        {submitting ? "…" : t("portalGaSellSubmit", "Give it away")}
+        <BusyLabel busy={submitting}>{t("portalGaSellSubmit", "Give it away")}</BusyLabel>
       </button>
     </div>
   );
@@ -5813,10 +5872,11 @@ function SwapProposeModal({ token, ownShifts, liveShiftId = null, onClose, onPro
         type="button"
         onClick={submit}
         disabled={submitting || !fromShift || !toPicked}
+        aria-busy={submitting || undefined}
         className={`w-full vp-press vp-l ${FOCUS_RING}`}
-        style={pineBtn(submitting || !fromShift || !toPicked, BTN_FULL)}
+        style={pineBtn(!fromShift || !toPicked, BTN_FULL)}
       >
-        {submitting ? t("portalSending", "Sending…") : t("portalSwapSubmit", "Send swap request")}
+        <BusyLabel busy={submitting}>{submitting ? t("portalSending", "Sending…") : t("portalSwapSubmit", "Send swap request")}</BusyLabel>
       </button>
       <p className="text-center" style={{ margin: 0, font: "400 12px/1.4 var(--font-text)", color: MUTED }}>
         {t("portalSwapProposeHint", "Your colleague will see this in their inbox. If they accept, the two shifts swap automatically.")}
@@ -7459,11 +7519,12 @@ function AbsenceSection({ token, onChanged }) {
               type="button"
               onClick={submit}
               disabled={saving}
+              aria-busy={saving || undefined}
               data-testid="fravaer-submit"
               className={`w-full vp-press vp-l ${FOCUS_RING}`}
-              style={pineBtn(saving, BTN_FULL)}
+              style={pineBtn(false, BTN_FULL)}
             >
-              {saving ? t("portalSaving", "Saving…") : t("fravaerSubmit", "Send request")}
+              <BusyLabel busy={saving}>{saving ? t("portalSaving", "Saving…") : t("fravaerSubmit", "Send request")}</BusyLabel>
             </button>
             <button
               type="button"
@@ -9294,6 +9355,7 @@ export default function StaffPortalPage() {
   const [postalInput, setPostalInput] = useState("");
   const [cityInput, setCityInput] = useState("");
   const [emailSaving, setEmailSaving] = useState(false);
+  const [contactDone, flashContactDone] = useDoneFlash();   // Save's check (premium feel 1.7)
   const [emailMsg, setEmailMsg] = useState("");
   const [emailStatus, setEmailStatus] = useState(null); // "ok" | "err"
 
@@ -9981,6 +10043,7 @@ export default function StaffPortalPage() {
         city: res.data.city,
       });
       feel.soft();
+      flashContactDone();
       setEmailStatus("ok");
       setEmailMsg(t("portalSaved", "Saved"));
       setTimeout(() => { setEmailMsg(""); setEmailStatus(null); setShowEmailEdit(false); }, 1500);
@@ -10526,12 +10589,15 @@ export default function StaffPortalPage() {
                   </div>
                 </div>
               </div>
+              {/* The wait has a look and a yes has a check (premium feel 1.7);
+                  "Saved" below stays the words. */}
               <button
                 onClick={handleContactSave}
-                disabled={emailSaving}
-                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50 vp-press vp-l"
+                disabled={emailSaving || contactDone}
+                aria-busy={emailSaving || undefined}
+                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition vp-press vp-l"
               >
-                {emailSaving ? t("portalSaving", "Saving…") : t("portalSave", "Save")}
+                <BusyLabel busy={emailSaving} done={contactDone}>{emailSaving ? t("portalSaving", "Saving…") : t("portalSave", "Save")}</BusyLabel>
               </button>
               {emailMsg && (
                 <div className={`text-xs ${emailStatus === "ok" ? "text-emerald-700" : "text-red-600"}`}>{emailMsg}</div>
