@@ -7240,7 +7240,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
     <div
       className="flex flex-col"
       data-testid={pane ? "portal-chat-pane" : undefined}
-      style={pane ? { height: paneHeight(kb), minHeight: 360, background: CARD, border: `1px solid ${LINE}`, borderRadius: 24, overflow: "hidden" } : undefined}
+      style={pane ? { ...paneBox(kb, kbOpen), background: CARD, border: `1px solid ${LINE}`, borderRadius: 24, overflow: "hidden" } : undefined}
     >
       {(() => {
         const leaveBtn = isGroup && (
@@ -7640,6 +7640,39 @@ function paneHeight(kb = 0) {
   return `calc(${VP_IH} - var(--portal-head-h, 6.5rem) - 80px - var(--bb-consent-h, 0px) - ${kb}px)`;
 }
 
+// The Beskeder card's (and the split's pick pane's) box. A 360 px floor keeps
+// it a card while the keyboard is down. While it is UP the card ends at the
+// keyboard's top edge, as the shell does, with no floor: on a landscape iPad
+// (820 tall, a ≈420 px keyboard) the room left is ≈220 px, so the floor won
+// and the composer — the card's last row — sat under the keyboard (Vagtplan
+// 1.7 device pass, 12 Nov 2026). Portrait leaves ≈680 px and never hit it.
+// Android tablets: the window itself shrinks (kb 0, kbOpen true).
+function paneBox(kb = 0, kbOpen = false) {
+  return { height: paneHeight(kb), minHeight: kbOpen ? 0 : 360 };
+}
+
+// Wide iPad: the split's list column and its pick pane end at the keyboard
+// too, like the conversation card beside them — else the taller list keeps
+// the split row, and the shell, reaching under the keyboard. Their own small
+// components read the keyboard, so MessagesTab (and a phone's thread list)
+// does not re-render for it. The column is in the tree on every layout (a
+// rotation must not remount the list); off the split it is a plain div.
+function ThreadListColumn({ split, children }) {
+  const { lift: kb } = useKeyboardState();
+  return (
+    <div
+      className={split ? "min-w-0 overflow-y-auto overscroll-contain" : undefined}
+      style={split ? { maxHeight: paneHeight(kb), paddingRight: 2 } : undefined}
+    >
+      {children}
+    </div>
+  );
+}
+function PadKeyboardBox({ style, children, ...rest }) {
+  const { lift: kb, open: kbOpen } = useKeyboardState();
+  return <div {...rest} style={{ ...paneBox(kb, kbOpen), ...style }}>{children}</div>;
+}
+
 function MessagesTab({ token, restaurantName, takeCountTicket, refreshCount }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(null);
@@ -7690,10 +7723,7 @@ function MessagesTab({ token, restaurantName, takeCountTicket, refreshCount }) {
       data-testid={split ? "portal-messages-split" : undefined}
     >
       {keepList && (
-        <div
-          className={split ? "min-w-0 overflow-y-auto overscroll-contain" : undefined}
-          style={split ? { maxHeight: paneHeight(), paddingRight: 2 } : undefined}
-        >
+        <ThreadListColumn split={split}>
           <ThreadListView
             token={token}
             onOpen={setOpen}
@@ -7705,7 +7735,7 @@ function MessagesTab({ token, restaurantName, takeCountTicket, refreshCount }) {
             creating={creating}
             onCreatingChange={setCreating}
           />
-        </div>
+        </ThreadListColumn>
       )}
       {open ? (
         <Conversation
@@ -7729,10 +7759,10 @@ function MessagesTab({ token, restaurantName, takeCountTicket, refreshCount }) {
       ) : split ? (
         // Nothing opens on its own: opening a thread marks it read, and that
         // must stay the staffer's tap, not a side effect of the layout.
-        <div
+        <PadKeyboardBox
           className="flex flex-col items-center justify-center text-center"
           data-testid="portal-chat-pick"
-          style={{ height: paneHeight(), minHeight: 360, background: CARD, border: `1px solid ${LINE}`, borderRadius: 24, padding: 32 }}
+          style={{ background: CARD, border: `1px solid ${LINE}`, borderRadius: 24, padding: 32 }}
         >
           <MessageSquare size={32} strokeWidth={1.6} aria-hidden style={{ color: SAGE_BAR, marginBottom: 12 }} />
           <h3 style={{ margin: 0, font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
@@ -7741,7 +7771,7 @@ function MessagesTab({ token, restaurantName, takeCountTicket, refreshCount }) {
           <p style={{ margin: "6px 0 0", maxWidth: 320, font: "400 14px/1.45 var(--font-text)", color: MUTED }}>
             {t("staffChatPickBody", "Your conversations are on the left. Tap one to read and reply here.")}
           </p>
-        </div>
+        </PadKeyboardBox>
       ) : null}
     </div>
   );
