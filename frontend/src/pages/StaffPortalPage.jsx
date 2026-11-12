@@ -45,7 +45,7 @@ import RollingDigits from "../components/staff/RollingDigits";
 import { fitDockLabels } from "../components/staff/dockLabelFit";
 import { usePresence, useLastValue, closingProps, motionAllowed } from "../components/staff/sheetMotion";
 import { useSheetDrag } from "../components/staff/sheetDrag";
-import { beatFor, useHeroBeat, useBeatWindow, BREAK_MS } from "../components/staff/clockBeat";
+import { beatFor, useHeroBeat, useBeatWindow, sweepPhase, BREAK_MS } from "../components/staff/clockBeat";
 import { installPressFeel } from "../components/staff/pressFeel";
 import { feel } from "../components/staff/feel"; // the haptic words (1.4); the clock's own lines stay on haptic
 import { forgetAll, recall, remember } from "../components/staff/tabMemory";
@@ -2802,7 +2802,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           inert={heroLocked || undefined}
         >
           {heroSurface}
-          <LiveShiftCard clock={cardClock} live={live} menuBtn={menuBtn} />
+          {/* sweep: the seconds dot waits for the clock-in beat to finish,
+              and is gone while a clock-out's leave plays the card out. */}
+          <LiveShiftCard clock={cardClock} live={live} menuBtn={menuBtn} sweep={!beating} />
           {beatUi.phase !== "leave" && clockNotes}
         </section>
       ) : (
@@ -3740,19 +3742,45 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
 /** Seconds since the clock's last answer (`anchor`), +1 each second while
     `running`. The interval is made once per run, not per answer: a new
     answer only restarts the count, exactly as the old +1/s on liveSec did.
-    It lives in the live card so a tick re-renders the card alone. */
+    It lives in the live card so a tick re-renders the card alone.
+    `beatAt` is when the interval last fired (or was made): the seconds
+    sweep's sub-second phase. Written by the interval, read only in effects. */
 function useLiveTicks(anchor, running) {
   const [tk, setTk] = useState({ anchor, n: 0 });
   if (tk.anchor !== anchor) setTk({ anchor, n: 0 });   // a new answer re-anchors ("adjust while rendering")
+  const beatAt = useRef(0);
   useEffect(() => {
     if (!running) return undefined;
-    const id = setInterval(() => setTk((c) => ({ ...c, n: c.n + 1 })), 1000);
-    return () => clearInterval(id);
+    beatAt.current = Date.now();
+    const id = setInterval(() => { beatAt.current = Date.now(); setTk((c) => ({ ...c, n: c.n + 1 })); }, 1000);
+    return () => { clearInterval(id); beatAt.current = 0; };
   }, [running]);
-  return tk.anchor === anchor ? tk.n : 0;
+  return [tk.anchor === anchor ? tk.n : 0, beatAt];
 }
 
-function LiveShiftCard({ clock, live, menuBtn }) {
+/** The seconds sweep (Manoj, 12 Nov 2026: "this clock is nice, it just
+    doesn't show sec — like an analog watch would be really amazing"): a
+    small dot rides the ring's track round once a minute, linear, never
+    ticking. It is ONE element turned by a CSS animation (.vp-lc-sweep in
+    vagtplan.css, the compositor's: no per-frame JS, no layout). This is a
+    deliberate exception to "nothing loops", at his request: it is the
+    shown timer's seconds, not decoration. Its phase is set once, at mount,
+    as a negative animation-delay (sweepPhase: the shown seconds plus the
+    time since the tick); the card re-syncs it by remounting (key) on a new
+    answer, a pause, each minute's roll and a return to the app — so it
+    never drifts from the H:MM it sits around. */
+function SecondsSweep({ sec, beatAt, color }) {
+  const node = useRef(null);
+  const asked = useRef({ sec, beatAt });   // this mount's numbers; a re-sync is a new mount
+  useLayoutEffect(() => {
+    const { sec: s, beatAt: b } = asked.current;
+    const since = b.current ? Date.now() - b.current : 0;
+    if (node.current) node.current.style.animationDelay = `${(-sweepPhase(s, since)).toFixed(3)}s`;
+  }, []);
+  return <span ref={node} aria-hidden className="vp-lc-sweep" data-testid="portal-live-sweep" style={{ background: color }} />;
+}
+
+function LiveShiftCard({ clock, live, menuBtn, sweep = false }) {
   const { t, lang } = useLanguage();
   const confirmOut = useConfirm();
   const shortPhone = useShortPhone();
@@ -3769,7 +3797,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
   const shift = live?.shift || null;
   // The 1 s tick (moved here from useClock). During a clock-out's leave the
   // card is the snapshot of what it showed: nothing is added to it.
-  const ticks = useLiveTicks(clock.anchor, !!st.clocked_in && !clock.leaving);
+  const [ticks, beatAt] = useLiveTicks(clock.anchor, !!st.clocked_in && !clock.leaving);
   const add = clock.leaving ? 0 : ticks;
   const liveShown = clock.liveSec == null ? null : clock.liveSec + add;
   const breakShown = clock.breakSec == null ? null : clock.breakSec + add;
@@ -3849,6 +3877,28 @@ function LiveShiftCard({ clock, live, menuBtn }) {
   const knob = { x: 100 + 88 * Math.cos(angle), y: 100 + 88 * Math.sin(angle) };
   const ring = shortPhone ? "150px" : "min(184px, max(168px, 51vw))";
 
+  // The seconds sweep: the seconds of the timer in the middle (the pause's
+  // on a pause). Only while the clock runs, at rest (no beat, not leaving)
+  // and where motion is welcome; the reduce block in vagtplan.css hides it
+  // too, if the setting changes while it is on screen. Re-synced (a new
+  // mount) on a new answer, a pause, the minute's roll and a return.
+  const [wake, setWake] = useState(0);
+  useEffect(() => {
+    const back = () => { if (document.visibilityState === "visible") setWake((n) => n + 1); };
+    document.addEventListener("visibilitychange", back);
+    let resumeSub = null;
+    if (isNativeApp()) {
+      try { resumeSub = CapApp.addListener("resume", back); } catch { /* plugin missing: visibilitychange covers it */ }
+    }
+    return () => {
+      document.removeEventListener("visibilitychange", back);
+      Promise.resolve(resumeSub).then((l) => l?.remove?.()).catch(() => {});
+    };
+  }, []);
+  const shownSec = Math.max(0, Math.floor(onBreak ? breakSec : elapsed) || 0);
+  const sweepOn = sweep && !clock.leaving && !!st.clocked_in && motionAllowed();
+  const sweepKey = `${clock.anchor}.${onBreak ? "b" : "s"}.${Math.floor(shownSec / 60)}.${wake}`;
+
   // Stempl ud during a pause asks first: clock-out ends the pause, and a
   // pause that clock-out ends is not counted as a measured one (its end is a
   // guess) — the manager sees it. Never a silent tap.
@@ -3902,7 +3952,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
           data-testid="portal-live-ring"
           aria-label={ringAria}
           className="relative"
-          style={{ width: ring, height: ring }}
+          style={{ width: ring, height: ring, "--vp-ring": ring, "--vp-pine": PINE }}
         >
           <svg viewBox="0 0 200 200" aria-hidden className="block w-full h-full">
             {/* The faint track: rotated like the arc (a uniform circle, so it
@@ -3935,6 +3985,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
             ) : null}
             {totalSec && <circle className="vp-lc-knob" cx={knob.x.toFixed(1)} cy={knob.y.toFixed(1)} r="6" fill={CREAM} stroke={PINE} strokeWidth="3" />}
           </svg>
+          {sweepOn && <SecondsSweep key={sweepKey} sec={shownSec} beatAt={beatAt} color={onBreak ? SAGE : BRASS} />}
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center" style={{ gap: 4 }}>
             <span className="vp-lc-label" style={{ font: "600 10.5px/1 var(--font-text)", letterSpacing: "0.14em", textTransform: "uppercase", color: SAGE }}>
               {onBreak ? t("portalLiveOnBreak", "On break") : t("portalLiveOnShift", "On shift")}

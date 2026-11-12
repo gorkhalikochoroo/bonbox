@@ -446,6 +446,29 @@ body.portal-shell:has([data-vp-overlay]) [data-cookie-consent="banner"] { visibi
   50% { transform: scale(1.16); opacity: .7; }
 }
 
+/* The seconds sweep (Manoj, 12 Nov 2026: "like an analog watch would be
+   really amazing"). A small dot in the brass knob's family (sage on a
+   pause) rides the live card's ring track round once a minute: linear,
+   never ticking. A DELIBERATE exception to "nothing loops", at his request:
+   it is the shown timer's seconds, not decoration, and it shows only at
+   rest (never during a beat). The page sets its phase at mount (a negative
+   animation-delay) and re-syncs it by remounting, so the minute rolls as it
+   passes 12. One element, transform only (the compositor's), turned about
+   the ring's centre; the ring box carries its size (--vp-ring) and the pine
+   edge that keeps it readable over the arc. Under reduce it is not drawn. */
+.vp-lc-sweep {
+  position: absolute;
+  left: calc(var(--vp-ring) * .4825);
+  top: calc(var(--vp-ring) * .0425);
+  width: calc(var(--vp-ring) * .035);
+  height: calc(var(--vp-ring) * .035);
+  border-radius: 50%;
+  box-shadow: 0 0 0 calc(var(--vp-ring) * .0075) var(--vp-pine);
+  transform-origin: calc(var(--vp-ring) * .0175) calc(var(--vp-ring) * .4575);
+  pointer-events: none;
+  animation: vp-spin 60s linear infinite;
+}
+
 /* A count that appears (the Beskeder badge) pops in. */
 .vp-pop { animation: vp-pop var(--dur-spring) var(--spring) backwards; }
 @keyframes vp-pop { from { opacity: 0; transform: scale(.35); } }
@@ -634,6 +657,8 @@ body.portal-shell:has([data-vp-overlay]) [data-cookie-consent="banner"] { visibi
   .vp-bubble-in,
   .vp-msg-new { animation: none; }
   .vp-pending-fade { transition: none; }
+  /* The seconds sweep is motion only: under reduce it is not there. */
+  .vp-lc-sweep { display: none; animation: none; }
   /* RollingDigits draws no roll here at all; if one is ever on screen, only
      the new digit shows. */
   .vp-roll-out,

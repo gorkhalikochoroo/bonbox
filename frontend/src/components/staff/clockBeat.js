@@ -26,6 +26,21 @@ export const MOVE_EASE = "cubic-bezier(.32, .72, 0, 1)"; // --ease-nav (a test p
 export const FRESH_SEC = 120;
 export const CAP = 24;                            // the card's radius: the surface's caps never scale
 
+/**
+ * The seconds sweep (Manoj, 12 Nov 2026: "like an analog watch"): where the
+ * live card's seconds dot stands, in seconds into the minute (0 = 12 o'clock).
+ * `sec` is the timer the card SHOWS (the shift, or the pause on a pause), in
+ * whole seconds; `sinceTickMs` is how long ago that number last moved on the
+ * card's 1 s tick. So the dot is at 12 exactly when the H:MM minute rolls.
+ * Never a full second past the shown number (a late or sleeping tick).
+ */
+export const SWEEP_SEC = 60;
+export function sweepPhase(sec, sinceTickMs = 0) {
+  const s = Number.isFinite(sec) ? Math.floor(sec) : 0;
+  const frac = Math.min(Math.max(Number(sinceTickMs) || 0, 0), 999) / 1000;
+  return (((s % SWEEP_SEC) + SWEEP_SEC) % SWEEP_SEC) + frac;
+}
+
 /** What a CONFIRMED answer changed on this screen; null when it changed nothing. */
 export function beatFor(action, before, after) {
   if (!after || typeof after !== "object") return null;
