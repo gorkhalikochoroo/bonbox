@@ -368,15 +368,18 @@ describe("a checked-in customer keeps the place's name on a phone row (review mi
     expect(meta.className).toMatch(/(^|\s)flex-wrap(\s|$)/);
     expect(meta.textContent).toContain("Plads 1");
     expect(meta.textContent).toContain(da.rsvpStatusSeatedAppt);
-    // A booked (not yet checked-in) customer keeps the one line.
-    expect(rowOf("Peter Hansen").querySelector("[data-row-meta]").className).not.toMatch(/flex-wrap/);
+    // A booked (not yet checked-in) customer keeps the one line (from 380 px
+    // up; below it the live word may go under the place — rv2 fix round).
+    expect(rowOf("Peter Hansen").querySelector("[data-row-meta]").className).not.toMatch(/(^|\s)flex-wrap(\s|$)/);
   });
 
   it("a restaurant's seated row keeps its one line (unchanged)", async () => {
     resources = [place("p1", "Bord 1", 2), place("p2", "Bord 2", 2)];
     renderOwner("/reservations/stand", "restaurant");
     await settle(16);
-    expect(rowOf("Sofie").querySelector("[data-row-meta]").className).not.toMatch(/flex-wrap/);
+    // One line from 380 px up (below it the live word may go under the
+    // table, never cutting its name — rv2 fix round, review SHOULD 10).
+    expect(rowOf("Sofie").querySelector("[data-row-meta]").className).not.toMatch(/(^|\s)flex-wrap(\s|$)/);
   });
 });
 

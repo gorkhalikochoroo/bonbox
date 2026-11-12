@@ -100,8 +100,15 @@ describe("fitRoom", () => {
     expect(pos.auto).not.toEqual({ pos_x: 51, pos_y: 50 });
   });
 
+  it("says when the room cannot fit the size at all (left), so the list's side room can step aside", () => {
+    // Laptop: everything fits. The door screen's side column on an iPad in
+    // landscape (~470 × 294): tables would still overlap at MIN_SCALE.
+    expect(fitRoom(cells, layout, LAPTOP).left).toBe(0);
+    expect(fitRoom(cells, layout, { w: 470, h: 294 }).left).toBeGreaterThan(0);
+  });
+
   it("does nothing before the canvas has a size", () => {
-    expect(fitRoom(cells, layout, { w: 0, h: 0 })).toEqual({ scale: 1, pos: {}, moved: 0 });
+    expect(fitRoom(cells, layout, { w: 0, h: 0 })).toEqual({ scale: 1, pos: {}, moved: 0, left: 0 });
   });
 });
 

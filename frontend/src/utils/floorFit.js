@@ -71,12 +71,12 @@ function fixtureBox(f, W, H) {
  * @param layout   {id: {pos_x, pos_y, shape, capacity?, size_scale?, rotation_deg?}}
  * @param size     {w, h} canvas px
  * @param fixtures room objects [{kind, pos_x, pos_y, w_pct, h_pct, rotation_deg}]
- * @returns {scale, pos: {id: {pos_x, pos_y}}, moved: number}
+ * @returns {scale, pos: {id: {pos_x, pos_y}}, moved: number, left: number}
  */
 export function fitRoom(cells, layout, size, fixtures = []) {
   const W = size?.w || 0;
   const H = size?.h || 0;
-  if (!W || !H || !cells?.length) return { scale: 1, pos: {}, moved: 0 };
+  if (!W || !H || !cells?.length) return { scale: 1, pos: {}, moved: 0, left: 0 };
 
   const ids = cells.map((c) => String(c.res.id)).filter((id) => layout[id]);
   const resById = new Map(cells.map((c) => [String(c.res.id), c.res]));
@@ -119,7 +119,9 @@ export function fitRoom(cells, layout, size, fixtures = []) {
       pos_y: Math.round((n.y / H) * 1000) / 10,
     };
   });
-  return { scale: best.scale, pos, moved: movedCount };
+  // `left`: footprints that still overlap at MIN_SCALE — the room does not
+  // fit this size (a caller that can draw it elsewhere should).
+  return { scale: best.scale, pos, moved: movedCount, left: best.left };
 }
 
 function relax(ids, resById, layout, W, H, scale, walls) {

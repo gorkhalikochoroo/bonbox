@@ -60,6 +60,9 @@ export const STAND_SWAPS = {
   // stand-in's own import reaches the real sheet, in a lazy chunk.
   "components/reservations/NoTableFitsSheet.jsx": "stand/standNoTableFitsSheet.jsx",
   "components/reservations/EditBookingSheet.jsx": "stand/standEditBookingSheet.jsx",
+  // Reservations v2 (12 Nov 2026): the month rail behind the date button —
+  // a host rarely changes the day mid-service.
+  "components/reservations/DayRail.jsx": "stand/standDayRail.jsx",
 };
 
 // The app build lists its dictionary files here (in dist/, removed again by
@@ -97,6 +100,12 @@ export const STAND_SKIP_FILES = [
   "components/reservations/ContactBlocksCard.jsx",
   "components/reservations/PublicWaitlistSwitch.jsx",
   "components/reservations/SettingsJumpRow.jsx",
+  // Reservations v2 (12 Nov 2026): the owner page's week strip beside the
+  // tabs — the door screen never changes day — and the "I dag" strip, the
+  // owner page's (the door screen keeps its header counts and the cockpit
+  // strip, as the canvas's Host.dc.html draws it).
+  "components/reservations/WeekStrip.jsx",
+  "components/reservations/TonightStrip.jsx",
 ];
 /** Top-level functions (column 0 `function Name(` … column 0 `}`) never drawn
  *  on the door screen — the owner's tabs and cards. */

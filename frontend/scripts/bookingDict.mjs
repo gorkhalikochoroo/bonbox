@@ -105,6 +105,15 @@ export function bookingKeys(files, en) {
   return [...keys].sort();
 }
 
+/** One more language's words for the same keys — only those it has (a
+ *  missing one reads the page's English). The guest page's Portuguese
+ *  (reservations v2) ships this way, in its own chunk, loaded only when a
+ *  guest picks PT: a Danish or English guest downloads none of it. */
+export function pickBookingWords({ files, en, dict }) {
+  const keys = bookingKeys(files, en);
+  return Object.fromEntries(keys.filter((k) => Object.prototype.hasOwnProperty.call(dict || {}, k)).map((k) => [k, dict[k]]));
+}
+
 /** { da, en } holding exactly those keys, each language's own text. */
 export function buildBookingDict({ files, da, en }) {
   const keys = bookingKeys(files, en);

@@ -2,7 +2,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
-import { bookingGraph, buildBookingDict } from './scripts/bookingDict.mjs'
+import { bookingGraph, buildBookingDict, pickBookingWords } from './scripts/bookingDict.mjs'
 import { bookingBootScript } from './scripts/bookingBoot.mjs'
 import { appDictionaries, standHtml, standWords } from './scripts/standBuild.mjs'
 import { firstScreenCss, firstScreenFaces, firstScreenScript } from './scripts/landingFirstScreen.mjs'
@@ -303,6 +303,34 @@ function bookingDictionary() {
   }
 }
 
+// ── The guest page's Portuguese (reservations v2) ─────────────────
+// `virtual:bonbox-guest-words-pt` = { pt: {...} }: the same keys as the
+// booking dictionary, in European Portuguese from src/i18n/pt.js. NOT in the
+// booking dictionary's chunk (its name does not match /bonbox-booking-dict/
+// on purpose): src/lib/guestPortuguese.js imports it only when a guest picks
+// PT, so a Danish or English guest's page is unchanged by a byte.
+function guestWordsPortuguese() {
+  const VID = 'virtual:bonbox-guest-words-pt'
+  const RID = '\0' + VID
+  const file = (f) => new URL(f, import.meta.url)
+  return {
+    name: 'bonbox-guest-words-pt',
+    resolveId(id) {
+      if (id === VID) return RID
+    },
+    async load(id) {
+      if (id !== RID) return
+      const files = bookingGraph(fileURLToPath(file('./src')))
+      for (const f of files) this.addWatchFile(f)
+      const dicts = ['./src/i18n/en.js', './src/i18n/pt.js']
+      for (const f of dicts) this.addWatchFile(fileURLToPath(file(f)))
+      const stamp = Date.now()
+      const [{ en }, { pt }] = await Promise.all(dicts.map((f) => import(file(f).href + '?t=' + stamp)))
+      return `export default ${JSON.stringify({ pt: pickBookingWords({ files, en, dict: pt }) })};`
+    },
+  }
+}
+
 // ── The booking page's parse-time script (booking R5) ─────────────
 // scripts/bookingBoot.mjs: on a booking address only, it marks the page for
 // the scripts after it, picks the skeleton the first paint shows (instead of
@@ -361,7 +389,7 @@ export default defineConfig({
   // appDictionaries: the app build lists its dictionary files for the door
   // screen's build, which loads those instead of a second copy.
   plugins: [
-    react(), preloadDictionary(), preloadLanding(), bookingBoot(), landingFirstScreen(), bootDictionary(), bookingDictionary(),
+    react(), preloadDictionary(), preloadLanding(), bookingBoot(), landingFirstScreen(), bootDictionary(), bookingDictionary(), guestWordsPortuguese(),
     standHtml(), standWords(), appDictionaries(), schedulerIcons(), htmlDiet(),
   ],
   // Force the automatic JSX runtime everywhere — production already

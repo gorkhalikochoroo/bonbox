@@ -11,7 +11,7 @@
 //
 // en-GB, not en-US: day-before-month matches how the rest of this page
 // and every Danish guest reads a date.
-export const DATE_LOCALES = { da: "da-DK", en: "en-GB" };
+export const DATE_LOCALES = { da: "da-DK", en: "en-GB", pt: "pt-PT" };
 
 export function dateLocale(lang) {
   return DATE_LOCALES[lang] || "da-DK";

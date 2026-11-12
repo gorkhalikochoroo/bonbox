@@ -134,6 +134,7 @@ const FullNightOffer = lazy(loadFullNight);
 import { VenueHoursList, VenueHoursToggle } from "../components/VenueHours";
 import { PHONE_HOURS_ITEM, hasVenueWeek } from "../utils/venueHours";
 import { bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
+import { loadGuestPortuguese } from "../lib/guestPortuguese";
 
 // What that chunk needs from the page, handed over instead of imported there
 // (imported, the bundler moves these out of this chunk; FullNightOffer.jsx).
@@ -977,6 +978,19 @@ export default function ReservationPublicPage() {
   const slug = sameVenue ? asking.slug : routeSlug;
   const [searchParams, setSearchParams] = useSearchParams();
   const { t, lang, setLang } = useLanguage();
+  // DA · EN · PT (reservations v2): Portuguese brings its own words first —
+  // its chunk loads on the pick, so the page never flashes English keys.
+  const pickLang = useCallback(
+    (code) => {
+      if (!setLang) return;
+      if (code === "pt") {
+        loadGuestPortuguese().then((ok) => ok && setLang("pt"));
+        return;
+      }
+      setLang(code);
+    },
+    [setLang],
+  );
   const confirm = useConfirm();
   // A guest page: no consent banner over the booking form (lib/guestSurface).
   // Layout effect, so the mark is set before CookieConsent's own effect runs.
@@ -1577,7 +1591,7 @@ export default function ReservationPublicPage() {
   // ── ?lang= from an email link wins: the guest's own language ─────────
   useEffect(() => {
     const q = searchParams.get("lang");
-    if ((q === "da" || q === "en") && setLang) setLang(q);
+    if (q === "da" || q === "en" || q === "pt") pickLang(q);
     // Mount only — a later switch by the guest must not be undone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1605,7 +1619,7 @@ export default function ReservationPublicPage() {
       // Private mode / storage blocked → treat as no explicit choice.
       explicitChoice = false;
     }
-    if (!explicitChoice) setLang(venueLang);
+    if (!explicitChoice) pickLang(venueLang);
     // Run once per resolved venue language; a later explicit switch by the
     // visitor persists (setLang clears the auto flag) and is never clobbered
     // because page.language doesn't change.
@@ -2830,7 +2844,7 @@ export default function ReservationPublicPage() {
               the page falls back to the venue's language — the switch has to
               be here too, not only on the form. */}
           <div className="flex justify-end -mt-4 -mb-2">
-            <LangPill lang={lang} setLang={setLang} />
+            <LangPill lang={lang} setLang={pickLang} />
           </div>
           <div
             data-testid="rsvp-hero-icon"
@@ -3111,7 +3125,7 @@ export default function ReservationPublicPage() {
       page={page}
       t={t}
       lang={lang}
-      setLang={setLang}
+      setLang={pickLang}
       apptWords={apptWords}
       step={step}
       layout={layout}
@@ -3172,7 +3186,7 @@ export default function ReservationPublicPage() {
         {wide ? (
           <div data-testid="rsvp-card-top" className="flex items-center justify-between gap-3">
             <div className="min-w-0">{!pausedStep1 && <StepDots step={step} t={t} apptWords={apptWords} />}</div>
-            <LangPill lang={lang} setLang={setLang} />
+            <LangPill lang={lang} setLang={pickLang} />
           </div>
         ) : (
           !pausedStep1 && !compactHead && <StepDots step={step} t={t} apptWords={apptWords} />
@@ -4508,7 +4522,7 @@ export default function ReservationPublicPage() {
 // Each language is named in itself ("Dansk", "English") for a screen reader —
 // it read the bare codes "da" / "en" — and marked with its own `lang`, so the
 // name is pronounced in that language. The group is named in both.
-const LANG_NAMES = { da: "Dansk", en: "English" };
+const LANG_NAMES = { da: "Dansk", en: "English", pt: "Português" };
 
 // G10 (judge 27 Oct, item 2): a segmented switch in the page's own shapes —
 // a 12 px track and 8 px segments, not a capsule. 32 px drawn (min-h-0!
@@ -4520,7 +4534,7 @@ function LangPill({ lang, setLang }) {
       aria-label="Sprog · Language"
       className="bb-seg shrink-0 flex items-center p-0.5 rounded-xl bg-gray-100 dark:bg-gray-800"
     >
-      {["da", "en"].map((code) => (
+      {["da", "en", "pt"].map((code) => (
         <button
           key={code}
           type="button"

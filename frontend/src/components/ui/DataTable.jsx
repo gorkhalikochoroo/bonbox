@@ -104,6 +104,9 @@ const BREAKPOINT_TABLE_HIDE = {
   xl: "hidden xl:block",
   // 1360: wide enough for a five-column book with three row actions.
   wide: "hidden min-[1360px]:block",
+  // The book beside the live room (reservations v2): the list column is
+  // ~60 % of the page, so the full table only from 1920.
+  split: "hidden min-[1920px]:block",
 };
 const BREAKPOINT_CARDS_HIDE = {
   sm: "sm:hidden",
@@ -111,6 +114,7 @@ const BREAKPOINT_CARDS_HIDE = {
   lg: "lg:hidden",
   xl: "xl:hidden",
   wide: "min-[1360px]:hidden",
+  split: "min-[1920px]:hidden",
 };
 
 function resolveKey(row, rowKey, idx) {

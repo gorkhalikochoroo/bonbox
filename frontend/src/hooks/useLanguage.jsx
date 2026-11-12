@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LANGUAGES } from "../i18n/languageCatalog";
 import { loadLocale, loadedLocales, localesFor } from "../lib/localeStore";
-import { PAGE_WORDS_ON, pageDictFor, pageDictVersion, subscribePageDict } from "../lib/pageDict";
+import { PAGE_WORDS_ON, hasPageDict, pageDictFor, pageDictVersion, subscribePageDict } from "../lib/pageDict";
 import { isBookingPathNow } from "../lib/bookingPath";
 import { isReplaceableTitle, shellTitle } from "../lib/shellTitles";
 import { CURRENCY_LANG_MAP, LANG_RULE, pickInitialLanguage } from "../lib/languageRule";
@@ -107,8 +107,11 @@ export function detectInitialLanguage() {
 // ~10 KB for Danish AND English) — a guest's phone no longer downloads the
 // ~200 KB full dictionary at all. Only for the two languages it carries; any
 // other language loads as before.
+// Portuguese (reservations v2) is a page language too, once the guest page's
+// own Portuguese words are in (lib/guestPortuguese.js registers them before
+// it switches): a PT guest no longer downloads the full pt.js + en.js.
 const PAGE_LANGS = new Set(["da", "en"]);
-const onBookingPage = (code) => PAGE_WORDS_ON && PAGE_LANGS.has(code) && isBookingPathNow();
+const onBookingPage = (code) => PAGE_WORDS_ON && (PAGE_LANGS.has(code) || hasPageDict(code)) && isBookingPathNow();
 
 export function LanguageProvider({ children }) {
   const [lang, setLangState] = useState(() => {

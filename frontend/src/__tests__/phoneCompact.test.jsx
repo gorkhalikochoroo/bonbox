@@ -513,7 +513,26 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // "couldn't load the tables" box (+1 role, +2 button with their onClick:
     // "Try again" and "Add to waitlist"), with the existing words (no new
     // t() keys). Was { onClick: 75, role: 35, button: 53 }.
-    "pages/ReservationsPage.jsx": { onClick: 77, onChange: 53, onSubmit: 10, ariaLabel: 59, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 36, title: 24, id: 22, testid: 23, Button: 24, button: 55, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 708 },
+    // Reservations v2 (12 Nov 2026) ADDED, nothing removed: the stand header's
+    // Find gæst and "N venter" (+2 button, +2 onClick), the side room's
+    // heading id (+1 id, its aside is aria-labelledby), and 7 t() keys (the
+    // row's live words rsvpLiveAtTable/DueNow/Soon/Min, rsvpSideFloorTitle,
+    // rsvpTnLive, rsvpStandFindGuest). The "I dag" strip and the week strip
+    // live in their own files (TonightStrip.jsx, WeekStrip.jsx). Was
+    // { onClick: 77, button: 55, id: 22, tKeys: 708 }.
+    // And MOVED, nothing removed: the month day rail (DayRail — 4 onClick,
+    // 4 aria-label, 1 role, 4 button, its 26 t() keys) to
+    // components/reservations/DayRail.jsx, so the door screen's build loads
+    // it on first use (its JS budget); the day helpers to utils/serviceDay.js.
+    // Each moved file is pinned below. Was { onClick: 79, ariaLabel: 59,
+    // role: 36, button: 57, tKeys: 715 }.
+    // Fix round (12 Nov 2026) ADDED, nothing removed: the compact row's
+    // Udeblevet on a late party (+1 button, +1 onClick, +1 disabled) — the
+    // phone, the iPad, the door screen and the list beside the room had the
+    // no-show only in the drawer. Was { onClick: 75, button: 53, disabled: 27 }.
+    "pages/ReservationsPage.jsx": { onClick: 76, onChange: 53, onSubmit: 10, ariaLabel: 55, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 35, title: 24, id: 23, testid: 23, Button: 24, button: 54, Link: 5, disabled: 28, to: 5, href: 3, tKeys: 689 },
+    "components/reservations/DayRail.jsx": { onClick: 4, ariaLabel: 4, role: 1, button: 4, tKeys: 26 },
+    "utils/serviceDay.js": { tKeys: 3 },
     "components/reservations/EditBookingSheet.jsx": { onClick: 7, onChange: 7, onSubmit: 1, ariaLabel: 2, ariaPressed: 1, role: 3, id: 7, Button: 5, button: 2, disabled: 2, tKeys: 30 },
     "hooks/useSheetFocus.js": { role: 2, tKeys: 0 },
     "utils/snapStart.js": { tKeys: 4 },

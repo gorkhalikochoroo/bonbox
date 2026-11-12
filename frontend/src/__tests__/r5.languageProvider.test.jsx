@@ -122,6 +122,20 @@ describe("on the booking page (Danish or English)", () => {
     warn.mockRestore();
   });
 
+  it("Portuguese, once the page's own PT words are in, is a page language: no full pt.js + en.js", async () => {
+    // Reservations v2 fix round (12 Nov 2026): a PT guest downloaded ~200 KB
+    // of dictionaries the separate PT chunk was meant to spare them.
+    const { LanguageProvider, useLanguage, registerPageDict, loadLocale } = await freshProvider({ stored: "da" });
+    useLang = useLanguage;
+    registerPageDict({ ...PAGE_WORDS, pt: { rsvpConfirm: "Confirmar reserva" } });
+    render(<LanguageProvider><Probe /></LanguageProvider>);
+    await act(async () => switchLang("pt"));
+    expect(screen.getByTestId("lang").textContent).toBe("pt");
+    expect(screen.getByTestId("word").textContent).toBe("Confirmar reserva");
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(loadLocale).not.toHaveBeenCalled();
+  });
+
   it("another language still paints at once (the page's English), its own pack loading behind", async () => {
     const { LanguageProvider, useLanguage, registerPageDict, loadLocale } = await freshProvider({ stored: "tr" });
     useLang = useLanguage;

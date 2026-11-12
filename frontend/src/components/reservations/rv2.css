@@ -1,0 +1,146 @@
+/* Reservations v2 — the canvas's quiet ivory, brass and sage, and the
+ * Orvexlo type (Sora display + DM Sans body), scoped to `.rv2`: the owner
+ * reservations page and the host stand put it on their root. Nothing outside
+ * that root matches. Canvas: bonbox-lab-state/design-departments-2026-11-11/
+ * canvas-export/project/Reservations*.dc.html, Host*.dc.html.
+ *
+ * Imported by pages/ReservationsPage.jsx only — it rides the page's lazy
+ * chunk (and the door screen's own build), never main.jsx or the landing.
+ * The canvas draws Geist; the Orvexlo family is the house type (Vagtplan),
+ * so the two products read as one. Latin per weight; the latin-ext rules in
+ * the staff portal's stylesheet stay the portal's (a name like Łukasz falls
+ * back to the system face here).
+ *
+ * Colour always means something: sage = at the table, brass = arriving /
+ * the one thing to do next, coral = late. Dark mode keeps the same meanings
+ * on the app's dark surfaces (a designed dark stand is a separate decision).
+ */
+@import "@fontsource/sora/latin-600.css";
+@import "@fontsource/sora/latin-700.css";
+@import "@fontsource/dm-sans/latin-400.css";
+@import "@fontsource/dm-sans/latin-500.css";
+@import "@fontsource/dm-sans/latin-600.css";
+
+.rv2 {
+  --rv-ink: #1A1917;
+  --rv-ink-2: #4A4640;
+  --rv-muted: #6F6A63;
+  --rv-line: #DEDAD1;
+  --rv-hair: rgba(26, 25, 23, 0.10);
+  --rv-card: #FFFFFF;
+  --rv-ivory: #F7F5F0;
+  --rv-track: #EFECE5;
+  --rv-brass: #C8A464;
+  --rv-brass-ink: #8A6A2E;
+  --rv-brass-soft: #F4EEE1;
+  --rv-sage: #3F7A5C;
+  --rv-sage-soft: #EDF1EC;
+  --rv-sage-dot: #8FB3A0;
+  --rv-coral: #B5523A;
+  --rv-coral-soft: #F6E8E3;
+  --rv-quiet-dot: #B8B2A4;
+  --rv-display: 'Sora', 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --rv-text: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --rv-spring: cubic-bezier(.34, 1.4, .64, 1);
+  --rv-ease-out: cubic-bezier(.2, .8, .2, 1);
+  font-family: var(--rv-text);
+  -webkit-font-smoothing: antialiased;
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  .rv2 {
+    --rv-spring: linear(0, .014 1.8%, .061 3.8%, .151 6.3%, .327 10%, .65 16.5%, .808 20.3%, .926 23.8%, 1.012 27.3%, 1.071 31%, 1.103 35%, 1.109 40%, 1.076 48%, 1.011 61.3%, .989 72.5%, 1);
+  }
+}
+.dark .rv2,
+.dark.rv2 {
+  --rv-ink: #EDEAE3;
+  --rv-ink-2: #CFC9BE;
+  --rv-muted: #A39E95;
+  --rv-line: rgba(237, 234, 227, 0.16);
+  --rv-hair: rgba(237, 234, 227, 0.10);
+  --rv-card: rgb(var(--surface-card));
+  --rv-ivory: rgb(var(--surface-subtle, var(--surface-card)));
+  --rv-track: rgba(237, 234, 227, 0.07);
+  --rv-brass-ink: #D8B878;
+  --rv-brass-soft: rgba(200, 164, 100, 0.14);
+  --rv-sage: #9CC9B0;
+  --rv-sage-soft: rgba(156, 201, 176, 0.12);
+  --rv-sage-dot: #7FA690;
+  --rv-coral: #E79A86;
+  --rv-coral-soft: rgba(231, 154, 134, 0.12);
+  --rv-quiet-dot: #6E736F;
+}
+
+/* Display type: headings and the numbers that stand in a column (Sora has
+   tabular figures; DM Sans as shipped does not). */
+.rv2 h1,
+.rv2 h2,
+.rv2 .rv2-display {
+  font-family: var(--rv-display);
+  letter-spacing: -0.02em;
+}
+.rv2 .rv2-num {
+  font-family: var(--rv-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+/* Press: a quick damped press, a spring back (the Vagtplan kit's values). */
+.rv2 .rv2-press {
+  transition:
+    scale 0.5s var(--rv-spring),
+    background-color 0.18s var(--rv-ease-out),
+    border-color 0.18s var(--rv-ease-out),
+    color 0.18s var(--rv-ease-out),
+    box-shadow 0.18s var(--rv-ease-out);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.rv2 .rv2-press:active:not(:disabled) {
+  scale: 0.96;
+  transition-duration: 0.11s;
+  transition-timing-function: var(--rv-ease-out);
+}
+.rv2 .rv2-tint {
+  transition: background-color 0.18s var(--rv-ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+.rv2 .rv2-tint:hover { background-color: color-mix(in srgb, var(--rv-brass-soft) 55%, transparent); }
+
+/* The "I aften" row: one card, hairline dividers. */
+.rv2 .rv2-kpis {
+  background: var(--rv-card);
+  border: 1px solid var(--rv-hair);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.rv2 .rv2-kpi + .rv2-kpi { box-shadow: inset 1px 0 0 var(--rv-hair); }
+@media (max-width: 1023.98px) {
+  .rv2 .rv2-kpi + .rv2-kpi { box-shadow: none; }
+}
+.rv2 .rv2-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rv-track);
+  overflow: hidden;
+}
+.rv2 .rv2-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--rv-sage);
+  transform-origin: left center;
+  transition: transform 0.6s var(--rv-ease-out);
+}
+
+/* Live dot (sage), breathing slowly while the screen is live. */
+@keyframes rv2-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.rv2 .rv2-live-dot { animation: rv2-breathe 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rv2 .rv2-press,
+  .rv2 .rv2-tint,
+  .rv2 .rv2-bar > span { transition: none; }
+  .rv2 .rv2-press:active:not(:disabled) { scale: none; }
+  .rv2 .rv2-live-dot { animation: none; }
+}
