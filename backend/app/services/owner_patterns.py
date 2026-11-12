@@ -638,6 +638,10 @@ def run_for_user(user: User, db: Session) -> int:
 def run_for_all_users(db: Session, max_users: int = 1000) -> dict:
     """Batch run for the scheduled nightly job."""
     users = db.query(User).limit(max_users).all()
+    # Every non-DKK owner's business country in ONE query: today_local()
+    # needs it for the venue's zone, and would otherwise look it up per owner.
+    from app.services.tz_utils import prime_business_country
+    prime_business_country(db, users)
     out = {"processed": 0, "patterns_added": 0}
     for u in users:
         added = run_for_user(u, db)

@@ -896,10 +896,11 @@ def get_portal_schedule_ics(token: str, request: Request, db: Session = Depends(
         Schedule.date <= week_start + timedelta(days=56),
         Schedule.status == "published",
     ).order_by(Schedule.date, Schedule.start_time).all()
-    # The zone comes from the venue's COUNTRY, not users.timezone alone: that
-    # column is the owner's browser zone (re-synced at every login), so a
-    # Danish owner on holiday in Kathmandu would move every shift. DK / unset
-    # country, or a DKK owner -> the old Copenhagen file, byte for byte.
+    # The zone is NOT users.timezone alone: that column is the owner's browser
+    # zone (re-synced at every login), so a Danish owner on holiday in
+    # Kathmandu would move every shift. A DKK owner -> the old Copenhagen
+    # file, byte for byte; a non-DKK owner: Portugal -> Lisbon zones, else
+    # the stored zone when valid (feed_zone; country DK is only a default).
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == link.user_id).first()
     tz_name = feed_zone(

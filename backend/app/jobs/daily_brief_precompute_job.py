@@ -104,11 +104,16 @@ def precompute_daily_briefs(
         # The owner's own row only: never an invited seat or a revisor login.
         users = [u for u in users if str(u.role or "owner").lower() in _OWNER_ROLES]
         out["candidates"] = len(users)
-        cutoffs = dict(
-            db.query(BusinessProfile.user_id, BusinessProfile.day_cutoff_hour)
+        # Cutoff + business country in one query: the country decides the
+        # venue's zone (tz_utils.venue_zone), so no per-owner lookup later.
+        prof_rows = (
+            db.query(BusinessProfile.user_id, BusinessProfile.day_cutoff_hour,
+                     BusinessProfile.country)
             .filter(BusinessProfile.user_id.in_([u.id for u in users]))
             .all()
-        ) if users else {}
+        ) if users else []
+        cutoffs = {uid: cut for uid, cut, _ in prof_rows}
+        countries = {uid: (c or "") for uid, _, c in prof_rows}
 
         for user in users:
             if out["generated"] >= MAX_PER_RUN:
@@ -119,6 +124,7 @@ def precompute_daily_briefs(
             try:
                 if cutoffs.get(user.id) is not None:
                     user.day_cutoff_hour = cutoffs[user.id]
+                user.business_country = countries.get(user.id, "")
                 if not _business_day_has_begun(user, today):
                     out["skipped_not_rolled_over"] += 1
                     continue

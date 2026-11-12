@@ -1342,10 +1342,17 @@ def fallback_brief(p: Precompute, candidates: list[Candidate], user: User | None
 
 
 def _greeting_for(user: User | None = None) -> str:
-    """Time-aware greeting in the USER'S timezone — not UTC. Falls back
-    to UTC if the user has no timezone set or the zone string is invalid
+    """Time-aware greeting in the VENUE's timezone — not UTC, and not the
+    owner's browser zone (a Danish owner who logged in abroad is greeted on
+    Danish time). Falls back to UTC if there is no zone or it is invalid
     (won't crash on bad data)."""
-    tz_name = getattr(user, "timezone", None) if user is not None else None
+    tz_name = None
+    if user is not None:
+        try:
+            from app.services.tz_utils import owner_tz_name
+            tz_name = owner_tz_name(user)
+        except Exception:  # noqa: BLE001
+            tz_name = None
     now_utc = utc_now()
     h = now_utc.hour
     if tz_name:

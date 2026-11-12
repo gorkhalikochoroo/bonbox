@@ -83,16 +83,17 @@ def _hash(raw: str) -> str:
 
 
 def created_on(user: User) -> date:
-    """The day the account was created, in the owner's own timezone (the date
-    the question names). created_at is stored as naive UTC."""
+    """The day the account was created, in the VENUE's timezone (the date
+    the question names; a Danish owner signing up abroad still gets the
+    Danish day). created_at is stored as naive UTC."""
+    from zoneinfo import ZoneInfo
     created = getattr(user, "created_at", None) or utc_now()
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
     try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo((getattr(user, "timezone", None) or "Europe/Copenhagen"))
+        from app.services.tz_utils import venue_zone
+        tz = venue_zone(user)
     except Exception:  # noqa: BLE001 — an unknown zone name never blocks a sign-in
-        from zoneinfo import ZoneInfo
         tz = ZoneInfo("Europe/Copenhagen")
     return created.astimezone(tz).date()
 
