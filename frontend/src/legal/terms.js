@@ -105,7 +105,7 @@ export const PRIVACY_PUSH_DAY_PLACEHOLDER = "2099-12-31";
    push day is not known yet, so this is the placeholder again: the release
    packet sets the Copenhagen push day here (privacyUpdatedPushDay.test.js is
    red until it does — on purpose). Then rebuild the staff bundle. */
-export const PRIVACY_UPDATED = PRIVACY_PUSH_DAY_PLACEHOLDER;
+export const PRIVACY_UPDATED = "2026-11-12";
 
 /* The fallback copy in the old Supabase project (database and files moved to
    Frankfurt on 20 Oct 2026; the old project is kept unchanged as a fallback

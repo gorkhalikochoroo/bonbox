@@ -78,7 +78,16 @@ describe("committed staff web bundle (ios-scheduler/App/App/public)", () => {
   // printing the old date at their next Xcode Cloud build. Push-day order: set PRIVACY_UPDATED →
   // `npm run build:scheduler-app` → commit ios-scheduler/App/App/public/ and capacitor.config.json.
   // The bundle stores the dates as string literals (backticks after minification).
-  it("carries terms.js's privacy date (and, while the fallback row is on, its deletion day): rebuilt after a date change", async () => {
+  //
+  // 12 Nov 2026 push (Manoj, option B): the iPhone Vagtplan stays at the live 1.6 (branch vagtplan-1.6, NOT in
+  // this push), so this folder is deliberately not rebuilt in it and the project still says 1.5. No iPhone build
+  // is submitted from it (Xcode Cloud's 1.5 from main must not go to App Store Connect). The vagtplan-1.6
+  // integration (next work item, then iPhone 1.7) rebuilds the folder and moves MARKETING_VERSION off 1.5,
+  // which arms this check again by itself. Never widen this to any other version.
+  const staffMarketingVersion = fs
+    .readFileSync(path.join(FRONTEND, "ios-scheduler/App/App.xcodeproj/project.pbxproj"), "utf8")
+    .match(/MARKETING_VERSION = ([\d.]+);/)?.[1];
+  it.skipIf(staffMarketingVersion === "1.5")("carries terms.js's privacy date (and, while the fallback row is on, its deletion day): rebuilt after a date change", async () => {
     const { PRIVACY_UPDATED, PRIVACY_PUSH_DAY_PLACEHOLDER, IRELAND_COPY_ROW, IRELAND_COPY_DELETE_BY } = await import("../legal/terms");
     const literal = (d) => new RegExp("[`\"']" + d.replace(/-/g, "\\-") + "[`\"']");
     expect(bundle).toMatch(literal(PRIVACY_UPDATED));
