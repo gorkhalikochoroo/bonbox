@@ -49,7 +49,9 @@ OWNER = ["ADMIN_EMAIL", "SUPER_ADMIN_EMAILS"]
 # BonBox's own per-user token, when KDS issues one, goes there and only there.
 # The OSM kill switch is sync: false so a Blueprint sync can never switch it
 # back on. Added to this test on purpose.
-GEO = ["ADDRESS_REGISTER_TOKEN", "GEO_OSM_ENABLED"]
+# The official map's Dataforsyningen token (staff venue card, 12 Nov 2026):
+# a secret, listed by name, no value.
+GEO = ["ADDRESS_REGISTER_TOKEN", "GEO_OSM_ENABLED", "DATAFORSYNINGEN_TOKEN"]
 
 REQUIRED = SECRETS + STORAGE + BACKUP + MAIL_OPS + STRIPE + PUSH + APPLE + URLS + SMS + OCR + INBOX + FLAGS + BANK + OWNER + GEO
 SECRET_GROUPS = SECRETS + STORAGE + BACKUP + MAIL_OPS + STRIPE + PUSH + SMS + OCR + INBOX + BANK + OWNER + GEO

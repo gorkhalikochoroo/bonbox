@@ -3,8 +3,12 @@
  * shows on the next-shift card (Vagtplan R2).
  *
  * The pin comes, in order, from a map link the owner pasted, the clock-in
- * geofence anchor, or the address looked up once (DAWA, then OpenStreetMap's
- * Nominatim) when this card first loads — never from a staff request. A
+ * geofence anchor, or the address looked up once (Danmarks Adresseregister,
+ * then OpenStreetMap's Nominatim) when this card first loads — never from a
+ * staff request. When neither lookup answers, the server stores nothing and
+ * says `lookup_down`: the card says the lookup is down (not "not found") and
+ * the next visit asks again. A looked-up pin carries its data credit
+ * (Klimadatastyrelsen or OpenStreetMap) under the address. A
  * looked-up pin is a GUESS until the owner says "Ja, det passer"; staff see
  * the map only after that. A wrong pin is fixed by pasting a map link, which
  * counts as confirmed (the owner chose it). An address change drops the pin
@@ -152,7 +156,7 @@ export default function VenuePinCheck({ className = "" }) {
         <div className="min-w-0">
           <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("venuePinTitle", "Map on your staff's shift card")}</div>
           <p className="text-[12px] text-gray-500 dark:text-gray-400 leading-snug">
-            {t("venuePinHelp", "Staff see a small map of your place and a Directions button. BonBox draws it from OpenStreetMap — no map company sees your staff.")}
+            {t("venuePinHelp", "Staff see a small map of your place and a Directions button. BonBox draws it from Denmark's official map (Klimadatastyrelsen), with OpenStreetMap as backup — no map company sees your staff.")}
           </p>
         </div>
       </div>
@@ -176,6 +180,19 @@ export default function VenuePinCheck({ className = "" }) {
       {data?.address_line && (
         <div className="text-[12px] text-gray-600 dark:text-gray-300">{data.address_line}</div>
       )}
+      {/* Where a looked-up pin came from: the address register's credit, or
+          OpenStreetMap's (ODbL) for a Nominatim pin. A pasted link or the
+          geofence anchor carries no third-party data. */}
+      {pin?.source === "nominatim" && (
+        <p data-testid="venue-pin-osm-credit" className="text-[11px] text-gray-400 dark:text-gray-500">
+          {t("schedGeoOsmCredit", "Map data © OpenStreetMap contributors")}
+        </p>
+      )}
+      {pin?.source === "dawa" && (
+        <p data-testid="venue-pin-register-credit" className="text-[11px] text-gray-400 dark:text-gray-500">
+          {t("addrRegisterCredit", "Address data: Klimadatastyrelsen")}
+        </p>
+      )}
 
       {!canEdit ? (
         <p className="text-[12px] text-gray-600 dark:text-gray-300">
@@ -187,10 +204,12 @@ export default function VenuePinCheck({ className = "" }) {
         </p>
       ) : !pin ? (
         <>
-          <p className="text-[12px] text-gray-600 dark:text-gray-300">
-            {data?.address_line
-              ? t("venuePinNotFound", "We couldn't find that address on the map. Paste a map link instead.")
-              : t("venuePinNoAddress", "Add your address under Profile, or paste a map link.")}
+          <p data-testid={data?.lookup_down ? "venue-pin-lookup-down" : undefined} className="text-[12px] text-gray-600 dark:text-gray-300">
+            {data?.lookup_down
+              ? t("venuePinLookupDown", "The map lookup isn't answering right now. Try again in a few minutes, or paste a map link.")
+              : data?.address_line
+                ? t("venuePinNotFound", "We couldn't find that address on the map. Paste a map link instead.")
+                : t("venuePinNoAddress", "Add your address under Profile, or paste a map link.")}
           </p>
           {linkForm}
         </>
@@ -242,7 +261,7 @@ export default function VenuePinCheck({ className = "" }) {
 
       {msg && <div role="alert" className="text-[12px] text-red-600 dark:text-red-400">{msg}</div>}
       <p className="text-[11px] text-gray-400 dark:text-gray-500">
-        {t("portalMapCredit", "Map: OpenFreeMap · OpenMapTiles · © OpenStreetMap contributors")}
+        {t("portalMapCredit", "Map: Klimadatastyrelsen, Skærmkort (CC BY 4.0) · OpenFreeMap · OpenMapTiles · © OpenStreetMap contributors. Colours changed by BonBox.")}
       </p>
     </div>
   );

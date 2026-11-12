@@ -146,7 +146,7 @@ describe("Meld syg — two taps from home, two ways, one form", () => {
     fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
     const sheet = await screen.findByTestId("portal-shift-menu");
     // The full map credit lives in the sheet.
-    expect(sheet.textContent).toContain("Kort: OpenFreeMap · OpenMapTiles · © OpenStreetMap-bidragydere");
+    expect(sheet.textContent).toContain("Kort: Klimadatastyrelsen, Skærmkort (CC BY 4.0) · OpenFreeMap · OpenMapTiles · © OpenStreetMap-bidragydere. Farver ændret af BonBox.");
     fireEvent.click(within(sheet).getByTestId("portal-menu-sick"));
     expect(screen.queryByTestId("portal-shift-menu")).toBeNull();
 

@@ -768,8 +768,9 @@ def get_portal_venue_map(token: str, request: Request, w: int = 336, h: int = 96
       200 — the drawn map (cached as a row; drawn on first ask).
       204 — no confirmed pin (the owner has not checked it yet, or the
             address changed since), or no profile.
-      204 — the drawing failed (OpenFreeMap down, bad tile); retried after
-            24 h. The card then shows the address and Rute without a map.
+      204 — the drawing failed (the official map AND OpenFreeMap down, or a
+            bad tile); retried after 24 h. The card then shows the address
+            and Rute without a map.
 
     PIN-gated like every data endpoint (the app fetches it as a blob with the
     proof header), and `private` always: a shared cache gains nothing here
@@ -781,7 +782,8 @@ def get_portal_venue_map(token: str, request: Request, w: int = 336, h: int = 96
     new URL, so a phone (or WKWebView) that keeps the old image keeps it under
     the old URL and never shows it for the new place. Without `v`, or with a
     stale one, the answer is `no-cache`: the phone must ask every time and the
-    ETag turns that into a cheap 304.
+    ETag (pin, size, style and the image's bytes) turns that into a cheap
+    304.
 
     `style` — "pine" (the staff card's dark pine map, canvas "Pine, ivory &
     brass") or "paper" (the default; anything else is read as paper). It is
@@ -795,14 +797,16 @@ def get_portal_venue_map(token: str, request: Request, w: int = 336, h: int = 96
     if pin is None or not pin.confirmed:
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
     w, h, dpr = vm.clamp_size(w, h, dpr)
-    etag = vm.etag_for(pin, w, h, dpr, style)
     cache = "private, max-age=604800" if v and v == vm.map_version(pin) else "private, no-cache"
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache})
     owner_id = link.user_id
     outcome, png = vm.get_map(db, owner_id, pin, w, h, dpr, style=style)
     if outcome != "ok" or not png:
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
+    # The ETag carries the image's bytes too: the same pin can be redrawn from
+    # the other map source, and a phone must then get it, not a 304.
+    etag = vm.etag_for(pin, w, h, dpr, style, png)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache})
     return Response(
         content=png,
         media_type="image/png",

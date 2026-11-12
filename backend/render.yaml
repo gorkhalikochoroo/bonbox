@@ -68,6 +68,11 @@ services:
       # Blueprint sync must never switch a kill switch back on.
       - key: GEO_OSM_ENABLED
         sync: false
+      # Klimadatastyrelsen's Dataforsyningen token: the official Danish map
+      # (Skaermkort) on the staff app's venue card. Unset = OpenStreetMap only.
+      # A secret: pasted in Render only.
+      - key: DATAFORSYNINGEN_TOKEN
+        sync: false
       - key: COMPANIES_HOUSE_API_KEY
         sync: false
       # Production marker so security headers + log filtering activate

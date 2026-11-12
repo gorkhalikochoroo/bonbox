@@ -1,0 +1,12 @@
+Real Skaermkort vector tiles, recorded once on 12 Nov 2026 for the venue-map
+tests (tests/test_venue_map_sources.py).
+
+Source: Klimadatastyrelsen, Vector Tiles - Skaermkort (GeoDanmark data),
+https://api.dataforsyningen.dk/rest/skaermkort_vector_tiles/v1.0/EPSG:3857/
+Licence: CC BY 4.0. (c) Klimadatastyrelsen.
+
+Area: central Copenhagen around Raadhuspladsen (55.6757 N, 12.5696 E), the
+z16 tiles a 448 x 96 CSS px card at that pin needs. File names are
+kds_<z>_<x>_<y>.mvt.gz (the URL puts y before x). Each file is the tile's
+bytes, gzipped; nothing else. The request token was sent as a header and is
+in no file here.

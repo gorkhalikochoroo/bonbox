@@ -4175,7 +4175,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
           })}
         </div>
         <p className="text-center" style={{ margin: "16px 0 0", font: "400 11px/1.4 var(--font-text)", color: "#66716B" }}>
-          {t("portalMapCredit", "Map: OpenFreeMap · OpenMapTiles · © OpenStreetMap contributors")}
+          {t("portalMapCredit", "Map: Klimadatastyrelsen, Skærmkort (CC BY 4.0) · OpenFreeMap · OpenMapTiles · © OpenStreetMap contributors. Colours changed by BonBox.")}
         </p>
       </div>
     </div>,

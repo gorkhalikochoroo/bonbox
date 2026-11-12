@@ -358,6 +358,7 @@ def no_geocoding(monkeypatch):
     monkeypatch.setattr(venue_locate, "from_address", refuse)
     monkeypatch.setattr(venue_locate, "from_place_name", refuse)
     monkeypatch.setattr(venue_locate, "from_map_link", refuse)
+    monkeypatch.setattr(venue_locate, "resolve_outcome", refuse)
 
 
 @pytest.fixture
@@ -411,28 +412,28 @@ def test_source_order_maplink_then_geofence_then_address(db):
 
 
 def test_ensure_pin_looks_the_address_up_once_dawa_then_nominatim(db):
-    _, p, _ = _seed(db)
+    """One question (register first, then OpenStreetMap, inside
+    venue_locate.resolve_outcome); an OpenStreetMap hit is stored as
+    "nominatim", unconfirmed."""
+    from app.services.address_lookup import Outcome
+
+    u, p, _ = _seed(db)
     asked = []
 
     class Locate:
         @staticmethod
-        def from_address(q):
-            asked.append(("dawa", q))
-            return None
-
-        @staticmethod
-        def from_place_name(q):
-            asked.append(("nominatim", q))
-            return {"lat": 55.687, "lng": 12.553, "source": "place_name"}
+        def resolve_outcome(q, user_key=None):
+            asked.append((q, user_key))
+            return Outcome.FOUND, {"lat": 55.687, "lng": 12.553, "source": "place_name", "provider": "osm"}, None
 
     pin = vm.ensure_pin(db, p, locate=Locate)
-    assert asked == [("dawa", "Solsikkegade 7, 2200 København N"), ("nominatim", "Solsikkegade 7, 2200 København N")]
+    assert asked == [("Solsikkegade 7, 2200 København N", str(u.id))]   # the owner's own budget
     assert pin == vm.Pin(55.687, 12.553, "nominatim", False)
     db.refresh(p)
     assert p.venue_geo_source == "nominatim" and p.venue_geo_confirmed_at is None
     # A second check does not ask again.
     assert vm.ensure_pin(db, p, locate=Locate) == pin
-    assert len(asked) == 2
+    assert len(asked) == 1
     # Confirm, then a map link moves it, confirmed.
     assert vm.confirm_pin(db, p).confirmed is True
 
@@ -508,30 +509,131 @@ def test_portal_hides_a_moved_geofence_pin(client, db, fake_render, no_geocoding
 
 def test_a_lookup_that_finds_nothing_is_not_repeated_on_every_visit(client, db, as_owner, monkeypatch):
     from app.services import venue_locate
+    from app.services.address_lookup import Outcome
 
     u, p, _ = _seed(db)
     p.address, p.zipcode, p.city = "Rua Augusta 10", "1100-053", "Lisboa"
     db.commit()
     as_owner(u)
-    calls = {"dawa": 0, "nominatim": 0}
-    monkeypatch.setattr(venue_locate, "from_address", lambda q: calls.__setitem__("dawa", calls["dawa"] + 1))
-    monkeypatch.setattr(venue_locate, "from_place_name", lambda q: calls.__setitem__("nominatim", calls["nominatim"] + 1))
+    calls = {"n": 0}
+
+    def not_found(q, user_key=None):
+        calls["n"] += 1
+        return Outcome.NOT_FOUND, None, None
+    monkeypatch.setattr(venue_locate, "resolve_outcome", not_found)
     for _ in range(3):
-        assert client.get("/api/staff/venue-location").json()["pin"] is None
-    assert calls == {"dawa": 1, "nominatim": 1}
+        r = client.get("/api/staff/venue-location").json()
+        assert r["pin"] is None and "lookup_down" not in r     # a real miss, not "couldn't check"
+    assert calls == {"n": 1}
     db.refresh(p)
     assert p.venue_geo_source == vm.GEO_NONE and p.venue_geo_at is not None and p.venue_lat is None
     # After the back-off it asks again…
     p.venue_geo_at = utc_now() - vm.LOOKUP_RETRY - timedelta(minutes=1)
     db.commit()
     client.get("/api/staff/venue-location")
-    assert calls == {"dawa": 2, "nominatim": 2}
+    assert calls == {"n": 2}
     # …and an address change asks at once.
     p.address = "Rua Augusta 12"
     db.commit(); db.refresh(p)
     assert p.venue_geo_source is None
     client.get("/api/staff/venue-location")
-    assert calls == {"dawa": 3, "nominatim": 3}
+    assert calls == {"n": 3}
+
+
+def test_couldnt_check_is_not_a_miss_nothing_is_stored_and_the_next_visit_asks(client, db, as_owner, monkeypatch):
+    """Plan 3.5: the register AND OpenStreetMap not answering writes no
+    "none" and no 14-day wait; the owner's check gets 200 lookup_down."""
+    from app.services import venue_locate
+    from app.services.address_lookup import Outcome
+
+    u, p, _ = _seed(db)
+    as_owner(u)
+    answers = [(Outcome.UNAVAILABLE, None, None), (Outcome.UNAVAILABLE, None, None),
+               (Outcome.FOUND, {"lat": 55.6872, "lng": 12.5532, "source": "address", "provider": "dar"}, None)]
+    monkeypatch.setattr(venue_locate, "resolve_outcome", lambda q, user_key=None: answers.pop(0))
+    for _ in range(2):
+        r = client.get("/api/staff/venue-location")
+        assert r.status_code == 200 and r.json()["lookup_down"] is True and r.json()["pin"] is None
+        db.refresh(p)
+        assert (p.venue_lat, p.venue_geo_source, p.venue_geo_at) == (None, None, None)
+    r = client.get("/api/staff/venue-location").json()
+    assert "lookup_down" not in r
+    assert r["pin"] == {"lat": 55.6872, "lng": 12.5532, "source": "dawa", "confirmed": False}
+    assert answers == []
+
+
+def test_a_register_hit_is_stored_as_dawa_and_an_osm_hit_as_nominatim(db):
+    from app.services.address_lookup import Outcome
+
+    for provider, source, stored in (("dar", "address", "dawa"), ("osm", "place_name", "nominatim")):
+        _, p, _ = _seed(db)
+
+        class Locate:
+            @staticmethod
+            def resolve_outcome(q, user_key=None, provider=provider, source=source):
+                return Outcome.FOUND, {"lat": 55.68, "lng": 12.55, "source": source, "provider": provider}, None
+        assert vm.ensure_pin(db, p, locate=Locate) == vm.Pin(55.68, 12.55, stored, False)
+
+
+def test_no_database_connection_is_held_while_the_lookup_is_out(db):
+    from app.services.address_lookup import Outcome
+
+    _, p, _ = _seed(db)
+    p.venue_geo_source = None
+    db.commit()
+    db.refresh(p)                       # a transaction is open, as in the GET
+    assert db.in_transaction()
+    seen = []
+
+    class Locate:
+        @staticmethod
+        def resolve_outcome(q, user_key=None):
+            seen.append(db.in_transaction())
+            return Outcome.NOT_FOUND, None, None
+    assert vm.ensure_pin(db, p, locate=Locate) is None
+    assert seen == [False]
+
+
+def test_a_pin_set_while_the_lookup_was_out_never_moves(db, Session):
+    """The owner pasted a map link (or confirmed a pin) in another request
+    while ours was asking: the looked-up point is not written over it."""
+    from app.services.address_lookup import Outcome
+
+    _, p, _ = _seed(db)
+    pid = p.id
+
+    class Locate:
+        @staticmethod
+        def resolve_outcome(q, user_key=None):
+            other = Session()
+            row = other.get(BusinessProfile, pid)
+            row.venue_lat, row.venue_lng, row.venue_geo_source = 55.70, 12.50, "maplink"
+            row.venue_geo_at = row.venue_geo_confirmed_at = utc_now()
+            other.commit()
+            other.close()
+            return Outcome.FOUND, {"lat": 55.1, "lng": 12.1, "source": "address", "provider": "dar"}, None
+    assert vm.ensure_pin(db, p, locate=Locate) == vm.Pin(55.70, 12.50, "maplink", True)
+    db.refresh(p)
+    assert (p.venue_lat, p.venue_lng, p.venue_geo_source) == (55.70, 12.50, "maplink")
+
+
+def test_an_address_changed_while_the_lookup_was_out_drops_the_answer(db, Session):
+    from app.services.address_lookup import Outcome
+
+    _, p, _ = _seed(db)
+    pid = p.id
+
+    class Locate:
+        @staticmethod
+        def resolve_outcome(q, user_key=None):
+            other = Session()
+            other.get(BusinessProfile, pid).address = "Jægersborggade 12"
+            other.commit()
+            other.close()
+            return Outcome.FOUND, {"lat": 55.1, "lng": 12.1, "source": "address", "provider": "dar"}, None
+    assert vm.ensure_pin(db, p, locate=Locate) is None
+    db.refresh(p)
+    assert (p.venue_lat, p.venue_geo_source) == (None, None)   # the new address is asked on the next visit
 
 
 def test_a_branch_address_change_drops_only_that_branchs_pin(db):
@@ -688,12 +790,13 @@ def as_owner():
 def test_owner_pin_check_looks_up_confirms_and_takes_a_map_link(client, db, as_owner, monkeypatch, fake_render):
     from app.services import venue_locate
 
+    from app.services.address_lookup import Outcome
+
     u, p, tok = _seed(db)
     as_owner(u)
     asked = []
-    monkeypatch.setattr(venue_locate, "from_address",
-                        lambda q: asked.append(q) or {"lat": VENUE[0], "lng": VENUE[1], "source": "address"})
-    monkeypatch.setattr(venue_locate, "from_place_name", lambda q: None)
+    monkeypatch.setattr(venue_locate, "resolve_outcome", lambda q, user_key=None: asked.append(q) or (
+        Outcome.FOUND, {"lat": VENUE[0], "lng": VENUE[1], "source": "address", "provider": "dar"}, None))
 
     r = client.get("/api/staff/venue-location").json()
     assert r == {"address_line": "Solsikkegade 7, 2200 København N",
@@ -727,6 +830,8 @@ def test_owner_confirm_without_a_pin_is_refused(client, db, as_owner, monkeypatc
     as_owner(u)
     monkeypatch.setattr(venue_locate, "from_address", lambda q: None)
     monkeypatch.setattr(venue_locate, "from_place_name", lambda q: None)
+    monkeypatch.setattr(venue_locate, "resolve_outcome", lambda q, user_key=None: (_ for _ in ()).throw(
+        AssertionError("no address, no lookup")))
     assert client.get("/api/staff/venue-location").json()["pin"] is None
     r = client.put("/api/staff/venue-location", json={"confirm": True})
     assert r.status_code == 409 and r.json()["detail"]["error"] == "no_pin"
@@ -745,6 +850,7 @@ def test_a_delegated_seat_only_reads_the_pin_check(client, db, as_owner, monkeyp
         raise AssertionError("geocoder called for a delegated seat")
     monkeypatch.setattr(venue_locate, "from_address", refuse)
     monkeypatch.setattr(venue_locate, "from_place_name", refuse)
+    monkeypatch.setattr(venue_locate, "resolve_outcome", refuse)
     for marker in ("_is_member_view", "_is_accountant_view"):
         seat = db.get(User, u.id)
         setattr(seat, marker, True)

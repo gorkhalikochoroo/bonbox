@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     # requires that we can stop at their request without an app update: set
     # false in Render.
     GEO_OSM_ENABLED: bool = True
+    # Klimadatastyrelsen's Dataforsyningen token for the official Danish map
+    # (Skaermkort vector tiles) on the staff app's venue card
+    # (services/venue_map.py). A SECRET: set it in Render only, never in code,
+    # a bundle or a log; it is sent as the HTTP header `token`, never in a URL.
+    # Empty = the map is drawn from OpenStreetMap (OpenFreeMap) only, exactly
+    # as before; set = official first, OpenStreetMap as the automatic fallback.
+    DATAFORSYNINGEN_TOKEN: str = ""
     ADMIN_EMAIL: str = ""  # Get notified on new signups
     # Operator ops alerts (R-i, services/ops_alert.py): one capped,
     # deduplicated, customer-data-free alert path. Sent only when

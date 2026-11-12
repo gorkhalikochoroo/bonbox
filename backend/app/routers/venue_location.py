@@ -2,10 +2,14 @@
 
   GET /api/staff/venue-location  — the venue pin as it stands; on the
                                    OWNER's first check with no pin, it is
-                                   looked up once from the address (DAWA,
-                                   then Nominatim) and stored unconfirmed (a
-                                   miss is remembered too). Never from a staff
-                                   request, and never for a delegated seat.
+                                   looked up once from the address (Danmarks
+                                   Adresseregister, then OpenStreetMap) and
+                                   stored unconfirmed (a miss is remembered
+                                   too). Never from a staff request, and never
+                                   for a delegated seat. When neither lookup
+                                   answers: 200 with `lookup_down: true` and
+                                   nothing stored (never a 5xx: GETs are
+                                   replayed on any 5xx).
   PUT /api/staff/venue-location  — {"confirm": true}  "Ja, det passer"
                                    {"map_link": url}  "Pin forkert? Indsæt et
                                    kortlink" (re-resolved server-side through
@@ -94,8 +98,16 @@ def get_venue_location(
                 "can_edit": not _delegated(user)}
     # Only the owner's own visit may look the address up (an outbound request
     # and a write on their profile); a delegated seat reads the pin as it is.
-    pin = vm.current_pin(profile) if _delegated(user) else vm.ensure_pin(db, profile)
-    return _status(db, user, profile, pin)
+    if _delegated(user):
+        pin, down = vm.current_pin(profile), False
+    else:
+        pin, down = vm.ensure_pin_outcome(db, profile)
+    out = _status(db, user, profile, pin)
+    if down:
+        # "Couldn't check right now", not "not found": nothing was stored,
+        # and the next visit asks again.
+        out["lookup_down"] = True
+    return out
 
 
 @router.put("/venue-location")
@@ -152,5 +164,5 @@ def get_owner_venue_map(
     return Response(
         content=png,
         media_type="image/png",
-        headers={"ETag": vm.etag_for(pin, w, h, dpr), "Cache-Control": cache},
+        headers={"ETag": vm.etag_for(pin, w, h, dpr, png=png), "Cache-Control": cache},
     )

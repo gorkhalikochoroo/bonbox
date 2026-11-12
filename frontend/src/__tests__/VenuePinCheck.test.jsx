@@ -56,7 +56,10 @@ describe("VenuePinCheck", () => {
     mount();
     expect(await screen.findByText("Sidder nålen rigtigt?")).toBeInTheDocument();
     expect(screen.getByText("Personalet ser kortet, når du har bekræftet.")).toBeInTheDocument();
-    expect(screen.getByText("Kort: OpenFreeMap · OpenMapTiles · © OpenStreetMap-bidragydere")).toBeInTheDocument();
+    expect(screen.getByText("Kort: Klimadatastyrelsen, Skærmkort (CC BY 4.0) · OpenFreeMap · OpenMapTiles · © OpenStreetMap-bidragydere. Farver ændret af BonBox.")).toBeInTheDocument();
+    // A register pin carries the register's credit, not OpenStreetMap's.
+    expect(screen.getByTestId("venue-pin-register-credit").textContent).toBe("Adressedata: Klimadatastyrelsen");
+    expect(screen.queryByTestId("venue-pin-osm-credit")).toBeNull();
     const img = await screen.findByAltText("Kort med den nål, personalet ser");
     expect(img.getAttribute("src")).toBe("blob:owner-map");
     expect(get).toHaveBeenCalledWith("/staff/venue-map?w=368&h=96&dpr=2&v=aaaa1111", { responseType: "blob" });
@@ -126,6 +129,29 @@ describe("VenuePinCheck", () => {
     expect(screen.getByLabelText("Indsæt et link fra Google Maps eller Apple Kort")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ja, det passer" })).toBeNull();
     await waitFor(() => expect(get).toHaveBeenCalledTimes(1));   // no map request without a pin
+  });
+
+  it("the lookup is down: says so (not 'not found'), offers the link, and no pin is claimed", async () => {
+    location = { address_line: "Solsikkegade 7, 2200 København N", pin: null, staff_see_map: false, lookup_down: true, can_edit: true };
+    mount();
+    expect((await screen.findByTestId("venue-pin-lookup-down")).textContent)
+      .toBe("Kortopslaget svarer ikke lige nu. Prøv igen om lidt, eller indsæt et kortlink.");
+    expect(screen.queryByText("Vi kunne ikke finde adressen på kortet. Indsæt et kortlink i stedet.")).toBeNull();
+    expect(screen.getByLabelText("Indsæt et link fra Google Maps eller Apple Kort")).toBeInTheDocument();
+  });
+
+  it("an OpenStreetMap pin carries OpenStreetMap's credit; a pasted link carries none", async () => {
+    location = { ...UNCONFIRMED, pin: { ...UNCONFIRMED.pin, source: "nominatim" } };
+    const { unmount } = mount();
+    expect((await screen.findByTestId("venue-pin-osm-credit")).textContent).toBe("Kortdata © OpenStreetMap contributors");
+    expect(screen.queryByTestId("venue-pin-register-credit")).toBeNull();
+    expect(screen.getByText(/Danmarks officielle kort \(Klimadatastyrelsen\) med OpenStreetMap som reserve/)).toBeInTheDocument();
+    unmount();
+    location = { ...UNCONFIRMED, pin: { ...UNCONFIRMED.pin, source: "maplink", confirmed: true }, staff_see_map: true };
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Skift" }));
+    expect(screen.queryByTestId("venue-pin-osm-credit")).toBeNull();
+    expect(screen.queryByTestId("venue-pin-register-credit")).toBeNull();
   });
 
   it("renders nothing while loading or when the check cannot be read", async () => {

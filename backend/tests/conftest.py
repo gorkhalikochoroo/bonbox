@@ -49,6 +49,11 @@ _LIVE_GEO_TOKEN = (
 os.environ["ADDRESS_REGISTER_TOKEN"] = ""
 os.environ["ADDRESS_REGISTER_ENABLED"] = "false"
 os.environ["GEO_OSM_ENABLED"] = "false"
+# The staff venue map's official source (services/venue_map.py) is off in
+# tests: no token = OpenStreetMap only, and every map test draws from a
+# synthetic or recorded tile. A test that wants the official source sets the
+# token on settings itself and routes the calls through a mock transport.
+os.environ["DATAFORSYNINGEN_TOKEN"] = ""
 
 
 @pytest.fixture
@@ -87,6 +92,9 @@ def _reset_app_rate_limits() -> None:
     if lookup is not None:  # breakers, cache, per-user budget, OSM spacing
         lookup.reset_state()
         lookup.set_transport(None)
+    vmap = sys.modules.get("app.services.venue_map")
+    if vmap is not None:  # map source breakers, tile caches, test transport
+        vmap.reset_state()
     signals = sys.modules.get("app.utils.abuse_signals")
     if signals is not None:  # in-process abuse counters (the abuse monitor drains them)
         signals.reset()
