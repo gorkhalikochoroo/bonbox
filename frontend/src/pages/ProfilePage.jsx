@@ -2404,11 +2404,12 @@ function TypeChangeSummary({ plan, tools = null, keepOption = true, t }) {
     return p ? t(labelKeyFor(p, arch)) : id;
   };
   const tool = (d) => t(labelKeyFor(d, arch));
-  // Tools that leave the menu with the type. Every one the gate can hide has
-  // a usage signal (keepWhenUsed) — it would have stayed if used — so "not
-  // used yet" is true for those; any other is named without a reason.
-  const toolsHiddenUnused = (tools?.hide || []).filter((d) => d.keepWhenUsed);
-  const toolsHiddenOther = (tools?.hide || []).filter((d) => !d.keepWhenUsed);
+  // Tools that leave the menu with the type. One with a usage signal
+  // (keepWhenUsed) that is NOT used is "not used yet"; one the owner uses
+  // that leaves anyway (an archetype hide: egenkontrol for a salon, R1b) and
+  // any other is named without a reason (typeGateDelta marks `used`).
+  const toolsHiddenUnused = (tools?.hide || []).filter((d) => d.keepWhenUsed && !d.used);
+  const toolsHiddenOther = (tools?.hide || []).filter((d) => !d.keepWhenUsed || d.used);
   const moduleName = (id) => (MODULE_COPY[id] ? t(MODULE_COPY[id].nameKey) : id);
   const hh = (h) => String(h).padStart(2, "0") + ":00";
   const lines = [];

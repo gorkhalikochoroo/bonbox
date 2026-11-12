@@ -1,4 +1,4 @@
-"""Shared harness for the Egenkontrol R1a tests (not a test module).
+"""Shared harness for the Egenkontrol R1a + R1b tests (not a test module).
 
 A fresh in-memory SQLite per test, real bearer tokens (so the member write
 guard, the member read guard and the shared-device PIN gate all run for
@@ -158,12 +158,105 @@ class Env:
         assert r.status_code == 200, r.text
         return r.json()
 
+    # ── R1b helpers ─────────────────────────────────────────────────────
+    def folder(self, owner, **params):
+        r = self.client.get("/api/egenkontrol/folder", params=params, headers=self.h(owner))
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def pair(self, owner, **body):
+        """A paired kitchen iPad → its token."""
+        r = self.client.post("/api/egenkontrol/devices", json=body, headers=self.h(owner))
+        assert r.status_code == 201, r.text
+        j = self.client.post("/api/stand/join", json={"code": r.json()["code"]})
+        assert j.status_code == 200, j.text
+        return j.json()["path"].rsplit("/", 1)[-1]
+
+    def paper(self, owner, check_id, value, measured_date, measured_time, *,
+              reason="Nettet var nede", headers=None, **kw):
+        body = {"client_id": str(uuid.uuid4()), "check_id": check_id, "value_c": value,
+                "measured_date": str(measured_date), "measured_time": measured_time,
+                "paper_reason": reason}
+        if "staff_id" not in kw and "typed_name" not in kw:
+            body["typed_name"] = "Mia"
+        body.update(kw)
+        return self.client.post("/api/egenkontrol/paper-entries", json=body,
+                                headers=headers or self.h(owner))
+
+    def correct(self, owner, entry_id, reason_code="typo", *, headers=None, client_id=None, **kw):
+        body = {"client_id": client_id or str(uuid.uuid4()), "entry_id": entry_id,
+                "reason_code": reason_code}
+        body.update(kw)
+        return self.client.post("/api/egenkontrol/corrections", json=body,
+                                headers=headers or self.h(owner))
+
+    def photo(self, owner, entry_id, data=None, *, headers=None, name="foto.jpg"):
+        return self.client.post(f"/api/egenkontrol/entries/{entry_id}/photo",
+                                files={"file": (name, data if data is not None else jpeg_bytes(),
+                                                "image/jpeg")},
+                                headers=headers or self.h(owner))
+
+    def doc(self, owner, data=None, *, title="Egenkontrolprogram 2026",
+            doc_type="programme", headers=None, name="program.pdf"):
+        form = {}
+        if title is not None:
+            form["title"] = title
+        if doc_type is not None:
+            form["doc_type"] = doc_type
+        return self.client.post("/api/egenkontrol/documents", data=form,
+                                files={"file": (name, data if data is not None else PDF_BYTES,
+                                                "application/pdf")},
+                                headers=headers or self.h(owner))
+
+
+# ── R1b files ───────────────────────────────────────────────────────────
+
+PDF_BYTES = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+             b"2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+
+
+def jpeg_bytes(size=(640, 480), color=(30, 90, 200), gps=False) -> bytes:
+    import io
+    from PIL import Image
+    img = Image.new("RGB", size, color)
+    buf = io.BytesIO()
+    if gps:
+        exif = Image.Exif()
+        exif[0x010F] = "PhoneMaker"            # Make
+        exif[0x8825] = {1: "N", 2: (55.0, 40.0, 0.0), 3: "E", 4: (12.0, 34.0, 0.0)}
+        img.save(buf, format="JPEG", quality=90, exif=exif)
+    else:
+        img.save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+def png_bytes(size=(320, 240)) -> bytes:
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGBA", size, (200, 40, 40, 128)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def store(tmp_path, monkeypatch):
+    """A LocalStorageBackend in a throwaway dir (never Supabase)."""
+    from app.services import storage as storage_mod
+    monkeypatch.setenv("LOCAL_UPLOADS_ROOT", str(tmp_path / "uploads"))
+    monkeypatch.setattr(storage_mod.settings, "SUPABASE_URL", "", raising=False)
+    monkeypatch.setattr(storage_mod.settings, "SUPABASE_SERVICE_KEY", "", raising=False)
+    storage_mod.reset_storage_for_tests()
+    yield storage_mod.get_storage()
+    storage_mod.reset_storage_for_tests()
+
 
 def _reset_limiters():
     from app.routers import egenkontrol as ek_router
+    from app.routers import egenkontrol_files as ek_files_router
     from app.routers import kitchen_link as kitchen_router
     from app.routers import stand_link as stand_router
-    for lim in (ek_router.limiter, kitchen_router.limiter, stand_router.limiter):
+    for lim in (ek_router.limiter, ek_files_router.limiter, kitchen_router.limiter,
+                stand_router.limiter):
         try:
             lim.reset()
         except Exception:  # noqa: BLE001

@@ -1,4 +1,4 @@
-"""Egenkontrol R1a — POSTGRES-ONLY checks (plan "Postgres-only checks").
+"""Egenkontrol R1a + R1b — POSTGRES-ONLY checks (plan "Postgres-only checks").
 
 SKIPPED unless BONBOX_PG_TEST_URL points at a THROWAWAY local Postgres
 database (superuser; e.g. one Docker container, alone on the Mac). There is no
@@ -36,6 +36,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 TABLES = ("kitchen_links", "food_checks", "food_check_revisions", "food_check_entries",
           "food_check_settings")
+R1B_TABLES = ("food_check_reviews", "food_check_documents", "food_check_photos")
 
 
 def _engine(schema: str):
@@ -218,6 +219,7 @@ def test_rls_deny_anon_is_restrictive_on_the_five_tables(pg):
             "WHERE p.polname = 'rls_deny_anon' AND NOT p.polpermissive AND n.nspname = :s"
         ), {"s": pg["schema"]}).scalars().all()
     assert set(TABLES) <= set(rows)
+    assert set(R1B_TABLES) <= set(rows)                 # R1b: the sweep covers 089 too
 
 
 def test_the_088_ddl_types_match_create_all(pg):
@@ -231,7 +233,10 @@ def test_the_088_ddl_types_match_create_all(pg):
             start = next(i for i, sql in enumerate(main._migrations)
                          if "CREATE TABLE IF NOT EXISTS kitchen_links" in sql)
             for sql in main._migrations[start:]:
-                if sql.lstrip().startswith(("CREATE TABLE", "CREATE INDEX", "CREATE UNIQUE")):
+                # R1b: Migration 089's two ADD COLUMNs on 088 tables run too —
+                # create_all now builds those columns.
+                if sql.lstrip().startswith(("CREATE TABLE", "CREATE INDEX", "CREATE UNIQUE",
+                                            "ALTER TABLE")):
                     c.execute(text(sql))
         q = ("SELECT table_name, column_name, data_type, character_maximum_length, "
              "numeric_precision, numeric_scale, is_nullable FROM information_schema.columns "
@@ -245,6 +250,15 @@ def test_the_088_ddl_types_match_create_all(pg):
         with eng.connect() as c:
             ix = set(c.execute(text(q_ix), {"s": ddl, "t": list(TABLES)}).scalars().all())
         assert {"ux_food_check_entries_client", "ix_food_check_entries_open_dev"} <= ix
+        # R1b: the three 089 tables, typed as create_all types them
+        with pg["engine"].connect() as c:
+            created = c.execute(text(q), {"s": pg["schema"], "t": list(R1B_TABLES)}).all()
+        with eng.connect() as c:
+            migrated = c.execute(text(q), {"s": ddl, "t": list(R1B_TABLES)}).all()
+            ix = set(c.execute(text(q_ix), {"s": ddl, "t": list(R1B_TABLES)}).scalars().all())
+        assert created and [tuple(r) for r in created] == [tuple(r) for r in migrated]
+        assert {"ux_food_check_reviews_week", "ix_food_check_documents_user",
+                "ux_food_check_photos_entry", "ix_food_check_photos_user"} <= ix
     finally:
         eng.dispose()
 
@@ -321,3 +335,118 @@ def test_pdf_local_times_on_postgres_in_winter_and_summer(pg, clock):
         assert f"kl. 08:00 {value} kl. 08:30" in txt, txt[:400]
     s.close()
     assert timedelta  # noqa: B018
+
+
+# ── R1b (Migration 089) ─────────────────────────────────────────────────
+
+def test_r1b_a_correction_void_once_then_nothing(pg, clock):
+    eng, s = pg["engine"], pg["Session"]()
+    o = _owner(s, "Ret")
+    fridge = _setup(s, o)["fridge"]
+    p = {"id": _save(s, o, fridge, 3.1)}
+    _ok(eng, "UPDATE food_check_entries SET voided_at = now(), void_reason = 'correction' "
+             "WHERE id = :id", p)
+    _refused(eng, "UPDATE food_check_entries SET void_reason = 'undo' WHERE id = :id", p)
+    _refused(eng, "UPDATE food_check_entries SET voided_at = NULL, void_reason = NULL WHERE id = :id", p)
+    _refused(eng, "UPDATE food_check_entries SET value_c = 9.9 WHERE id = :id", p)
+    q = {"id": _save(s, o, fridge, 3.2)}
+    _refused(eng, "UPDATE food_check_entries SET voided_at = now(), void_reason = 'x' WHERE id = :id", q)
+    s.close()
+
+
+def test_r1b_reason_text_is_immutable_after_insert(pg, clock):
+    from app.schemas.egenkontrol import PaperEntryIn
+    from app.services import egenkontrol_records as REC
+
+    eng, s = pg["engine"], pg["Session"]()
+    o = _owner(s, "Papir")
+    fridge = _setup(s, o)["fridge"]
+    clock.t = datetime(2026, 11, 13, 9, 0)
+    body = PaperEntryIn(client_id=str(uuid.uuid4()), check_id=fridge, value_c=3.0,
+                        typed_name="Mia", measured_date=date(2026, 11, 12),
+                        measured_time="08:10", paper_reason="Nettet var nede")
+    out, _ = REC.save_paper_entry(s, o, body, via="owner_app", actor_user_id=o.id)
+    p = {"id": out["id"]}
+    _refused(eng, "UPDATE food_check_entries SET reason_text = 'andet' WHERE id = :id", p)
+    _refused(eng, "UPDATE food_check_entries SET correction_text = 'andet' WHERE id = :id", p)
+    _refused(eng, "UPDATE food_check_entries SET paper_measured_at = now() WHERE id = :id", p)
+    s.close()
+
+
+def _r1b_rows(s, o, entry_id):
+    from app.models.food_check import FoodCheckDocument, FoodCheckPhoto, FoodCheckReview
+    s.add(FoodCheckPhoto(user_id=o.id, entry_id=uuid.UUID(entry_id), storage_key=None,
+                         content_type="image/jpeg", size_bytes=1, via="owner_app",
+                         uploaded_at=datetime(2026, 11, 12, 7)))
+    s.add(FoodCheckDocument(user_id=o.id, doc_type="other", title="T", storage_key="k",
+                            content_type="application/pdf", size_bytes=1,
+                            uploaded_at=datetime(2026, 11, 12, 7)))
+    s.add(FoodCheckReview(user_id=o.id, iso_week="2026-W45", week_start=date(2026, 11, 2),
+                          reviewed_at=datetime(2026, 11, 10, 9)))
+    s.commit()
+
+
+def test_r1b_erasure_walk_with_photos_documents_and_reviews(pg, clock):
+    from app.database import Base
+    from app.routers.auth import _owned_by_uid_predicate
+
+    s = pg["Session"]()
+    gone, kept = _owner(s, "Gone2"), _owner(s, "Kept2")
+    for o in (gone, kept):
+        ids = _setup(s, o)
+        e = _save(s, o, ids["fridge"], 9.0, action_code="thermostat_adjusted", fate_code="moved")
+        _r1b_rows(s, o, e)
+    uid = gone.id
+    for table in reversed(Base.metadata.sorted_tables):
+        if table.name in ("users", "audit_logs", "security_events", "error_logs",
+                          "bank_connections", "mobilepay_connections"):
+            continue
+        pred = _owned_by_uid_predicate(table, uid)
+        if pred is None:
+            continue
+        with s.begin_nested():
+            s.execute(table.delete().where(pred))
+    s.commit()
+    for t in TABLES + R1B_TABLES:
+        n_gone = s.execute(text(f"SELECT count(*) FROM {t} WHERE user_id = :u"), {"u": str(uid)}).scalar()
+        n_kept = s.execute(text(f"SELECT count(*) FROM {t} WHERE user_id = :u"), {"u": str(kept.id)}).scalar()
+        assert n_gone == 0, t
+        assert n_kept > 0, t
+    s.close()
+
+
+def test_r1b_purges_run_on_postgres(pg, clock, monkeypatch, tmp_path):
+    from app.jobs import privacy_purges as pp
+    from app.models.food_check import FoodCheckPhoto, FoodCheckReview
+    from app.services import storage as storage_mod
+
+    monkeypatch.setenv("LOCAL_UPLOADS_ROOT", str(tmp_path / "uploads"))
+    monkeypatch.setattr(storage_mod.settings, "SUPABASE_URL", "", raising=False)
+    monkeypatch.setattr(storage_mod.settings, "SUPABASE_SERVICE_KEY", "", raising=False)
+    storage_mod.reset_storage_for_tests()
+    try:
+        s = pg["Session"]()
+        o = _owner(s, "Purge2")
+        clock.t = datetime(2024, 9, 1, 7, 0)
+        fridge = _setup(s, o)["fridge"]
+        old = _save(s, o, fridge, 9.0, action_code="thermostat_adjusted", fate_code="moved")
+        key = storage_mod.compose_key(o.id, "food_check_photo", "b" * 64, "jpg")
+        storage_mod.get_storage().put(key, b"jpeg", "image/jpeg")
+        s.add(FoodCheckPhoto(user_id=o.id, entry_id=uuid.UUID(old), storage_key=key,
+                             content_type="image/jpeg", size_bytes=4, via="owner_app",
+                             uploaded_at=datetime(2024, 9, 1, 7, 1)))
+        s.add(FoodCheckReview(user_id=o.id, iso_week="2024-W35", week_start=date(2024, 8, 26),
+                              reviewed_at=datetime(2024, 9, 2, 9)))
+        s.commit()
+        monkeypatch.setattr(pp, "SessionLocal", pg["Session"])
+        now = datetime(2026, 11, 12)
+        assert pp.purge_old_egenkontrol_entries(now=now)["deleted"] == 0     # photo still there
+        assert pp.purge_old_egenkontrol_photos(now=now)["deleted"] == 1
+        assert pp.purge_old_egenkontrol_entries(now=now)["deleted"] >= 1
+        assert pp.purge_old_egenkontrol_reviews(now=now)["deleted"] == 1
+        assert storage_mod.get_storage().get(key) is None
+        left = s.execute(text("SELECT count(*) FROM food_check_entries WHERE id = :i"), {"i": old}).scalar()
+        assert left == 0
+        s.close()
+    finally:
+        storage_mod.reset_storage_for_tests()

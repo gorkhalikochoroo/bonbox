@@ -10,6 +10,12 @@
  *
  * "Fjern fra listen" archives (one-way in R1a): the readings stay in the
  * Kontrolmappe and a check with readings is never deleted.
+ *
+ * R1b: a tick (Rengøring, Termometertjek) has no limit, no schedule (always
+ * "når det sker") and no re-check — the sheet shows only its name and note.
+ * Adding a check or switching one back on over the plan's limit is a 402:
+ * the upgrade sheet on the web, the plain words in the app; every existing
+ * check keeps recording.
  */
 import { useState } from "react";
 import { X } from "lucide-react";
@@ -18,6 +24,7 @@ import Button from "../ui/Button";
 import Chip from "../ui/Chip";
 import api from "../../services/api";
 import { useConfirm } from "../../hooks/useConfirm";
+import CapPrompt, { capUpgradeTo } from "./CapPrompt";
 import {
   CHECK_NAME_MAX,
   CHECK_NOTE_MAX,
@@ -63,6 +70,7 @@ export default function CheckEditorSheet({
   const key = check?.template_key || templateKey;
   const tpl = (templates || []).find((x) => x.key === key) || null;
   const receiving = key === "receiving";
+  const tick = check?.kind === "tick" || tpl?.kind === "tick" || key === "cleaning" || key === "thermometer";
   const options = check?.schedule_options || tpl?.schedule_options || ["on_event"];
   const startSchedule = check?.schedule || tpl?.schedule_default || { type: options[0] || "on_event" };
   const productStart = Object.fromEntries(
@@ -82,6 +90,8 @@ export default function CheckEditorSheet({
   const [recheck, setRecheck] = useState(String(check?.recheck_min ?? tpl?.recheck_min ?? 30));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [capOpen, setCapOpen] = useState(false);
+  const [capTo, setCapTo] = useState(null);
 
   const tplLimit = tpl?.limit?.limit_c;
   const limitNum = parseLimitInput(limit);
@@ -105,8 +115,11 @@ export default function CheckEditorSheet({
 
   const fail = (err) => {
     const code = errorCode(err);
-    if (err?.response?.status === 402) setError(t("ekCapReached"));
-    else if (code === "due_before_day_start") setError(t("ekDueBeforeDayStart", { cutoff: cutoffLabel(err?.response?.data?.detail?.cutoff_hour ?? cutoffHour) }));
+    if (err?.response?.status === 402) {
+      setError(t("ekCapReached"));
+      setCapTo(capUpgradeTo(err));
+      setCapOpen(true);
+    } else if (code === "due_before_day_start") setError(t("ekDueBeforeDayStart", { cutoff: cutoffLabel(err?.response?.data?.detail?.cutoff_hour ?? cutoffHour) }));
     // An open deviation must be finished before the check is switched off.
     else if (code === "open_deviation") setError(t("ekErrOpenDeviation"));
     else setError(t("ekErrSaveFailed"));
@@ -197,6 +210,7 @@ export default function CheckEditorSheet({
   };
 
   return (
+    <>
     <Sheet
       onClose={onClose}
       ariaLabel={isNew ? t("ekAddCheck") : t("ekEditCheck")}
@@ -229,7 +243,7 @@ export default function CheckEditorSheet({
           <input id="ek-ed-note" className={FIELD} value={note} maxLength={CHECK_NOTE_MAX} onChange={(e) => setNote(e.target.value)} />
         </div>
 
-        {receiving ? (
+        {tick ? null : receiving ? (
           <fieldset>
             <legend className={LABEL}>{t("ekFieldLimit")}</legend>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -275,6 +289,9 @@ export default function CheckEditorSheet({
           </div>
         ) : null}
 
+        {tick ? (
+          <p className="text-[13.5px] text-gray-600 dark:text-gray-400">{t("ekTickEditorNote")}</p>
+        ) : (
         <fieldset>
           <legend className={LABEL}>{t("ekFieldSchedule")}</legend>
           <div className="flex flex-wrap gap-2">
@@ -325,8 +342,9 @@ export default function CheckEditorSheet({
             </p>
           ) : null}
         </fieldset>
+        )}
 
-        <div>
+        <div className={tick ? "hidden" : ""}>
           <label htmlFor="ek-ed-recheck" className={LABEL}>{t("ekFieldRecheck")}</label>
           <input
             id="ek-ed-recheck"
@@ -357,5 +375,7 @@ export default function CheckEditorSheet({
         </div>
       </div>
     </Sheet>
+    <CapPrompt open={capOpen} upgradeTo={capTo} onClose={() => setCapOpen(false)} />
+    </>
   );
 }

@@ -11,12 +11,19 @@
  *
  * Never "Alt er klaret", never "100 %": a venue with no checks has not done
  * anything yet, and the page says how to start.
+ *
+ * R1b: "Rengøring" and "Termometertjek" (ticks, on-event) are offered
+ * UNTICKED below the five; they count toward the plan's active checks, and
+ * the plan's line counts along as items are ticked. A 402 (over the Free
+ * limit) creates nothing: the upgrade sheet on the web, the plain words in
+ * the app.
  */
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import Button from "../ui/Button";
 import Chip from "../ui/Chip";
 import api from "../../services/api";
+import CapPrompt, { CapLine, capUpgradeTo } from "./CapPrompt";
 import {
   EK_PRODUCT_KEYS,
   EK_SOURCE_KEYS,
@@ -28,16 +35,21 @@ import {
 } from "./ekLogic";
 
 const START = [
-  { template_key: "fridge", n: 1 },
-  { template_key: "freezer", n: 1 },
-  { template_key: "hot_holding", n: 1 },
-  { template_key: "reheating", n: 1 },
-  { template_key: "receiving", n: 1 },
+  { template_key: "fridge", n: 1, on: true },
+  { template_key: "freezer", n: 1, on: true },
+  { template_key: "hot_holding", n: 1, on: true },
+  { template_key: "reheating", n: 1, on: true },
+  { template_key: "receiving", n: 1, on: true },
+  // Ticks: offered, not chosen for the owner.
+  { template_key: "cleaning", n: 1, on: false },
+  { template_key: "thermometer", n: 1, on: false },
 ];
 
-export default function SetupFromStartList({ templates = [], cutoffHour = 6, branchId = null, onCreated, t, lang = "da" }) {
+export default function SetupFromStartList({ templates = [], cutoffHour = 6, branchId = null, capLimit = null, onCreated, t, lang = "da" }) {
   const byKey = Object.fromEntries((templates || []).map((tp) => [tp.key, tp]));
-  const [items, setItems] = useState(() => START.map((s, i) => ({ ...s, uid: `s${i}`, on: true })));
+  const [items, setItems] = useState(() => START.map((s, i) => ({ ...s, uid: `s${i}` })));
+  const [capOpen, setCapOpen] = useState(false);
+  const [capTo, setCapTo] = useState(null);
   const [freq, setFreq] = useState("daily");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -99,8 +111,11 @@ export default function SetupFromStartList({ templates = [], cutoffHour = 6, bra
         onCreated?.([]);
         return;
       }
-      if (err?.response?.status === 402) setError(t("ekCapReached"));
-      else if (code === "due_before_day_start") setError(t("ekDueBeforeDayStart", { cutoff: cutoffLabel(cutoffHour) }));
+      if (err?.response?.status === 402) {
+        setError(t("ekCapReached"));
+        setCapTo(capUpgradeTo(err));
+        setCapOpen(true);
+      } else if (code === "due_before_day_start") setError(t("ekDueBeforeDayStart", { cutoff: cutoffLabel(cutoffHour) }));
       else setError(t("ekErrSaveFailed"));
     } finally {
       setBusy(false);
@@ -178,6 +193,17 @@ export default function SetupFromStartList({ templates = [], cutoffHour = 6, bra
       </fieldset>
 
       <p className="mt-4 text-[13.5px] text-gray-600 dark:text-gray-400">{t("ekStartValuesNote")}</p>
+      {capLimit != null && capLimit >= 0 && capLimit < 100 ? (
+        <div className="mt-2">
+          {chosen.length <= capLimit ? (
+            <CapLine cap={{ limit: capLimit, active: chosen.length }} t={t} testId="ek-setup-cap" />
+          ) : (
+            <p className="text-[13.5px] text-amber-800 dark:text-amber-300" data-testid="ek-setup-cap">
+              {t("ekCapSetupOver", { limit: capLimit, count: chosen.length })}
+            </p>
+          )}
+        </div>
+      ) : null}
 
       {error ? (
         <p role="alert" className="mt-3 text-[14px] text-red-700 dark:text-red-400">{error}</p>
@@ -185,6 +211,7 @@ export default function SetupFromStartList({ templates = [], cutoffHour = 6, bra
       <Button variant="main" className="mt-4 w-full sm:w-auto h-10" busy={busy} disabled={!chosen.length || busy} onClick={submit}>
         {t("ekSetupAdd", { count: chosen.length })}
       </Button>
+      <CapPrompt open={capOpen} upgradeTo={capTo} onClose={() => setCapOpen(false)} />
     </div>
   );
 }

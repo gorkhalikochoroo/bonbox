@@ -113,13 +113,14 @@ def test_local_times_are_right_in_winter_and_in_summer(env):
     assert "kl. 06:30" not in summer
 
 
-def test_a_31_day_range_is_refused(env):
+def test_a_93_day_range_is_refused(env):
+    """R1b: 92 days per file (R1a refused 31)."""
     o = env.owner()
     env.setup(o)
-    r = env.client.get("/api/egenkontrol/folder.pdf", params={"from": "2026-10-13", "to": "2026-11-12"},
+    r = env.client.get("/api/egenkontrol/folder.pdf", params={"from": "2026-08-12", "to": "2026-11-12"},
                        headers=env.h(o))
     assert r.status_code == 422
-    assert r.json()["detail"] == {"code": "range_too_long", "max_days": 30}
+    assert r.json()["detail"] == {"code": "range_too_long", "max_days": 92}
 
 
 def test_injected_markup_cannot_break_or_steer_the_pdf(env):

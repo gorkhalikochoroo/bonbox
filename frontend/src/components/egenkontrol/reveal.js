@@ -22,17 +22,55 @@ function reducedMotion() {
   }
 }
 
-/** Scroll `scroller` so `el` is in view (centred). No-op when it already is. */
+/**
+ * The part of the screen the person can actually see: the visual viewport
+ * (it shrinks for the on-screen keyboard and moves with pinch-zoom), else
+ * 0 … innerHeight.
+ */
+export function visibleBand() {
+  const vv = typeof window !== "undefined" ? window.visualViewport : null;
+  if (vv && Number.isFinite(vv.height) && vv.height > 0) {
+    const top = Number(vv.offsetTop) || 0;
+    return { top, bottom: top + vv.height };
+  }
+  const h = typeof window !== "undefined" ? Number(window.innerHeight) : NaN;
+  return { top: 0, bottom: Number.isFinite(h) && h > 0 ? h : Infinity };
+}
+
+/**
+ * Scroll `scroller` so `el` is in view (centred). No-op when it already is.
+ *
+ * "In view" is measured against the scroller's box CLAMPED to what is on
+ * screen: in landscape the "Registrér" column once ran below the bottom of
+ * the iPad, its own box said "the action row is inside me", and nothing
+ * scrolled while the row sat under the fold (R1a review). When the scroller
+ * itself is entirely off screen it is brought into view first.
+ */
 export function scrollWithin(scroller, el) {
   if (!scroller || !el) return;
-  let s;
+  let raw;
   let r;
   try {
-    s = scroller.getBoundingClientRect();
+    raw = scroller.getBoundingClientRect();
     r = el.getBoundingClientRect();
   } catch {
     return;
   }
+  const band = visibleBand();
+  let s = { top: Math.max(raw.top, band.top), bottom: Math.min(raw.bottom, band.bottom) };
+  if (!(s.bottom > s.top)) {
+    // The panel is off screen as a whole: show it, then measure again.
+    try { scroller.scrollIntoView({ block: "nearest" }); } catch { /* old engines */ }
+    try {
+      raw = scroller.getBoundingClientRect();
+      r = el.getBoundingClientRect();
+    } catch {
+      return;
+    }
+    s = { top: Math.max(raw.top, band.top), bottom: Math.min(raw.bottom, band.bottom) };
+    if (!(s.bottom > s.top)) s = { top: raw.top, bottom: raw.bottom };
+  }
+  s.height = s.bottom - s.top;
   if (r.top >= s.top && r.bottom <= s.bottom) return; // already fully visible
   const room = s.height - r.height;
   // Centred; a step taller than the view starts at its top, with a little air.
@@ -86,9 +124,10 @@ export function revealField(field, section = null) {
   }, 1500);
 }
 
-/** The control to focus inside a step: an empty text field, a key, else its first button. */
+/** The control to focus inside a step: an empty field, a key, else its first button. */
 export function focusTargetIn(section) {
   if (!section) return null;
-  const empty = Array.from(section.querySelectorAll('input[type="text"]:not([disabled])')).find((i) => !String(i.value || "").trim());
-  return empty || section.querySelector("[data-key]") || section.querySelector("button:not([disabled])");
+  const fields = 'input[type="text"]:not([disabled]), input[type="date"]:not([disabled]), input[type="time"]:not([disabled])';
+  const empty = Array.from(section.querySelectorAll(fields)).find((i) => !String(i.value || "").trim());
+  return empty || section.querySelector("[data-key]") || section.querySelector("button:not([disabled])") || section.querySelector(fields);
 }

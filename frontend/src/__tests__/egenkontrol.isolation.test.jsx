@@ -62,6 +62,52 @@ describe("the door screen's bundle cannot reach egenkontrol", () => {
   });
 });
 
+describe("R1b: the kitchen iPad's bundle holds none of the owner's sheets", () => {
+  /** Every local file reachable from `entry` (static and dynamic imports). */
+  const graph = (entry) => {
+    const seen = new Set();
+    const stack = [entry];
+    const resolve = (spec, from) => {
+      if (!spec.startsWith(".")) return null;
+      const base = join(dirname(from), spec);
+      for (const ext of ["", ".jsx", ".js", "/index.jsx", "/index.js"]) {
+        try {
+          const p = base + ext;
+          readFileSync(p);
+          return p;
+        } catch { /* next */ }
+      }
+      return null;
+    };
+    while (stack.length) {
+      const f = stack.pop();
+      if (seen.has(f)) continue;
+      seen.add(f);
+      for (const spec of importsOf(read(f))) {
+        const t = resolve(spec, f);
+        if (t && !seen.has(t) && /\.(jsx?|mjs)$/.test(t) && !/[\\/]i18n[\\/]/.test(t)) stack.push(t);
+      }
+    }
+    return [...seen].map((x) => x.split(`${join("frontend", "src")}`).pop());
+  };
+  const OWNER_ONLY = ["PaperEntrySheet", "CorrectionSheet", "DocumentUploadSheet", "WeekReviewCard", "FolderRangePicker", "SettingsCards", "CapPrompt", "components/Entitlement"];
+
+  it("KitchenPage's import graph excludes the owner-only sheets and components/Entitlement", () => {
+    const files = graph(join(SRC, "pages", "KitchenPage.jsx"));
+    expect(files.length).toBeGreaterThan(10);
+    // The shared, read-only pieces ARE there (the folder, documents, photos).
+    for (const shared of ["FolderView", "DocumentsSection", "EntryPhoto", "PhotoCapture", "usePendingEntries"]) {
+      expect(files.some((f) => f.includes(shared)), shared).toBe(true);
+    }
+    for (const owner of OWNER_ONLY) expect(files.filter((f) => f.includes(owner)), owner).toEqual([]);
+  });
+
+  it("the owner page does reach them (the check above is not vacuous)", () => {
+    const files = graph(join(SRC, "pages", "EgenkontrolPage.jsx"));
+    for (const owner of OWNER_ONLY) expect(files.some((f) => f.includes(owner)), owner).toBe(true);
+  });
+});
+
 describe("App.jsx — two lazy routes, the kitchen outside the owner's gates", () => {
   const app = read(join(SRC, "App.jsx"));
   // The protected Layout group (comments elsewhere also say "<Layout />").

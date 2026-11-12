@@ -287,6 +287,26 @@ describe("/privacy says how long the readings are kept", () => {
     expect(src).toContain('["Food safety records (egenkontrol readings, with the name of whoever measured)", "2 years, then deleted automatically; deleted with your account"]');
     expect(src).toContain('["Egenkontrol-målinger (med navnet på den, der målte)", "2 år, derefter slettet automatisk; slettes med kontoen"]');
   });
+
+  it("R1b: the photo and document rows, word for word (pinned by the backend too)", () => {
+    const src = readFileSync(join(SRC, "pages", "PrivacyPolicyPage.jsx"), "utf8");
+    const rows = [
+      '["Food safety photos (egenkontrol, taken with a reading)", "2 years, then deleted automatically; deleted with your account"]',
+      '["Documents you add to the inspection folder (egenkontrol programme, risk analysis and the like)", "Until you delete them or your account"]',
+      '["Egenkontrol-fotos (taget ved en måling)", "2 år, derefter slettet automatisk; slettes med kontoen"]',
+      '["Dokumenter, I lægger i Kontrolmappen (egenkontrolprogram, risikoanalyse o.l.)", "Indtil I sletter dem eller kontoen"]',
+    ];
+    for (const r of rows) expect(src).toContain(r);
+    // Right after the readings row, in both tables.
+    const en = src.indexOf("Food safety records (egenkontrol readings");
+    const da = src.indexOf("Egenkontrol-målinger (med navnet");
+    expect(src.indexOf("Food safety photos (egenkontrol")).toBeGreaterThan(en);
+    expect(src.indexOf("Egenkontrol-fotos (taget")).toBeGreaterThan(da);
+  });
+
+  it("R1b: the delete notice names photos and documents too", () => {
+    expect(da.ekDeleteNotice).toContain("Hent Kontrolmappen som PDF først. Egenkontrol-målinger, fotos og dokumenter slettes med kontoen.");
+  });
 });
 
 // ── Review fixes (12 Nov): the record says what happened, and to whom ────

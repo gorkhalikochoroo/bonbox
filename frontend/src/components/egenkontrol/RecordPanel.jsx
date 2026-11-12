@@ -23,6 +23,20 @@
  * The in/out-of-limit colour while typing is a hint; the server decides.
  * A value that is unusual for the check ("51" on a fridge) is asked about
  * once, through useConfirm — never window.confirm.
+ *
+ * R1b:
+ *   • a TICK (Rengøring, Termometertjek, kind "tick"): no keypad, no
+ *     deviation rows — an optional note, "Hvem?", and "Gem · udført";
+ *   • an optional PHOTO (PhotoCapture) when the reading is out of limit or
+ *     the check is goods receiving — below the keypad and the questions,
+ *     above "Hvem målte?", so nothing above the keys moves; the parent sends
+ *     it after the reading is saved (meta.photo);
+ *   • "FRA PAPIR" (the `paper` prop, owner only, PaperEntrySheet): the check,
+ *     the measured date and time and the reason sit ABOVE the keypad as a
+ *     fixed block (they never change height while typing); a deviation may
+ *     only close (closing fates), and a paper reading never answers an open
+ *     deviation's follow-up;
+ *   • the body carries client_business_date (the queue's stale rule).
  */
 import { useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -32,9 +46,11 @@ import CheckStatusPill from "../ui/CheckStatusPill";
 import { useConfirm } from "../../hooks/useConfirm";
 import Keypad from "./Keypad";
 import NamePicker from "./NamePicker";
+import PhotoCapture from "./PhotoCapture";
 import { focusTargetIn, revealField } from "./reveal";
 import {
   ACTION_NOTE_MAX,
+  PAPER_REASON_MAX,
   EK_ACTION_KEYS,
   EK_ERROR_KEYS,
   EK_FATE_KEYS,
@@ -47,12 +63,15 @@ import {
   followupNeedsFate,
   formatTemp,
   inRange,
+  isHhmm,
   isPlausible,
+  isTick,
   limitFor,
   limitLine,
   newClientId,
   nextEntry,
   parseEntry,
+  photoAllowed,
   receivingSourceLine,
   sourceLine,
   withinLimit,
@@ -110,9 +129,15 @@ export default function RecordPanel({
   t,
   lang = "da",
   idPrefix = "ek",
+  businessDate = null,
+  paper = null,
+  allowPhoto = true,
 }) {
   const confirm = useConfirm();
   const d = draft?.state || {};
+  // The photo waiting on this reading (in memory only; a reopened unsent
+  // reading brings it back from its queue item).
+  const [photo, setPhoto] = useState(draft?.photo || null);
   const [entry, setEntry] = useState(d.entry || "");
   const [productType, setProductType] = useState(d.productType || null);
   const [productNote, setProductNote] = useState(d.productNote || "");
@@ -139,11 +164,14 @@ export default function RecordPanel({
   const [nudge, setNudge] = useState(null);
   const scrollRef = useRef(null);
 
+  const tick = isTick(check);
   const receiving = check?.kind === "receiving" || check?.template_key === "receiving";
-  const value = parseEntry(entry);
-  const limit = limitFor(check, productType);
+  const value = tick ? null : parseEntry(entry);
+  const limit = tick ? null : limitFor(check, productType);
   const out = typeof value === "number" && inRange(value) && !!limit && !withinLimit(value, limit);
-  const followup = typeof value === "number" && inRange(value) && followupNeedsFate(check, value, limit);
+  // A paper reading never takes part in the follow-up chain (server rule).
+  const followup = !paper && typeof value === "number" && inRange(value) && followupNeedsFate(check, value, limit);
+  const withPhoto = !paper && allowPhoto && photoAllowed(check, out);
   const who = localWho || (whoCleared ? null : heldWho) || null;
   const pickWho = (v) => {
     setLocalWho(v);
@@ -151,10 +179,24 @@ export default function RecordPanel({
   };
   const actions = Array.isArray(check?.action_codes) ? check.action_codes : [];
   const allFates = Array.isArray(check?.fate_codes) ? check.fate_codes : [];
-  const fates = followup && !out ? closingFates(allFates) : allFates;
+  // "Fra papir" out of limit: the food's fate must close the deviation.
+  const fates = (followup && !out) || paper ? closingFates(allFates) : allFates;
+
+  const paperState = paper
+    ? {
+        whenOk:
+          typeof paper.date === "string" &&
+          !!paper.date &&
+          (!paper.minDate || paper.date >= paper.minDate) &&
+          (!paper.maxDate || paper.date <= paper.maxDate) &&
+          isHhmm(paper.time),
+        reasonOk: String(paper.reason || "").trim().length > 0 && String(paper.reason || "").length <= PAPER_REASON_MAX,
+      }
+    : null;
 
   const cta = ctaFor({
-    kind: receiving ? "receiving" : check?.kind,
+    paper: paperState,
+    kind: tick ? "tick" : receiving ? "receiving" : check?.kind,
     productType,
     value,
     limit,
@@ -197,11 +239,12 @@ export default function RecordPanel({
     setConfirmedValue(null);
     setPickerKey((k) => k + 1);
     setNudge(null);
+    setPhoto(null);
   };
 
   const submit = async () => {
     if (cta.disabled || saving || !check) return;
-    if (!isPlausible(value, check.template_key, productType) && confirmedValue !== value) {
+    if (!tick && !isPlausible(value, check.template_key, productType) && confirmedValue !== value) {
       const shown = formatTemp(value, lang);
       const ok = await confirm({
         title: t("ekPlausibleTitle", { value: shown }),
@@ -229,18 +272,33 @@ export default function RecordPanel({
       out,
       followup: followup && !out,
       typedAt: new Date().toISOString(),
+      businessDate,
     });
+    if (paper) {
+      // When it was measured (the venue's calendar date + wall time) and why
+      // it is typed in now — the reason as typed (the server stores it verbatim).
+      body.measured_date = paper.date;
+      body.measured_time = paper.time;
+      body.paper_reason = paper.reason;
+    }
     const state = { entry, productType, productNote, labelOk, action, actionOther, fate, fateOther, note, who };
     setSaving(true);
     setError(null);
     let res;
     try {
-      res = await onSave(body, { clientId, checkId: check.id, state });
+      res = await onSave(body, {
+        clientId,
+        checkId: check.id,
+        checkName: check.name,
+        state,
+        photo: withPhoto ? photo : null,
+        businessDate,
+      });
     } catch {
       res = { ok: false, kind: "failed" };
     }
     setSaving(false);
-    if (res?.ok || res?.kind === "failed" || res?.kind === "revoked" || res?.kind === "closed") {
+    if (res?.ok || res?.kind === "failed" || res?.kind === "stale" || res?.kind === "revoked" || res?.kind === "closed") {
       // Saved — or kept on the row as "Ikke gemt endnu" with its client_id.
       reset();
       return;
@@ -280,7 +338,7 @@ export default function RecordPanel({
     <div className="flex flex-col grow min-h-0" data-testid="ek-record-panel">
       <div className="flex items-start gap-3 px-4 sm:px-5 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800">
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("ekRecord")}</p>
+          <p className="text-[13px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t(paper ? "ekPaperTitle" : "ekRecord")}</p>
           <h2 className="text-[20px] font-semibold text-gray-900 dark:text-gray-50 truncate">
             {check.name}
             {check.note ? <span className="ml-2 text-[15px] font-normal text-gray-500 dark:text-gray-400">{check.note}</span> : null}
@@ -311,7 +369,76 @@ export default function RecordPanel({
       </div>
 
       <div ref={scrollRef} data-ek-scroll="" className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 py-4 space-y-5">
-        {receiving ? (
+        {paper ? (
+          <div className="space-y-3" data-testid="ek-paper-block">
+            {paper.header || null}
+            <fieldset className="min-w-0" data-ek-step="paper_when">
+              <legend className={`text-[15px] font-semibold mb-2 ${missing.has("paper_when") ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}`}>
+                {t("ekPaperWhenLegend")}
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor={`${idPrefix}-paper-date`} className="block text-[14px] text-gray-700 dark:text-gray-300 mb-1">{t("ekPaperMeasuredDate")}</label>
+                  <input
+                    id={`${idPrefix}-paper-date`}
+                    type="date"
+                    className={INPUT}
+                    value={paper.date || ""}
+                    min={paper.minDate || undefined}
+                    max={paper.maxDate || undefined}
+                    onChange={(e) => paper.setDate?.(e.target.value)}
+                    data-testid="ek-paper-date"
+                  />
+                </div>
+                <div>
+                  <label htmlFor={`${idPrefix}-paper-time`} className="block text-[14px] text-gray-700 dark:text-gray-300 mb-1">{t("ekPaperMeasuredTime")}</label>
+                  <input
+                    id={`${idPrefix}-paper-time`}
+                    type="time"
+                    className={INPUT + " font-display tabular-nums"}
+                    value={paper.time || ""}
+                    onChange={(e) => paper.setTime?.(e.target.value)}
+                    data-testid="ek-paper-time"
+                  />
+                </div>
+              </div>
+            </fieldset>
+            <div data-ek-step="paper_reason">
+              <label htmlFor={`${idPrefix}-paper-reason`} className={`block text-[15px] font-semibold mb-2 ${missing.has("paper_reason") ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}`}>
+                {t("ekPaperReason")}
+              </label>
+              <input
+                id={`${idPrefix}-paper-reason`}
+                type="text"
+                className={INPUT}
+                value={paper.reason || ""}
+                maxLength={PAPER_REASON_MAX}
+                placeholder={t("ekPaperReasonPlaceholder")}
+                onChange={(e) => paper.setReason?.(e.target.value)}
+                data-testid="ek-paper-reason"
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {tick ? (
+          <div data-ek-step="note">
+            <label htmlFor={`${idPrefix}-tick-note`} className="block text-[15px] font-semibold mb-2 text-gray-900 dark:text-gray-100">
+              {t("ekTickNoteLabel")}
+            </label>
+            <textarea
+              id={`${idPrefix}-tick-note`}
+              rows={2}
+              className={INPUT + " py-3"}
+              value={note}
+              maxLength={ACTION_NOTE_MAX}
+              onChange={(e) => setNote(e.target.value.slice(0, ACTION_NOTE_MAX))}
+              data-testid="ek-tick-note"
+            />
+          </div>
+        ) : null}
+
+        {!tick && receiving ? (
           <div className="space-y-3">
             <fieldset className="min-w-0" data-ek-step="product">
               <legend className={`text-[15px] font-semibold mb-2 ${missing.has("product") ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}`}>
@@ -350,6 +477,7 @@ export default function RecordPanel({
           </div>
         ) : null}
 
+        {tick ? null : (
         <div data-ek-step="value">
           <Keypad
             entry={entry}
@@ -363,8 +491,9 @@ export default function RecordPanel({
             idPrefix={idPrefix}
           />
         </div>
+        )}
 
-        {out ? (
+        {tick ? null : out ? (
           <>
             <ChoiceRow
               name="action"
@@ -424,6 +553,8 @@ export default function RecordPanel({
             idPrefix={idPrefix}
           />
         ) : null}
+
+        {withPhoto ? <PhotoCapture file={photo} onChange={setPhoto} t={t} idPrefix={idPrefix} /> : null}
 
         <NamePicker
           key={pickerKey}

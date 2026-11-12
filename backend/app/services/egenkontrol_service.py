@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.models.branch import Branch
 from app.models.business_profile import BusinessProfile
 from app.models.food_check import (
-    FoodCheck, FoodCheckEntry, FoodCheckRevision, FoodCheckSettings,
+    FoodCheck, FoodCheckEntry, FoodCheckPhoto, FoodCheckRevision, FoodCheckSettings,
 )
 from app.models.staff import Schedule, StaffMember
 from app.services import audit_service
@@ -84,11 +84,17 @@ def zone_and_cutoff(db: Session, owner) -> tuple[ZoneInfo, int, str]:
     return tz, cutoff, name
 
 
-def relevant(business_type: Optional[str]) -> bool:
-    """UI visibility only (food service and bar); the backend never 403s
-    another archetype."""
+def relevant(business_type: Optional[str], opted_in: bool = False) -> bool:
+    """UI visibility only (food service and bar; R1b: a grocery, veggie_shop
+    or kiosk that switched it on); the backend never 403s another archetype."""
     from app.services.archetype import archetype_id_for
-    return archetype_id_for(business_type) in ("food_service", "bar")
+    if archetype_id_for(business_type) in ("food_service", "bar"):
+        return True
+    return bool(opted_in) and (business_type or "") in R.RETAIL_OPT_IN_TYPES
+
+
+def opt_in_offered(business_type: Optional[str], opted_in: bool) -> bool:
+    return (business_type or "") in R.RETAIL_OPT_IN_TYPES and not opted_in
 
 
 # ── Serialisation ────────────────────────────────────────────────────────
@@ -161,12 +167,61 @@ def check_out(check: FoodCheck, revs: list[R.RevisionView]) -> dict:
     }
 
 
-def entry_out(e: FoodCheckEntry, tz: ZoneInfo) -> dict:
+def photo_out(p: Optional[FoodCheckPhoto], tz: ZoneInfo) -> Optional[dict]:
+    """PhotoOut — never the storage key; bytes only through the proxy routes."""
+    if p is None:
+        return None
+    loc = R.to_local(p.uploaded_at, tz)
+    return {
+        "id": str(p.id),
+        "entry_id": str(p.entry_id),
+        "uploaded_at": iso_z(p.uploaded_at),
+        "uploaded_local_date": loc.date().isoformat(),
+        "uploaded_local": loc.strftime("%H:%M"),
+        "size_bytes": int(p.size_bytes or 0),
+        "removed_at": iso_z(p.removed_at),
+        "removed_local_date": (R.to_local(p.removed_at, tz).date().isoformat()
+                               if p.removed_at is not None else None),
+        "via": p.via,
+    }
+
+
+def photos_for(db: Session, owner, entry_ids) -> dict[str, FoodCheckPhoto]:
+    """{entry id: photo row} for a whole page of readings — one query per
+    500 ids, never one per row."""
+    ids = sorted({str(x) for x in entry_ids if x is not None})
+    if not ids:
+        return {}
+    out: dict[str, FoodCheckPhoto] = {}
+    for i in range(0, len(ids), 500):
+        for p in (
+            db.query(FoodCheckPhoto)
+            .filter(FoodCheckPhoto.user_id == owner.id,
+                    FoodCheckPhoto.entry_id.in_([uuid.UUID(x) for x in ids[i:i + 500]]))
+            .all()
+        ):
+            out[str(p.entry_id)] = p
+    return out
+
+
+def _local_parts(dt: Optional[datetime], tz: ZoneInfo) -> tuple[Optional[str], Optional[str]]:
+    if dt is None:
+        return None, None
+    loc = R.to_local(dt, tz)
+    return loc.strftime("%H:%M"), loc.date().isoformat()
+
+
+def entry_out(e: FoodCheckEntry, tz: ZoneInfo, photos: Optional[dict] = None) -> dict:
+    """EntryOut. `photos` is the per-request batch ({entry id: photo row},
+    photos_for) — never one query per row; None = no photo known."""
     local = R.to_local(e.recorded_at, tz)
     differs = False
     if e.client_typed_at is not None:
         differs = abs(e.recorded_at - e.client_typed_at) > R.CLIENT_TIME_DIFF
     voided = e.voided_at is not None
+    is_correction = e.supersedes_id is not None
+    paper_local, paper_date = _local_parts(e.paper_measured_at, tz)
+    created_local, created_date = _local_parts(e.created_at, tz)
     return {
         "id": str(e.id),
         "check_id": str(e.check_id),
@@ -200,7 +255,25 @@ def entry_out(e: FoodCheckEntry, tz: ZoneInfo) -> dict:
         "client_time_differs": bool(differs),
         "voided_at": iso_z(e.voided_at),
         "void_reason": e.void_reason,
-        "undo_until": None if voided else iso_z(e.recorded_at + R.UNDO_WINDOW),
+        # A correction is corrected again, never undone.
+        "undo_until": (None if (voided or is_correction)
+                       else iso_z(e.recorded_at + R.UNDO_WINDOW)),
+        # R1b
+        "done": e.done,
+        "source": e.source or "live",
+        "paper_measured_at": iso_z(e.paper_measured_at),
+        "paper_measured_local": paper_local,
+        "paper_measured_local_date": paper_date,
+        "reason_text": e.reason_text,
+        "supersedes_id": _sid(e.supersedes_id),
+        "correction_reason": e.correction_reason,
+        "correction_text": e.correction_text,
+        "created_at": iso_z(e.created_at),
+        "created_local": created_local,
+        "created_local_date": created_date,
+        "photo": photo_out((photos or {}).get(str(e.id)), tz),
+        "correctable_until": (None if voided
+                              else iso_z(e.recorded_at + R.CORRECTION_MAX_AGE)),
     }
 
 
@@ -334,6 +407,7 @@ def build_today(db: Session, owner, *, branch_scope=None, now: Optional[datetime
     by_check: dict[str, list] = {}
     for e in entries:
         by_check.setdefault(str(e.check_id), []).append(e)
+    photos = photos_for(db, owner, [e.id for e in entries])
 
     statuses = []
     out_checks = []
@@ -346,10 +420,11 @@ def build_today(db: Session, owner, *, branch_scope=None, now: Optional[datetime
             "status": st.status,
             "slot": _slot_out(st.slot, tz),
             "slot_is_today": bool(st.slot_is_current),
-            "last": entry_out(st.last, tz) if st.last is not None else None,
+            "last": entry_out(st.last, tz, photos) if st.last is not None else None,
             # The reading that filled the slot: "For sent · registreret kl.
             # 09:30 (frist kl. 08:00)" names THAT reading, not a later one.
-            "slot_entry": entry_out(st.slot_entry, tz) if st.slot_entry is not None else None,
+            "slot_entry": (entry_out(st.slot_entry, tz, photos)
+                           if st.slot_entry is not None else None),
             "open_deviation": _open_dev_out(st, tz),
         })
         out_checks.append(d)
@@ -365,6 +440,13 @@ def build_today(db: Session, owner, *, branch_scope=None, now: Optional[datetime
     }
 
 
+def cap_out(db: Session, owner) -> dict:
+    """{"limit": the plan's active-check cap, "active": n} — the same
+    numbers enforce_cap uses, so the UI counter and the 402 never disagree."""
+    from app.services.billing import get_cap
+    return {"limit": int(get_cap(owner, CAP_KEY)), "active": active_check_count(db, owner)}
+
+
 def build_status(db: Session, owner, *, now: Optional[datetime] = None) -> dict:
     today = build_today(db, owner, now=now)
     has_records = (
@@ -372,8 +454,11 @@ def build_status(db: Session, owner, *, now: Optional[datetime] = None) -> dict:
         is not None
     )
     s = today["summary"]
+    settings = get_settings(db, owner)
+    opted = bool(settings is not None and settings.opted_in)
+    btype = getattr(owner, "business_type", None)
     return {
-        "relevant": relevant(getattr(owner, "business_type", None)),
+        "relevant": relevant(btype, opted),
         "setup_done": today["setup_done"],
         "active_checks": len(today["checks"]),
         "missing_now": s["missing"],
@@ -381,6 +466,9 @@ def build_status(db: Session, owner, *, now: Optional[datetime] = None) -> dict:
         "open_deviations": s["open_deviations"],
         "has_records": bool(has_records),
         "business_date": today["business_date"],
+        "opted_in": opted,
+        "opt_in_offered": opt_in_offered(btype, opted),
+        "cap": cap_out(db, owner),
     }
 
 
@@ -514,6 +602,76 @@ def _open_deviation(db: Session, owner, check_id) -> Optional[FoodCheckEntry]:
     )
 
 
+def find_replay(db: Session, owner, client_id: str) -> Optional[FoodCheckEntry]:
+    return (
+        db.query(FoodCheckEntry)
+        .filter(FoodCheckEntry.user_id == owner.id, FoodCheckEntry.client_id == client_id)
+        .first()
+    )
+
+
+def resolve_name(db: Session, owner, body) -> tuple[Any, str, str]:
+    """Who measured — exactly one of a picked staff member or a typed name.
+    → (staff_id, staff_name snapshot, name_source)."""
+    if body.staff_id is not None and body.typed_name:
+        raise rule_http(R.RuleError("name_invalid"))
+    if body.staff_id is not None:
+        staff = (
+            db.query(StaffMember)
+            .filter(
+                StaffMember.id == body.staff_id,
+                StaffMember.user_id == owner.id,
+                StaffMember.is_deleted.is_(False),
+            )
+            .first()
+        )
+        if staff is None:
+            raise not_found()
+        return staff.id, (R.first_name_last_initial(staff.name)[: R.STAFF_NAME_MAX] or "?"), "picked"
+    if body.typed_name is not None and str(body.typed_name).strip():
+        try:
+            return None, R.clean_typed_name(body.typed_name), "typed"
+        except R.RuleError as e:
+            raise rule_http(e)
+    raise rule_http(R.RuleError("name_required"))
+
+
+def tick_fields(body) -> None:
+    """A tick (cleaning, thermometer): no value, done must be true."""
+    if body.value_c is not None:
+        raise rule_http(R.RuleError("value_not_allowed"))
+    if body.done is not True:
+        raise rule_http(R.RuleError("done_required"))
+
+
+def slot_for(db: Session, owner, check: FoodCheck, revs: list, at: datetime,
+             tz: ZoneInfo, cutoff: int) -> Optional[R.Slot]:
+    """The unfilled slot of `check` whose window contains `at` (the new
+    reading's EFFECTIVE time) — existing readings matched on THEIR effective
+    time, so a paper reading measured inside a window counts there."""
+    bdate = R.business_date_of(at, tz, cutoff)
+    monday = R.iso_week_monday(bdate)
+    slots = [
+        s for s in R.slots_between(revs, monday, monday + timedelta(days=6), tz, cutoff)
+        if s.window_start <= at < s.window_end
+    ]
+    if not slots:
+        return None
+    earliest = min(s.window_start for s in slots)
+    existing_entries = (
+        db.query(FoodCheckEntry)
+        .filter(
+            FoodCheckEntry.user_id == owner.id,
+            FoodCheckEntry.check_id == check.id,
+            FoodCheckEntry.voided_at.is_(None),
+            or_(FoodCheckEntry.recorded_at >= earliest,
+                FoodCheckEntry.paper_measured_at >= earliest),
+        )
+        .all()
+    )
+    return R.slot_for_new_entry(slots, existing_entries, at)
+
+
 def save_entry(db: Session, owner, body, *, via: str, kitchen_link=None,
                actor_user_id=None, branch_scope=None) -> tuple[dict, bool]:
     """Save one reading. Returns (EntryOut, replayed). Everything that matters
@@ -524,13 +682,16 @@ def save_entry(db: Session, owner, body, *, via: str, kitchen_link=None,
     tz, cutoff, _ = zone_and_cutoff(db, owner)
     client_id = _norm_client_id(body.client_id)
 
-    existing = (
-        db.query(FoodCheckEntry)
-        .filter(FoodCheckEntry.user_id == owner.id, FoodCheckEntry.client_id == client_id)
-        .first()
-    )
+    existing = find_replay(db, owner, client_id)
     if existing is not None:
         return _replay(existing, body.check_id, tz)
+
+    # R1b offline queue: a reading typed on an earlier business day is never
+    # saved on today's (it would land on the wrong day). Replays above win.
+    bdate = R.business_date_of(now, tz, cutoff)
+    cbd = getattr(body, "client_business_date", None)
+    if cbd is not None and cbd != bdate:
+        raise conflict("business_day_changed", server_business_date=bdate.isoformat())
 
     check = (
         db.query(FoodCheck)
@@ -549,75 +710,40 @@ def save_entry(db: Session, owner, body, *, via: str, kitchen_link=None,
     if rev is None or not rev.active:
         raise conflict("check_inactive")
 
-    # Who measured — exactly one of a picked staff member or a typed name.
-    staff_id = None
-    if body.staff_id is not None and body.typed_name:
-        raise rule_http(R.RuleError("name_invalid"))
-    if body.staff_id is not None:
-        staff = (
-            db.query(StaffMember)
-            .filter(
-                StaffMember.id == body.staff_id,
-                StaffMember.user_id == owner.id,
-                StaffMember.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if staff is None:
-            raise not_found()
-        staff_id = staff.id
-        staff_name = R.first_name_last_initial(staff.name)[: R.STAFF_NAME_MAX] or "?"
-        name_source = "picked"
-    elif body.typed_name is not None and str(body.typed_name).strip():
+    is_tick = check.kind == "tick"
+    if is_tick:
+        tick_fields(body)
+    staff_id, staff_name, name_source = resolve_name(db, owner, body)
+
+    open_e = None
+    if is_tick:
+        value, limit, ok = None, None, None
+        decision = R.Decision(None, None, False, False, False)
+    else:
         try:
-            staff_name = R.clean_typed_name(body.typed_name)
+            value = R.validate_value(body.value_c)
+            product_type = body.product_type if check.kind == "receiving" else None
+            limit = R.limit_for(rev, product_type)
+            ok = R.in_limit(value, limit)
+            open_e = _open_deviation(db, owner, check.id)
+            decision = R.deviation_decision(
+                in_limit=ok, value=value,
+                open_dev=R.OpenDev(open_e.id, open_e.fate_code) if open_e is not None else None,
+                action_code=body.action_code, action_other=body.action_other,
+                fate_code=body.fate_code, fate_other=body.fate_other,
+                allowed_actions=rev.action_codes, allowed_fates=rev.fate_codes,
+            )
         except R.RuleError as e:
             raise rule_http(e)
-        name_source = "typed"
-    else:
-        raise rule_http(R.RuleError("name_required"))
-
-    try:
-        value = R.validate_value(body.value_c)
-        product_type = body.product_type if check.kind == "receiving" else None
-        limit = R.limit_for(rev, product_type)
-        ok = R.in_limit(value, limit)
-        open_e = _open_deviation(db, owner, check.id)
-        decision = R.deviation_decision(
-            in_limit=ok, value=value,
-            open_dev=R.OpenDev(open_e.id, open_e.fate_code) if open_e is not None else None,
-            action_code=body.action_code, action_other=body.action_other,
-            fate_code=body.fate_code, fate_other=body.fate_other,
-            allowed_actions=rev.action_codes, allowed_fates=rev.fate_codes,
-        )
-    except R.RuleError as e:
-        raise rule_http(e)
 
     # The slot this reading fills — server-decided, immutable afterwards.
-    bdate = R.business_date_of(now, tz, cutoff)
-    monday = R.iso_week_monday(bdate)
-    slots = [
-        s for s in R.slots_between(revs, monday, monday + timedelta(days=6), tz, cutoff)
-        if s.window_start <= now < s.window_end
-    ]
-    slot = None
-    if slots:
-        earliest = min(s.window_start for s in slots)
-        existing_entries = (
-            db.query(FoodCheckEntry)
-            .filter(
-                FoodCheckEntry.user_id == owner.id,
-                FoodCheckEntry.check_id == check.id,
-                FoodCheckEntry.voided_at.is_(None),
-                FoodCheckEntry.recorded_at >= earliest,
-            )
-            .all()
-        )
-        slot = R.slot_for_new_entry(slots, existing_entries, now)
+    # Ticks are on-event: no slot.
+    slot = None if is_tick else slot_for(db, owner, check, revs, now, tz, cutoff)
 
     action_code = body.action_code if decision.store_action else None
     fate_code = body.fate_code if decision.store_fate else None
     is_receiving = check.kind == "receiving"
+    product_type = body.product_type if is_receiving else None
     entry = FoodCheckEntry(
         id=uuid.uuid4(),
         user_id=owner.id,
@@ -630,9 +756,10 @@ def save_entry(db: Session, owner, body, *, via: str, kitchen_link=None,
         recorded_at=now,
         client_typed_at=_parse_client_time(body.client_typed_at),
         value_c=value,
+        done=True if is_tick else None,
         product_type=product_type,
-        limit_c=limit.limit_c,
-        limit_direction=limit.direction,
+        limit_c=limit.limit_c if limit is not None else None,
+        limit_direction=limit.direction if limit is not None else None,
         in_limit=ok,
         late=R.is_late(now, slot.due_at) if slot else False,
         product_note=_text_or_none(body.product_note) if is_receiving else None,
@@ -641,8 +768,9 @@ def save_entry(db: Session, owner, body, *, via: str, kitchen_link=None,
         action_other=_text_or_none(body.action_other) if action_code == "other" else None,
         fate_code=fate_code,
         fate_other=_text_or_none(body.fate_other) if fate_code == "other" else None,
+        # A tick's optional note lives here too (≤ 280, verbatim).
         action_note=(_text_or_none(body.action_note)
-                     if (decision.store_action or decision.store_fate) else None),
+                     if (decision.store_action or decision.store_fate or is_tick) else None),
         deviation_state=decision.deviation_state,
         followup_of_id=decision.followup_of_id,
         source="live",
@@ -686,6 +814,9 @@ def undo_entry(db: Session, owner, entry_id, *, kitchen_link=None, actor_user_id
     )
     if e is None:
         raise not_found()
+    if e.supersedes_id is not None and e.voided_at is None:
+        # A correction is corrected again, never undone (its undo_until is null).
+        raise conflict("undo_window_passed")
     if kitchen_link is not None:
         same = e.via == "kitchen" and str(e.kitchen_link_id) == str(kitchen_link.id)
     else:
@@ -709,12 +840,27 @@ def undo_entry(db: Session, owner, entry_id, *, kitchen_link=None, actor_user_id
             .filter(FoodCheckEntry.id == e.followup_of_id, FoodCheckEntry.user_id == owner.id)
             .first()
         )
+        # R1b: the deviation this reading closed may since have been
+        # CORRECTED — then its live row is the end of the correction chain.
+        members = [pred.id] if pred is not None else []
+        hops = 0
+        while (pred is not None and pred.voided_at is not None
+               and pred.void_reason == "correction" and hops < 20):
+            pred = (
+                db.query(FoodCheckEntry)
+                .filter(FoodCheckEntry.user_id == owner.id,
+                        FoodCheckEntry.supersedes_id == pred.id)
+                .first()
+            )
+            if pred is not None:
+                members.append(pred.id)
+            hops += 1
         if pred is not None and pred.voided_at is None and pred.deviation_state == "closed":
             others = (
                 db.query(FoodCheckEntry.id)
                 .filter(
                     FoodCheckEntry.user_id == owner.id,
-                    FoodCheckEntry.followup_of_id == pred.id,
+                    FoodCheckEntry.followup_of_id.in_(members),
                     FoodCheckEntry.voided_at.is_(None),
                     FoodCheckEntry.id != e.id,
                 )
@@ -784,6 +930,10 @@ def _new_check(db: Session, owner, *, template_key, name, note, limit_c, product
     lim, src, pls = None, None, None
     if tpl["kind"] == "receiving":
         pls = _product_limits(template_key, product_limits)
+    elif tpl["kind"] == "tick":
+        # A tick has no limit (R1b): a given limit is refused, never ignored.
+        if limit_c is not None:
+            raise R.RuleError("limit_not_allowed")
     elif limit_c is None:
         lim, src = tpl["limit"]["limit_c"], tpl["limit"]["source"]
     else:
@@ -951,6 +1101,8 @@ def patch_check(db: Session, owner, check_id, payload, *, actor_id) -> dict:
                 if pls != base.product_limits:
                     changes["product_limits"] = pls
         elif "limit_c" in sent and payload.limit_c is not None:
+            if check.kind == "tick":
+                raise R.RuleError("limit_not_allowed")
             v, src = _limit_value(check.template_key, payload.limit_c)
             old = None if base.limit_c is None else Decimal(str(base.limit_c))
             if old is None or v != old or src != base.limit_source:
@@ -1029,7 +1181,7 @@ def checks_list(db: Session, owner) -> dict:
     revs = revs_by_check(db, rows)
     live = [check_out(c, revs.get(str(c.id), [])) for c in rows if c.archived_at is None]
     archived = [check_out(c, revs.get(str(c.id), [])) for c in rows if c.archived_at is not None]
-    return {"checks": live, "archived": archived}
+    return {"checks": live, "archived": archived, "cap": cap_out(db, owner)}
 
 
 # ── Kontrolmappe (folder) ────────────────────────────────────────────────
@@ -1052,16 +1204,27 @@ class FolderData:
     days: dict = field(default_factory=dict)
     summary: dict = field(default_factory=dict)
     period_revs: dict = field(default_factory=dict)       # check id → [(RevisionView, until)]
+    # R1b (filled by egenkontrol_records.folder_extras)
+    max_days: int = R.FOLDER_MAX_DAYS
+    branch_id: Any = None
+    events: list = field(default_factory=list)            # [(head, chain, state)]
+    photos: dict = field(default_factory=dict)            # entry id → FoodCheckPhoto
+    documents: list = field(default_factory=list)         # FoodCheckDocument rows
+    reviews: list = field(default_factory=list)           # FoodCheckReview rows
+    repeat: list = field(default_factory=list)            # [(check_id, count)]
+    findsmiley_url: Optional[str] = None
+    today: Optional[date] = None
 
 
-def validate_range(date_from: date, date_to: date, today: date) -> None:
+def validate_range(date_from: date, date_to: date, today: date,
+                   max_days: int = R.FOLDER_MAX_DAYS) -> None:
     if date_from > date_to or date_to > today:
         raise R.RuleError("bad_range")
-    if (date_to - date_from).days + 1 > R.FOLDER_MAX_DAYS:
-        raise R.RuleError("range_too_long", {"max_days": R.FOLDER_MAX_DAYS})
+    if (date_to - date_from).days + 1 > max_days:
+        raise R.RuleError("range_too_long", {"max_days": max_days})
 
 
-def default_range(db: Session, owner, *, days: int = R.FOLDER_MAX_DAYS) -> tuple[date, date]:
+def default_range(db: Session, owner, *, days: int = R.FOLDER_DEFAULT_DAYS) -> tuple[date, date]:
     tz, cutoff, _ = zone_and_cutoff(db, owner)
     today = R.business_date_of(now_utc(), tz, cutoff)
     return today - timedelta(days=days - 1), today
@@ -1075,16 +1238,18 @@ def entry_check_name(fd: FolderData, e) -> str:
     return c.name if c is not None else ""
 
 
-def folder_data(db: Session, owner, date_from: date, date_to: date, branch_id=None) -> FolderData:
+def folder_data(db: Session, owner, date_from: date, date_to: date, branch_id=None, *,
+                max_days: int = R.FOLDER_MAX_DAYS, extras: bool = True) -> FolderData:
     now = now_utc()
     tz, cutoff, _ = zone_and_cutoff(db, owner)
     today = R.business_date_of(now, tz, cutoff)
-    validate_range(date_from, date_to, today)
+    validate_range(date_from, date_to, today, max_days)
     branch = resolve_branch(db, owner, branch_id)
     fd = FolderData(
         date_from=date_from, date_to=date_to, tz=tz, cutoff=cutoff, now=now,
         venue_name=(getattr(owner, "business_name", None) or "").strip() or (owner.email or ""),
         branch_name=branch.name if branch is not None else None,
+        max_days=max_days, branch_id=branch.id if branch is not None else None, today=today,
     )
     all_checks = load_checks(db, owner, branch_scope=branch.id if branch else None, live_only=False)
     revs = revs_by_check(db, all_checks)
@@ -1112,16 +1277,20 @@ def folder_data(db: Session, owner, date_from: date, date_to: date, branch_id=No
             .all()
         )
     entries = [e for e in loaded if date_from <= e.business_date <= date_to]
-    dev_ids = [e.id for e in entries if R.is_deviation(e) and e.voided_at is None]
-    if dev_ids:
+    # Follow-ups of every deviation EVENT — a corrected deviation's voided
+    # original included (follow-ups point at the row they followed).
+    events = R.deviation_events(entries)
+    dev_ids = sorted({str(x.id) for head, chain, _ in events for x in (chain or [head])})
+    for i in range(0, len(dev_ids), 500):
         for f in (
             db.query(FoodCheckEntry)
             .filter(FoodCheckEntry.user_id == owner.id,
-                    FoodCheckEntry.followup_of_id.in_(dev_ids))
+                    FoodCheckEntry.followup_of_id.in_(dev_ids[i:i + 500]))
             .order_by(FoodCheckEntry.recorded_at)
             .all()
         ):
             fd.followups.setdefault(str(f.followup_of_id), []).append(f)
+    fd.events = events
 
     by_check: dict[str, list] = {}
     for e in entries:
@@ -1153,6 +1322,9 @@ def folder_data(db: Session, owner, date_from: date, date_to: date, branch_id=No
     fd.entries = entries
     fd.days = R.day_states(fd.slot_results, entries, date_from, date_to, tz, cutoff)
     fd.summary = R.folder_summary(fd.slot_results, entries)
+    if extras:
+        from app.services import egenkontrol_records
+        egenkontrol_records.folder_extras(db, owner, fd, [c.id for c in all_checks])
     return fd
 
 
@@ -1168,73 +1340,13 @@ def _rev_out(rv: R.RevisionView) -> dict:
     }
 
 
-def build_folder(db: Session, owner, date_from: date, date_to: date, branch_id=None) -> dict:
+def build_folder(db: Session, owner, date_from: date, date_to: date, branch_id=None, *,
+                 include_readings: bool = False, max_days: int = R.FOLDER_MAX_DAYS) -> dict:
+    """The Kontrolmappe JSON (owner and kitchen share it). The sections live
+    in egenkontrol_records.folder_json."""
+    from app.services import egenkontrol_records
     try:
-        fd = folder_data(db, owner, date_from, date_to, branch_id)
+        fd = folder_data(db, owner, date_from, date_to, branch_id, max_days=max_days)
     except R.RuleError as e:
         raise rule_http(e)
-    tz = fd.tz
-
-    def named(e) -> dict:
-        d = entry_out(e, tz)
-        d["check_name"] = entry_check_name(fd, e)
-        return d
-
-    deviations = []
-    for e in fd.entries:
-        if e.voided_at is None and R.is_deviation(e):
-            d = named(e)
-            d["followups"] = [
-                entry_out(f, tz) for f in fd.followups.get(str(e.id), []) if f.voided_at is None
-            ]
-            deviations.append(d)
-    late = []
-    for r in fd.slot_results:
-        if r.state == "late" and r.filled_by is not None:
-            d = named(r.filled_by)
-            d["slot_due_local"] = R.hhmm_local(r.slot.due_at, tz)
-            late.append(d)
-    late.sort(key=lambda d: d["recorded_at"])
-    names = {str(c.id): c.name for c in fd.checks}
-    missed = []
-    for r in sorted(fd.slot_results, key=lambda r: r.slot.due_at):
-        if r.state == "missed":
-            rv = fd.rev_by_id.get(r.slot.revision_id)
-            missed.append({
-                "check_id": r.slot.check_id,
-                "check_name": rv.name if rv else names.get(r.slot.check_id, ""),
-                "date": r.slot.business_date.isoformat(),
-                "due_local": R.hhmm_local(r.slot.due_at, tz),
-                "schedule_type": r.slot.schedule_type,
-            })
-    # Every voided reading, whatever its reason — a void never hides a row.
-    undone = [named(e) for e in fd.entries if e.voided_at is not None]
-    checks = [
-        {
-            "id": str(c.id),
-            "name": c.name,
-            "template_key": c.template_key,
-            "revisions": [_rev_out(rv) for rv, _ in fd.period_revs.get(str(c.id), [])],
-        }
-        for c in fd.checks
-    ]
-    s = fd.summary
-    return {
-        "from": fd.date_from.isoformat(),
-        "to": fd.date_to.isoformat(),
-        "venue_name": fd.venue_name,
-        "branch_name": fd.branch_name,
-        "generated_at": iso_z(fd.now),
-        "title_counts": {
-            "readings": s["readings"],
-            "deviations": s["deviations"],
-            "deviations_open": s["deviations_open"],
-        },
-        "summary": s,
-        "days": [{"date": d.isoformat(), "state": st} for d, st in sorted(fd.days.items())],
-        "deviations": deviations,
-        "late": late,
-        "missed": missed,
-        "undone": undone,
-        "checks": checks,
-    }
+    return egenkontrol_records.folder_json(fd, include_readings=include_readings)

@@ -343,10 +343,15 @@ def test_the_inbound_mail_cap_is_the_inboxs_own_30mb():
     assert inbox_router.MAX_BODY_BYTES == 30 * _MB
     mw = next(m for m in app.user_middleware if m.cls is BodySizeLimitMiddleware)
     assert mw.kwargs["max_body_bytes"] == 10 * _MB
-    assert mw.kwargs["route_limits"] == {("POST", _WEBHOOK): inbox_router.MAX_BODY_BYTES}
-    # The path in the override is the real webhook route.
-    assert any(getattr(r, "path", None) == _WEBHOOK and "POST" in getattr(r, "methods", ())
-               for r in app.routes)
+    # Egenkontrol R1b: a 10 MB document + its multipart framing (256 KB) so
+    # the route's own check answers 413 {"code":"too_large"}.
+    ek_docs = "/api/egenkontrol/documents"
+    assert mw.kwargs["route_limits"] == {("POST", _WEBHOOK): inbox_router.MAX_BODY_BYTES,
+                                         ("POST", ek_docs): 10 * _MB + 256 * 1024}
+    # The paths in the overrides are real routes.
+    for path in (_WEBHOOK, ek_docs):
+        assert any(getattr(r, "path", None) == path and "POST" in getattr(r, "methods", ())
+                   for r in app.routes), path
 
 
 @pytest.mark.parametrize("chunked", [False, True])

@@ -272,12 +272,12 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # (DK 06:00 cutoff). The 20/min per-IP slowapi cap stays as the
         # coarse second barrier.
         "smart_scan_classify_per_day": 10,
-        # Egenkontrol (R1a) — active temperature checks. 100 is the R1a
-        # ceiling on every plan, an abuse bound, not a product limit: Decision 1
-        # gives Free 6 (the 5-check start list + one spare), but that limit,
-        # its 402 and the downgrade tests ship in R1b. Records stay readable
-        # and printable on every plan whatever this number is.
-        "egenkontrol_active_checks": 100,
+        # Egenkontrol — active checks (temperatures AND ticks). Decision 1:
+        # the 5-check start list + one spare; ticks count; records stay
+        # readable/printable on every plan. Only ADDING or RE-ACTIVATING a
+        # check is refused over the limit — after a downgrade every existing
+        # check keeps recording (egenkontrol_service: setup / create / patch).
+        "egenkontrol_active_checks": 6,
     },
     "starter": {
         "branches": 1,
@@ -349,7 +349,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # day never hits it, still bounded against a runaway script. Marginal
         # cost stays well inside Starter's margin. See Free comment above.
         "smart_scan_classify_per_day": 100,
-        "egenkontrol_active_checks": 100,  # R1a ceiling (see Free)
+        "egenkontrol_active_checks": 100,  # an abuse ceiling, not a product limit (see Free)
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -444,7 +444,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # effectively unlimited for a 3-branch multi-terminal operator
         # snapping all day, still bounded against an abusive/runaway client.
         "smart_scan_classify_per_day": 300,
-        "egenkontrol_active_checks": 100,  # R1a ceiling (see Free)
+        "egenkontrol_active_checks": 100,  # an abuse ceiling, not a product limit (see Free)
     },
 }
 

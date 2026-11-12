@@ -217,7 +217,19 @@ describe("the sheet tells the truth (review round)", () => {
     const { select } = await renderProfile();
     await pickAndSave(select, "salon");
     const summary = await screen.findByTestId("type-change-summary");
-    expect(summary.textContent).toContain("Leaves the menu with the new type (not used yet): expiryForecasting, wasteTracker");
+    // R1b: Egenkontrol has a usage signal too now (keepWhenUsed, the retail
+    // opt-in), so an unused one is "not used yet" like the other two.
+    expect(summary.textContent).toContain("Leaves the menu with the new type (not used yet): navEgenkontrol, expiryForecasting, wasteTracker");
+  });
+
+  it("R1b: a tool in use that leaves anyway (egenkontrol for a salon) is never called 'not used yet'", async () => {
+    used.surfaces = new Set(["egenkontrol"]);
+    const { select } = await renderProfile();
+    await pickAndSave(select, "salon");
+    const summary = await screen.findByTestId("type-change-summary");
+    expect(summary.textContent).toContain("(not used yet): expiryForecasting, wasteTracker");
+    expect(summary.textContent).toContain("Leaves the menu with the new type: navEgenkontrol");
+    expect(summary.textContent).not.toMatch(/\(not used yet\):[^•]*navEgenkontrol/);
   });
 
   it("a tool in use stays, and is not on the list", async () => {
@@ -225,7 +237,7 @@ describe("the sheet tells the truth (review round)", () => {
     const { select } = await renderProfile();
     await pickAndSave(select, "salon");
     const summary = await screen.findByTestId("type-change-summary");
-    expect(summary.textContent).toContain("(not used yet): expiryForecasting");
+    expect(summary.textContent).toContain("(not used yet): navEgenkontrol, expiryForecasting");
     expect(summary.textContent).not.toContain("wasteTracker");
   });
 
@@ -244,7 +256,7 @@ describe("the sheet tells the truth (review round)", () => {
     const { select } = await renderProfile();
     await pickAndSave(select, "jewelry");
     const summary = await screen.findByTestId("type-change-summary");
-    expect(summary.textContent).toContain("(not used yet): expiryForecasting, wasteTracker");
+    expect(summary.textContent).toContain("(not used yet): navEgenkontrol, expiryForecasting, wasteTracker");
     expect(summary.textContent).toContain("None of your data is deleted.");
     expect(summary.textContent).not.toContain("Keep my settings");
     expect(screen.queryByRole("button", { name: "Keep my settings" })).toBeNull();

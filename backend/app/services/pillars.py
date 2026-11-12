@@ -519,15 +519,18 @@ def sample_only_pillars(db: Session, user: User) -> dict[str, bool | None]:
 # Same contract as activated_pillars: real rows only, tenant-scoped, read-only,
 # each signal in its own try/except and FAIL-OPEN (an error reads as used →
 # the tool stays visible).
-USED_SURFACES: tuple[str, ...] = ("waste", "expiry", "workshop")
+USED_SURFACES: tuple[str, ...] = ("waste", "expiry", "workshop", "egenkontrol")
 
 
 def used_surfaces(db: Session, user: User) -> dict[str, bool]:
-    """``{waste, expiry, workshop}``: has this owner a real row for the tool?
+    """``{waste, expiry, workshop, egenkontrol}``: has this owner a real row
+    for the tool?
 
-      • waste    — a live (not deleted) WasteLog row;
-      • expiry   — a stock item with an expiry date;
-      • workshop — a live (not deleted) job card.
+      • waste       — a live (not deleted) WasteLog row;
+      • expiry      — a stock item with an expiry date;
+      • workshop    — a live (not deleted) job card;
+      • egenkontrol — the retail opt-in is on (food_check_settings.opted_in)
+                      OR any food_checks row exists (archived included).
     """
     result: dict[str, bool] = {}
     try:
@@ -557,6 +560,18 @@ def used_surfaces(db: Session, user: User) -> dict[str, bool]:
         ) is not None
     except Exception:  # noqa: BLE001 — fail-open
         result["workshop"] = True
+    try:
+        from app.models.food_check import FoodCheck, FoodCheckSettings
+        opted = (
+            db.query(FoodCheckSettings.user_id)
+            .filter(FoodCheckSettings.user_id == user.id, FoodCheckSettings.opted_in.is_(True))
+            .first()
+        ) is not None
+        result["egenkontrol"] = opted or (
+            db.query(FoodCheck.id).filter(FoodCheck.user_id == user.id).first()
+        ) is not None
+    except Exception:  # noqa: BLE001 — fail-open
+        result["egenkontrol"] = True
     return result
 
 

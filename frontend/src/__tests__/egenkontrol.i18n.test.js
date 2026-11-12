@@ -60,9 +60,46 @@ const KEYS = [
   "ekFolderFollowupNote", "ekFirstReadingTomorrow", "ekFirstReadingOn",
 ];
 
+// R1b — every key the new screens use (contract §12 + the ones the screens needed).
+const KEYS_R1B = [
+  "ekPhotoOptional", "ekPhotoTake", "ekPhotoRetake", "ekPhotoRemoveLocal", "ekPhotoHint", "ekPhotoAttached",
+  "ekPhotoSending", "ekPhotoNotSent", "ekPhotoSaved", "ekPhotoLost", "ekPhotoRemoved", "ekPhotoRemovedShort", "ekPhotoRemove",
+  "ekPhotoRemoveConfirmTitle", "ekPhotoRemoveConfirmBody", "ekPhotoWindowPassed", "ekPhotoTooLarge", "ekPhotoUnreadable",
+  "ekPaperTitle", "ekPaperIntro", "ekPaperCheck", "ekPaperWhenLegend", "ekPaperMeasuredDate", "ekPaperMeasuredTime", "ekPaperReason",
+  "ekPaperReasonPlaceholder", "ekPaperShown", "ekPaperSaved", "ekCtaPaperWhen", "ekCtaPaperReason", "ekErrPaperTooOld",
+  "ekErrPaperFuture", "ekErrPaperFateMustClose", "ekErrPaperReason", "ekErrPaperWhen", "ekErrPaperCheckNotYet", "ekNamePaper",
+  "ekCorrectTitle", "ekCorrectIntro", "ekCorrectReasonQ", "ekCorrectReasonTypo", "ekCorrectReasonWrongCheck", "ekCorrectReasonOther",
+  "ekCorrectReasonPlaceholder", "ekCorrectCheck", "ekCorrectSave", "ekCorrectSaved", "ekCorrectedLine", "ekCorrectedNotDeviation",
+  "ekCorrectedShort", "ekCorrectedAt", "ekErrCorrectionTooOld", "ekErrCorrectionNoChange", "ekErrCorrectionReason",
+  "ekErrCorrectionCheck", "ekErrAlreadyCorrected", "ekRet",
+  "ekWeekTitle", "ekWeekCountReadings", "ekWeekCountLate", "ekWeekCountMissed", "ekWeekCountDeviations", "ekWeekCountOpen",
+  "ekWeekCountPaper", "ekWeekCountCorrections", "ekWeekOpenNow", "ekRepeatHint", "ekWeekDocsDue", "ekDocReviewBy", "ekWeekScope",
+  "ekWeekName", "ekWeekNote", "ekWeekMarkReviewed", "ekWeekReviewedLine", "ekErrWeekNotOver", "ekReviewRow", "ekReviewsNone",
+  "ekSectionReviews",
+  "ekDocsTitle", "ekDocsHonest", "ekDocsEmpty", "ekDocAdd", "ekDocUploadedReview", "ekDocReviewAgain", "ekDocMarkReviewed",
+  "ekDocDelete", "ekDocDeleteConfirmTitle", "ekDocDeleteConfirmBody", "ekDocTypeProgramme", "ekDocTypeRisk", "ekDocTypeCleaning",
+  "ekDocTypeHygiene", "ekDocTypeOther", "ekDocTypeLabel", "ekDocTitleLabel", "ekDocFileLabel", "ekDocFileHelp", "ekDocSave",
+  "ekDocSavedToast", "ekDocReviewedToast", "ekDocDeletedToast", "ekDocDownloaded", "ekDocShared", "ekDocOpenFailed",
+  "ekErrDocTooLarge", "ekErrDocType", "ekErrDocTitle", "ekErrDocsFull", "ekErrStorage",
+  "ekSmileyLabel", "ekSmileyHelp", "ekSmileyLink", "ekSmileySaved", "ekErrSmileyUrl",
+  "ekOptInTitle", "ekOptInBody", "ekOptInButton", "ekOptInDone", "ekErrOptOutHasChecks",
+  "ekCapLine", "ekCapOver", "ekCapSetupOver",
+  "ekTemplateCleaning", "ekTemplateThermometer", "ekGroupCleaning", "ekGroupOther", "ekTickDone", "ekTickNoteLabel",
+  "ekCtaSaveDone", "ekTickLast", "ekTickNotToday", "ekTickEditorNote",
+  "ekQueueStaleKitchen", "ekQueueStaleOwner", "ekQueueDiscard", "ekQueueDiscardConfirmTitle", "ekQueueDiscardConfirmBody",
+  "ekKitchenUnsentList", "ekErrBusinessDayChanged",
+  "ekRangeLabel", "ekRangeLast30", "ekRangeThisMonth", "ekRangeLastMonth", "ekRangeLast92", "ekRangeCustom", "ekRangeFrom",
+  "ekRangeTo", "ekRangeMax", "ekErrRangeTooLong", "ekErrRangeBad",
+  "ekAllReadings", "ekSectionCorrections", "ekSectionPaper", "ekFolderPaperCount", "ekFolderCorrectionsCount", "ekDateAtTime",
+  "ekQueueWaitingOffline", "ekQueueWaitingList", "ekKitchenPairAgainConfirmTitle", "ekKitchenPairAgainConfirmBody",
+  "ekPhotoAttachedLater",
+];
+KEYS.push(...KEYS_R1B);
+
 const MAPS = [
   ek.EK_ACTION_KEYS, ek.EK_FATE_KEYS, ek.EK_STATUS_KEYS, ek.EK_SOURCE_KEYS, ek.EK_PRODUCT_KEYS,
   ek.EK_TEMPLATE_KEYS, ek.EK_GROUP_KEYS, ek.EK_ERROR_KEYS, ek.EK_DAY_KEYS,
+  ek.EK_DOC_TYPE_KEYS, ek.EK_CORRECTION_REASON_KEYS,
 ];
 const NEVER = ["klar til Fødevarestyrelsen", "Sikker", "Alt er dokumenteret", "Alt er klaret", "100 %"];
 const NEVER_EN = ["ready for the Danish Food Authority", "All documented", "All done", "100%"];
@@ -118,6 +155,36 @@ describe("egenkontrol words — real Danish and English for every key", () => {
       }
       // t("key") || "…" is a raw-key leak waiting to happen (t returns the key).
       expect(/\bt\(\s*["'][^"']+["']\s*\)\s*\|\|/.test(src), f).toBe(false);
+    }
+  });
+
+  it("R1b: every server code the new routes send has words (no raw code on screen)", () => {
+    const codes = [
+      "business_day_changed", "done_required", "value_not_allowed", "limit_not_allowed", "paper_too_old", "paper_in_future",
+      "paper_fate_must_close", "paper_reason_required", "paper_reason_too_long", "correction_too_old", "correction_no_change",
+      "reason_unknown", "other_text_required", "reason_too_long", "check_change_needs_reason", "kind_mismatch",
+      "photo_not_allowed", "photo_window_passed", "photo_exists", "photo_too_large", "photo_unreadable", "findsmiley_invalid",
+      "opt_in_not_offered", "has_checks", "title_required", "title_too_long", "doc_type_unknown", "too_many_documents",
+      "unsupported_type", "too_large", "storage_unavailable", "week_not_over", "bad_week", "range_too_long",
+    ];
+    for (const c of codes) expect(ek.EK_ERROR_KEYS[c], c).toBeTruthy();
+    expect(Object.keys(ek.EK_DOC_TYPE_KEYS).sort()).toEqual(["cleaning_plan", "hygiene_cert", "other", "programme", "risk_analysis"]);
+    expect(Object.keys(ek.EK_CORRECTION_REASON_KEYS).sort()).toEqual(["other", "typo", "wrong_check"]);
+  });
+
+  it("R1b: the exact words the spec fixes", () => {
+    expect(da.ekPhotoHint).toBe("Fotografér termometeret eller maden — ikke personer.");
+    expect(en.ekPhotoHint).toBe("Photograph the thermometer or the food — not people.");
+    expect(da.ekSmileyHelp).toBe("Fødevarestyrelsen beder virksomheder linke til findsmiley.dk, når de markedsfører sig online.");
+    expect(da.ekErrSmileyUrl).toBe("Linket skal begynde med https://www.findsmiley.dk/");
+    expect(da.ekDocsHonest).toBe("BonBox gemmer jeres dokumenter. Vi læser dem ikke og godkender dem ikke.");
+    expect(da.ekCorrectIntro).toBe("Rettelsen gemmes ved siden af den oprindelige måling. Tidspunktet ændres ikke, og en afvigelse forsvinder ikke.");
+    expect(da.ekPhotoAttached).toBe("Foto vedlagt");
+    expect(da.ekErrRangeTooLong).toBe("Højst 92 dage ad gangen.");
+    // A document is never called current or valid.
+    for (const k of KEYS_R1B) {
+      expect(da[k], k).not.toMatch(/\bAktuel/);
+      expect(en[k], k).not.toMatch(/\bCurrent\b/);
     }
   });
 

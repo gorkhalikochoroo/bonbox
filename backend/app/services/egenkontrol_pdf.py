@@ -1,5 +1,6 @@
 """
-Kontrolmappe PDF — the egenkontrol records for a period (R1a: at most 30 days).
+Kontrolmappe PDF — the egenkontrol records for a period (at most 92 days per
+file since R1b; R1a was 30).
 
 Built on bonbox_pdf_kit (2-pass render with the Doc-hash + "Side x af y"
 footer, export_bilagsnummer, escape_pdf_text). Rules it keeps:
@@ -16,10 +17,17 @@ footer, export_bilagsnummer, escape_pdf_text). Rules it keeps:
   • The venue name, address and CVR come from the ACCOUNT, never from a
     query parameter.
   • It says what it covers. It never claims more: no "klar til
-    Fødevarestyrelsen", no "Sikker", no "Alt er dokumenteret".
+    Fødevarestyrelsen", no "Sikker", no "Alt er dokumenteret", and never a
+    word that calls an owner's document up to date or approved.
+
+R1b adds: "Fra papir" (both times on the reading), corrections (a corrected
+deviation STAYS under Afvigelser with its reason; a "Rettelser" section),
+ticks ("Udført"), photo notes ("Foto vedlagt" — never the photo), the weekly
+reviews, the owner's documents LISTED by title and date (never attached), and
+the findsmiley.dk link as plain text.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -49,6 +57,16 @@ SCOPE_LINE = (
     "egenkontrolprogram ligger hos virksomheden."
 )
 SIGN_LINE = "Gennemgået af: ______________________    Dato: ______________"
+PAPER_LEGEND = (
+    'Målinger markeret "fra papir" er tastet ind af ejeren efter et papirnotat; '
+    "begge tidspunkter står ved målingen."
+)
+PHOTO_LEGEND = (
+    '"Foto vedlagt" betyder, at der ligger et foto i BonBox ved målingen. '
+    "Fotos er ikke med i udskriften."
+)
+DOCS_NOT_ATTACHED = "Dokumenterne er ikke vedlagt denne udskrift. De kan vises i BonBox."
+PHOTO_LATE_AFTER = timedelta(minutes=10)
 
 
 def _esc(v) -> str:
@@ -60,12 +78,48 @@ def _local(dt, tz):
 
 
 def _when(e, tz) -> tuple[str, str]:
-    loc = _local(e.recorded_at, tz)
+    """The reading's OFFICIAL time — the measured time of a paper reading."""
+    loc = _local(R.effective_at(e), tz)
     return R.format_date_da(loc.date()), loc.strftime("%H:%M")
 
 
+def _dt(dt, tz) -> str:
+    loc = _local(dt, tz)
+    return f"{R.format_date_da(loc.date())} kl. {loc.strftime('%H:%M')}"
+
+
+def _short(dt, tz) -> str:
+    """'12. nov kl. 08:00' (no year, for the per-check rows)."""
+    loc = _local(dt, tz)
+    return f"{loc.day}. {R.MONTH_DA[loc.month - 1]} kl. {loc.strftime('%H:%M')}"
+
+
 def _who(e) -> str:
-    return f"{_esc(e.staff_name)} {_esc(R.name_note_da(e.name_source, e.via))}"
+    return (f"{_esc(e.staff_name)} "
+            f"{_esc(R.name_note_da(e.name_source, e.via, getattr(e, 'source', None)))}")
+
+
+def _paper_line(e, tz) -> Optional[str]:
+    """'Fra papir · indtastet 12. nov kl. 10:00 · målt 11. nov kl. 08:05 ·
+    Årsag: …' (escaped)."""
+    if getattr(e, "source", None) != "paper" or e.paper_measured_at is None:
+        return None
+    t = (f"Fra papir · indtastet {_short(e.recorded_at, tz)} · "
+         f"målt {_short(e.paper_measured_at, tz)}")
+    if e.reason_text:
+        t += f" · Årsag: {e.reason_text}"
+    return _esc(t)
+
+
+def _photo_note(photo, entry, tz) -> Optional[str]:
+    if photo is None:
+        return None
+    if photo.removed_at is not None:
+        return f"Foto fjernet af ejeren {R.format_date_da(_local(photo.removed_at, tz).date())}"
+    t = "Foto vedlagt"
+    if entry is not None and photo.uploaded_at - entry.recorded_at > PHOTO_LATE_AFTER:
+        t += f" (tilføjet {_dt(photo.uploaded_at, tz)})"
+    return t
 
 
 def _action_text(e) -> str:
@@ -122,10 +176,19 @@ def _device_note(e, tz) -> Optional[str]:
 
 
 def _value_text(e) -> str:
+    if getattr(e, "done", None) and e.value_c is None:
+        return R.TICK_DONE_DA
     t = R.format_temp_da(e.value_c)
     if e.product_type:
         t = f"{R.PRODUCT_LABEL_DA.get(e.product_type, e.product_type)}: {t}"
     return t
+
+
+def _correction_line(prev, new, tz) -> str:
+    """'Rettet: Tastefejl · 9,9 °C → 3,9 °C · 12. nov 2026 kl. 10:15'."""
+    reason = R.correction_reason_da(new.correction_reason, new.correction_text)
+    return (f"Rettet: {_esc(reason)} · {_esc(_value_text(prev))} → "
+            f"{_esc(_value_text(new))} · {_esc(_dt(new.created_at, tz))}")
 
 
 def build_folder_pdf(db: Session, owner, date_from: date, date_to: date,
@@ -152,11 +215,18 @@ def build_folder_pdf(db: Session, owner, date_from: date, date_to: date,
 
     filled_ids = {str(r.filled_by.id) for r in fd.slot_results if r.filled_by is not None}
     live = [e for e in fd.entries if e.voided_at is None]
-    # EVERY voided reading prints, whatever its reason; and a deviation is any
-    # out-of-limit reading — its cached state only says open or closed.
-    undone = [e for e in fd.entries if e.voided_at is not None]
-    deviations = [e for e in live if R.is_deviation(e)]
+    # EVERY voided reading prints, whatever its reason — except one replaced
+    # by a correction, which prints under Rettelser with its reason. A
+    # deviation is any out-of-limit reading; a corrected one stays listed as
+    # ONE event (fd.events) with its correction chain.
+    undone = [e for e in fd.entries if e.voided_at is not None and e.void_reason != "correction"]
+    events = fd.events
+    photos = fd.photos
+    by_id = {str(e.id): e for e in fd.entries}
     s = fd.summary
+    from app.services import egenkontrol_records as REC
+    corrections = REC.corrections_of(fd)
+    today_local = _local(fd.now, tz).date()
 
     def story():
         styles = getSampleStyleSheet()
@@ -200,49 +270,99 @@ def build_folder_pdf(db: Session, owner, date_from: date, date_to: date,
         if fd.branch_name:
             lines.append(f"Afdeling: {_esc(fd.branch_name)}")
         lines.append(f"Bilagsnummer: {_esc(bilag)}")
+        if fd.findsmiley_url:
+            # Plain text — never the smiley image, never the FVST logo.
+            lines.append(f"Kontrolrapporter på findsmiley.dk: {_esc(fd.findsmiley_url)}")
         out.append(Paragraph("<br/>".join(lines), sub))
 
         # 2 — Overblik (computed, never a claim)
         out.append(Paragraph("Overblik", h2))
         out.append(table(
             ["Målinger", "Til tiden", "For sent", "Ikke registreret",
-             "Afvigelser", "Heraf ikke afsluttet", "Fortrudt"],
+             "Afvigelser", "Heraf ikke afsluttet", "Fra papir", "Rettelser", "Fortrudt"],
             [[str(s["readings"]), str(s["slots_on_time"]), str(s["slots_late"]),
               str(s["slots_missed"]), str(s["deviations"]), str(s["deviations_open"]),
-              str(s["undone"])]],
-            [22, 22, 22, 26, 22, 30, 22],
+              str(s["paper"]), str(s["corrections"]), str(s["undone"])]],
+            [19, 18, 18, 22, 20, 24, 19, 19, 19],
         ))
 
-        # 3 — Afvigelser
+        # 3 — Afvigelser: one row per EVENT. A corrected deviation stays here
+        # with its reason ("Rettet — ikke en afvigelse" when the corrected
+        # value is in limit).
         out.append(Paragraph("Afvigelser", h2))
-        if not deviations:
+        if not events:
             out.append(Paragraph("Ingen afvigelser i perioden.", muted))
         else:
             rows = []
-            for e in deviations:
-                d, t = _when(e, tz)
-                fups = [f for f in fd.followups.get(str(e.id), []) if f.voided_at is None]
+            for head_e, chain, state in events:
+                members = chain or [head_e]
+                tail = R.chain_tail(members)
+                shown = tail if R.is_deviation(tail) else head_e
+                d, t = _when(head_e, tz)
+                when = f"{d}<br/>kl. {t}"
+                pl = _paper_line(head_e, tz)
+                if pl:
+                    when += f"<br/>{pl}"
+                fups = REC.event_followups(fd, head_e, chain)
                 fu = "<br/>".join(_followup_line(f, tz) for f in fups) if fups else "–"
                 # What finally happened to the food, when a follow-up said it
                 # ("Afventer ny måling → Kasseret (kl. 09:00)").
                 food = "<br/>".join(
-                    [_fate_text(e)] + [x for x in (_followup_fate(f, tz) for f in fups) if x]
+                    [_fate_text(shown)] + [x for x in (_followup_fate(f, tz) for f in fups) if x]
                 )
-                state = "Afsluttet" if e.deviation_state == "closed" else "Ikke afsluttet"
+                value = _esc(_value_text(head_e))
+                for prev, new in zip(members, members[1:]):
+                    value += f"<br/>{_correction_line(prev, new, tz)}"
+                if state == "corrected":
+                    status = "Rettet — ikke en afvigelse"
+                elif state == "closed":
+                    status = "Afsluttet"
+                else:
+                    status = "Ikke afsluttet"
+                p = REC.chain_photo(members, photos)
+                if p is not None:
+                    status += "<br/>" + _esc(_photo_note(p, by_id.get(str(p.entry_id)), tz))
+                names_ck = _esc(S.entry_check_name(fd, head_e))
+                if str(tail.check_id) != str(head_e.check_id):
+                    names_ck += f" → {_esc(S.entry_check_name(fd, tail))}"
                 rows.append([
-                    f"{d}<br/>kl. {t}", _esc(S.entry_check_name(fd, e)), _value_text(e),
-                    _limit_for_entry(e), _action_text(e), food, _who(e), fu, state,
+                    when, names_ck, value, _limit_for_entry(shown), _action_text(shown),
+                    food, _who(head_e), fu, status,
                 ])
             out.append(table(
                 ["Dato", "Kontrolpunkt", "Måling", "Grænse", "Hvad blev gjort",
                  "Maden", "Hvem", "Opfølgning", "Status"],
-                rows, [16, 19, 15, 16, 23, 20, 20, 33, 16],
+                rows, [16, 18, 22, 14, 21, 20, 18, 31, 18],
             ))
 
         # 4 — Registreringer pr. kontrolpunkt
         out.append(Paragraph("Registreringer pr. kontrolpunkt", h2))
         if not fd.checks:
             out.append(Paragraph("Ingen kontrolpunkter i perioden.", muted))
+
+        def row_notes(e) -> list:
+            notes = []
+            if getattr(e, "source", None) == "paper":
+                notes.append(_paper_line(e, tz))
+            if e.product_type:
+                notes.append(_esc("Dato, mærkning og emballage tjekket" if e.label_ok
+                                  else "Mærkning ikke markeret som tjekket"))
+            if e.product_note:
+                notes.append(_esc(f"Vare: {e.product_note}"))
+            if getattr(e, "done", None) and e.action_note:
+                notes.append(_esc(f"Note: {e.action_note}"))
+            if R.is_deviation(e):
+                notes.append(_esc("Afvigelse (se Afvigelser)"))
+            if e.supersedes_id is not None:
+                notes.append(_esc("Rettet (se Rettelser)"))
+            pn = _photo_note(photos.get(str(e.id)), e, tz)
+            if pn:
+                notes.append(_esc(pn))
+            dn = _device_note(e, tz)
+            if dn:
+                notes.append(_esc(dn))
+            return [n for n in notes if n]
+
         for c in fd.checks:
             cid = str(c.id)
             rows = []  # (sort key, row)
@@ -255,15 +375,11 @@ def build_folder_pdf(db: Session, owner, date_from: date, date_to: date,
                     d, t = _when(e, tz)
                     notes = []
                     if r.state == "late":
-                        notes.append(R.late_text_da(t, due_local))
-                    if R.is_deviation(e):
-                        notes.append("Afvigelse (se Afvigelser)")
-                    dn = _device_note(e, tz)
-                    if dn:
-                        notes.append(dn)
-                    rows.append((e.recorded_at, [
-                        d, f"kl. {due_local}", _value_text(e), f"kl. {t}", _who(e),
-                        "<br/>".join(_esc(n) for n in notes) or "Til tiden",
+                        notes.append(_esc(R.late_text_da(t, due_local)))
+                    notes.extend(row_notes(e))
+                    rows.append((R.effective_at(e), [
+                        d, f"kl. {due_local}", _esc(_value_text(e)), f"kl. {t}", _who(e),
+                        "<br/>".join(notes) or "Til tiden",
                     ]))
                 else:
                     label = "Ikke registreret" if r.state == "missed" else "Ikke registreret endnu"
@@ -275,20 +391,9 @@ def build_folder_pdf(db: Session, owner, date_from: date, date_to: date,
                 if str(e.check_id) != cid or str(e.id) in filled_ids:
                     continue
                 d, t = _when(e, tz)
-                notes = []
-                if e.product_type:
-                    notes.append("Dato, mærkning og emballage tjekket" if e.label_ok
-                                 else "Mærkning ikke markeret som tjekket")
-                if e.product_note:
-                    notes.append(f"Vare: {e.product_note}")
-                if R.is_deviation(e):
-                    notes.append("Afvigelse (se Afvigelser)")
-                dn = _device_note(e, tz)
-                if dn:
-                    notes.append(dn)
-                rows.append((e.recorded_at, [
-                    d, "–", _value_text(e), f"kl. {t}", _who(e),
-                    "<br/>".join(_esc(n) for n in notes) or "–",
+                rows.append((R.effective_at(e), [
+                    d, "–", _esc(_value_text(e)), f"kl. {t}", _who(e),
+                    "<br/>".join(row_notes(e)) or "–",
                 ]))
             rows.sort(key=lambda x: x[0])
             cur = (fd.period_revs.get(cid) or [(None, None)])[-1][0]
@@ -315,10 +420,63 @@ def build_folder_pdf(db: Session, owner, date_from: date, date_to: date,
                 when_voided = f"kl. {vt}"
                 if e.void_reason != "undo":
                     when_voided += f"<br/>Årsag: {_esc(e.void_reason or '–')}"
-                rows.append([d, f"kl. {t}", _esc(S.entry_check_name(fd, e)), _value_text(e),
-                             _who(e), when_voided])
+                rows.append([d, f"kl. {t}", _esc(S.entry_check_name(fd, e)),
+                             _esc(_value_text(e)), _who(e), when_voided])
             out.append(table(["Dato", "Registreret", "Kontrolpunkt", "Måling", "Hvem", "Fortrudt"],
                              rows, [24, 20, 34, 26, 42, 20]))
+
+        # 5b — Rettelser (R1b): the official time never changes.
+        out.append(Paragraph("Rettelser", h2))
+        if not corrections:
+            out.append(Paragraph("Ingen rettelser i perioden.", muted))
+        else:
+            rows = []
+            for orig, new in corrections:
+                d, t = _when(orig, tz)
+                ck = _esc(S.entry_check_name(fd, orig))
+                if str(orig.check_id) != str(new.check_id):
+                    ck += f" → {_esc(S.entry_check_name(fd, new))}"
+                rows.append([
+                    f"{d}<br/>kl. {t}", ck, _esc(_value_text(orig)), _esc(_value_text(new)),
+                    _esc(R.correction_reason_da(new.correction_reason, new.correction_text)),
+                    _esc(_dt(new.created_at, tz)),
+                ])
+            out.append(table(["Dato/tid", "Kontrolpunkt", "Før", "Efter", "Årsag", "Rettet"],
+                             rows, [24, 36, 22, 22, 46, 28]))
+
+        # 5c — Ugentlig gennemgang (R1b)
+        out.append(Paragraph("Ugentlig gennemgang af registreringerne", h2))
+        if not fd.reviews:
+            out.append(Paragraph("Ingen ugentlig gennemgang registreret i perioden.", muted))
+        for rv in fd.reviews:
+            who = _esc(rv.actor_name) if rv.actor_name else "i ejerens app"
+            line = (f"Uge {rv.week_start.isocalendar()[1]} "
+                    f"({_esc(R.week_span_da(rv.week_start))}) · gennemgået "
+                    f"{_esc(_dt(rv.reviewed_at, tz))} · {who}")
+            if rv.note:
+                line += f"<br/>Note: {_esc(rv.note)}"
+            out.append(Paragraph(line, cell))
+            out.append(Spacer(1, 1.5 * mm))
+
+        # 5d — Dokumenter i BonBox (R1b): LISTED, never attached or judged.
+        out.append(Paragraph(f"Dokumenter i BonBox (pr. {_esc(R.format_date_da(today_local))})", h2))
+        if not fd.documents:
+            out.append(Paragraph("Ingen dokumenter lagt i BonBox.", muted))
+        else:
+            rows = []
+            for doc in fd.documents:
+                base = doc.reviewed_at or doc.uploaded_at
+                due, _state = R.document_review(_local(base, tz).date(), today_local)
+                rows.append([
+                    _esc(R.DOC_TYPE_LABEL_DA.get(doc.doc_type, doc.doc_type)),
+                    _esc(doc.title),
+                    _esc(R.format_date_da(_local(doc.uploaded_at, tz).date())),
+                    _esc(R.format_date_da(_local(doc.reviewed_at, tz).date())) if doc.reviewed_at else "–",
+                    _esc(R.format_date_da(due)),
+                ])
+            out.append(table(["Type", "Titel", "Uploadet", "Senest gennemgået",
+                              "Gennemgås igen senest"], rows, [32, 62, 26, 28, 30]))
+            out.append(Paragraph(_esc(DOCS_NOT_ATTACHED), muted))
 
         # 6 — Kontrolpunkter og grænser (every revision valid in the period)
         out.append(Paragraph("Kontrolpunkter og grænser", h2))
@@ -355,6 +513,8 @@ def build_folder_pdf(db: Session, owner, date_from: date, date_to: date,
         out.append(Paragraph(_esc(SIGN_LINE), sub))
         out.append(Spacer(1, 6 * mm))
         out.append(Paragraph(_esc(NAMES_LEGEND), muted))
+        out.append(Paragraph(_esc(PAPER_LEGEND), muted))
+        out.append(Paragraph(_esc(PHOTO_LEGEND), muted))
         out.append(Paragraph(_esc(SCOPE_LINE), muted))
         return out
 

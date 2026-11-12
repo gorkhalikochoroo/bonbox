@@ -76,10 +76,26 @@ def _pg_ddl(table: str) -> str:
     raise AssertionError(f"no CREATE TABLE for {table} in _migrations")
 
 
+def _added_columns(table: str) -> dict:
+    """{column: (TYPE, not_null)} from later ALTER TABLE … ADD COLUMN IF NOT
+    EXISTS statements (Migration 089 adds two columns to 088 tables)."""
+    out = {}
+    for sql in main._migrations:
+        s = " ".join(sql.split())
+        m = re.match(rf"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS (\w+) (.+)$", s)
+        if m:
+            out.update(_columns(f"x ({m.group(1)} {m.group(2)})"))
+    return out
+
+
 def _block_088() -> list[str]:
+    """The 088 statements: from kitchen_links up to (not including) the first
+    Migration 089 statement (food_check_reviews)."""
     start = next(i for i, s in enumerate(main._migrations)
                  if "CREATE TABLE IF NOT EXISTS kitchen_links" in s)
-    return main._migrations[start:]
+    end = next(i for i, s in enumerate(main._migrations)
+               if "CREATE TABLE IF NOT EXISTS food_check_reviews" in s)
+    return main._migrations[start:end]
 
 
 def _index_stmts() -> list[str]:
@@ -129,7 +145,7 @@ def test_the_sqlite_mirror_restores_the_indexes_on_an_old_dev_db():
 def test_each_create_table_matches_the_model_names_and_pg_types():
     for model in MODELS:
         t = model.__table__
-        mine = _columns(_pg_ddl(t.name))
+        mine = {**_columns(_pg_ddl(t.name)), **_added_columns(t.name)}
         theirs = _columns(" ".join(str(CreateTable(t).compile(dialect=postgresql.dialect())).split()))
         assert set(mine) == set(theirs), (t.name, set(mine) ^ set(theirs))
         for col, (typ, notnull) in theirs.items():
@@ -165,8 +181,9 @@ def test_the_088_block_has_the_triggers_and_no_cascade():
     # to_jsonb minus the four allowed keys protects every present and future column
     assert "to_jsonb(NEW) - 'deviation_state' - 'voided_at' - 'void_reason' - 'staff_id'" \
         in main._EK_ENTRY_GUARD_FN
-    # appended at the END of the list (087 belongs to reservations-v2)
-    assert main._migrations[-1] == dos[-1]
+    # 088 ends with its trigger DO blocks; Migration 089 (R1b) follows it
+    # directly (tests/test_egenkontrol_r1b_migration.py).
+    assert block[-1] == dos[-1]
 
 
 def test_the_runner_has_no_ledger_so_a_missing_087_is_harmless():

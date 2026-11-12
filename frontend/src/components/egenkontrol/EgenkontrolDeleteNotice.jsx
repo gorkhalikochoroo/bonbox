@@ -2,8 +2,8 @@
  * The delete-account screen's one line about egenkontrol: when this account
  * has readings, offer the Kontrolmappe PDF FIRST — the readings are deleted
  * with the account. Renders nothing otherwise, and nothing on an error (the
- * delete flow is never blocked by this card). R1a: the PDF is the last 30
- * days.
+ * delete flow is never blocked by this card). The PDF is the last 30 days
+ * (the default period); photos and documents go with the account too (R1b).
  */
 import { useEffect, useState } from "react";
 import Button from "../ui/Button";

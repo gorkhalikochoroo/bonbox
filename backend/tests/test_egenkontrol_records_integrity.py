@@ -307,5 +307,5 @@ def test_the_pg_trigger_narrows_the_four_mutable_columns_like_the_listener():
     fn = main._EK_ENTRY_GUARD_FN
     assert "NEW.deviation_state NOT IN ('open', 'closed')" in fn
     assert "OLD.deviation_state IS NULL OR NEW.deviation_state IS NULL" in fn
-    assert "NEW.void_reason NOT IN ('undo')" in fn
-    assert DEVIATION_STATES == ("open", "closed") and VOID_REASONS == ("undo",)
+    assert "NEW.void_reason NOT IN ('undo', 'correction')" in fn     # Migration 089
+    assert DEVIATION_STATES == ("open", "closed") and VOID_REASONS == ("undo", "correction")

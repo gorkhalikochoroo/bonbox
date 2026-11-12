@@ -147,7 +147,7 @@ const USAGE_HINT_PREFIX = "bonbox_usage_hint:";
 
 // The per-TOOL usage signals GET /api/activation reports under `surfaces`
 // (backend pillars.USED_SURFACES). Keep in sync.
-const USED_SURFACE_IDS = Object.freeze(["waste", "expiry", "workshop"]);
+const USED_SURFACE_IDS = Object.freeze(["waste", "expiry", "workshop", "egenkontrol"]);
 const NO_SURFACES = Object.freeze(new Set());
 const ALL_SURFACES = Object.freeze(new Set(USED_SURFACE_IDS));
 

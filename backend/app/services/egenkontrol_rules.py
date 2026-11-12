@@ -28,7 +28,12 @@ VALUE_MIN_C = Decimal("-40.0")
 VALUE_MAX_C = Decimal("120.0")
 RECHECK_MIN_DEFAULT = 30
 RECHECK_MIN_RANGE = (5, 240)
-FOLDER_MAX_DAYS = 30          # R1a; R1b → 92
+# Owner folder JSON and owner PDF: up to 92 days per request / file (R1b; R1a
+# was 30). The DEFAULT range everywhere is FOLDER_DEFAULT_DAYS; the kitchen
+# iPad's read-only folder keeps its own 30-day ceiling.
+FOLDER_MAX_DAYS = 92
+FOLDER_DEFAULT_DAYS = 30
+KITCHEN_FOLDER_DAYS = 30
 TYPED_NAME_MAX = 40
 STAFF_NAME_MAX = 80
 CHECK_NAME_MAX = 60
@@ -38,12 +43,58 @@ ACTION_NOTE_MAX = 280
 PRODUCT_NOTE_MAX = 80
 CLIENT_TIME_DIFF = timedelta(minutes=10)
 
-KINDS = ("temp_max", "temp_min", "receiving")
-TEMPLATE_KEYS = ("fridge", "freezer", "hot_holding", "reheating", "receiving")
+# ── R1b ──
+# "Fra papir": the owner types in a reading that was written on paper, at
+# most 14 days after it was measured. A correction is allowed while the
+# corrected reading is at most 14 days old (measured on ITS recorded_at).
+PAPER_MAX_AGE = timedelta(days=14)
+CORRECTION_MAX_AGE = timedelta(days=14)
+# A photo can be added to a reading up to 24 hours after it was saved.
+PHOTO_ATTACH_WINDOW = timedelta(hours=24)
+# "Køl 1 har haft 3 afvigelser på 30 dage. Gennemgå proceduren."
+REPEAT_WINDOW_DAYS = 30
+REPEAT_THRESHOLD = 3
+# Owner documents in the Kontrolmappe: "gennemgås igen senest" = 12 calendar
+# months after the upload (or the last review); "soon" from 30 days before.
+DOCUMENT_REVIEW_MONTHS = 12
+DOCUMENT_REVIEW_SOON_DAYS = 30
+DOCUMENTS_MAX = 30
+DOCUMENT_TITLE_MAX = 120
+REASON_TEXT_MAX = 120
+REVIEW_NAME_MAX = 80
+REVIEW_NOTE_MAX = 280
+# Decision 7: the owner pastes their own findsmiley.dk link; only this exact
+# prefix (case-sensitive), so http://, no-www, ".dk.evil.com", "@evil.com" and
+# ":443" are all refused by the one startswith.
+FINDSMILEY_PREFIX = "https://www.findsmiley.dk/"
+FINDSMILEY_MAX = 255
+# Retail with chilled food can switch egenkontrol on (one tap).
+RETAIL_OPT_IN_TYPES = ("grocery", "veggie_shop", "kiosk")
+
+KINDS = ("temp_max", "temp_min", "receiving", "tick")
+TEMPLATE_KEYS = ("fridge", "freezer", "hot_holding", "reheating", "receiving",
+                 "cleaning", "thermometer")
 PRODUCT_TYPES = ("chilled", "fish", "frozen")
 LIMIT_SOURCES = ("law", "guide", "fvst_example", "owner")
 SCHEDULE_TYPES = ("daily", "weekly", "on_event")
-GROUP_ORDER = ("temperatures", "reheating", "receiving")
+GROUP_ORDER = ("temperatures", "reheating", "receiving", "cleaning", "other")
+
+# Corrections (R1b): why a reading was corrected. "other" needs a text.
+CORRECTION_REASONS = ("typo", "wrong_check", "other")
+CORRECTION_REASON_LABEL_DA = {
+    "typo": "Tastefejl",
+    "wrong_check": "Forkert kontrolpunkt valgt",
+    "other": "Andet",
+}
+# Owner documents in the Kontrolmappe (R1b).
+DOC_TYPES = ("programme", "risk_analysis", "cleaning_plan", "hygiene_cert", "other")
+DOC_TYPE_LABEL_DA = {
+    "programme": "Egenkontrolprogram",
+    "risk_analysis": "Risikoanalyse",
+    "cleaning_plan": "Rengøringsplan",
+    "hygiene_cert": "Hygiejnebevis",
+    "other": "Andet dokument",
+}
 
 ACTION_CODES = (
     "thermostat_adjusted", "moved_goods", "supplier_contacted",
@@ -148,6 +199,27 @@ START_LIST: dict[str, dict] = {
         "fate_codes": ("returned", "discarded", "assessed_ok", "other"),
         "recheck_min": 30,
     },
+    # R1b ticks: "done", no value, no limit, no deviation. On-event only, so a
+    # day without cleaning or a thermometer check is never "Ikke registreret".
+    # Not pre-selected in the setup start list; they COUNT toward the cap.
+    "cleaning": {
+        "kind": "tick", "group_key": "cleaning",
+        "limit": None,
+        "product_limits": None,
+        "schedule_default": {"type": "on_event"},
+        "schedule_options": ("on_event",),
+        "action_codes": (), "fate_codes": (),
+        "recheck_min": 30,
+    },
+    "thermometer": {
+        "kind": "tick", "group_key": "other",
+        "limit": None,
+        "product_limits": None,
+        "schedule_default": {"type": "on_event"},
+        "schedule_options": ("on_event",),
+        "action_codes": (), "fate_codes": (),
+        "recheck_min": 30,
+    },
 }
 
 
@@ -175,6 +247,15 @@ def is_deviation(e) -> bool:
     The folder and the PDF pick deviations with THIS, so the one mutable
     column (deviation_state) can annotate a deviation but never hide one."""
     return getattr(e, "in_limit", None) is False or bool(getattr(e, "deviation_state", None))
+
+
+def effective_at(e) -> datetime:
+    """The time a reading is judged by: the MEASURED time of a "Fra papir"
+    reading, else the server's receive time (recorded_at, THE official time
+    of a live reading). Used for slot filling, late, sorting and "last"."""
+    if getattr(e, "source", None) == "paper" and getattr(e, "paper_measured_at", None):
+        return e.paper_measured_at
+    return e.recorded_at
 
 
 def direction_for_kind(kind: str) -> str:
@@ -534,16 +615,18 @@ def slots_between(revisions: Iterable[RevisionView], first_day: date, last_day: 
 
 def _fill(slots: list[Slot], entries: Iterable[Any]) -> dict[int, Any]:
     """Each non-voided entry fills the EARLIEST unfilled slot of its check
-    whose window contains recorded_at. Returns {slot index: entry}."""
+    whose window contains its effective time (effective_at: the measured time
+    of a paper reading, else recorded_at). Returns {slot index: entry}."""
     order = sorted(range(len(slots)), key=lambda i: slots[i].due_at)
     filled: dict[int, Any] = {}
-    for e in sorted((e for e in entries if not _voided(e)), key=lambda e: e.recorded_at):
+    for e in sorted((e for e in entries if not _voided(e)), key=effective_at):
         cid = _sid(e.check_id)
+        at = effective_at(e)
         for i in order:
             s = slots[i]
             if i in filled or s.check_id != cid:
                 continue
-            if s.window_start <= e.recorded_at < s.window_end:
+            if s.window_start <= at < s.window_end:
                 filled[i] = e
                 break
     return filled
@@ -564,7 +647,7 @@ def assign(slots: list[Slot], entries: Iterable[Any], now: datetime) -> list[Slo
     for i, s in enumerate(slots):
         e = filled.get(i)
         if e is not None:
-            state = "late" if is_late(e.recorded_at, s.due_at) else "on_time"
+            state = "late" if is_late(effective_at(e), s.due_at) else "on_time"
         else:
             state = "missed" if now >= s.window_end else "open"
         out.append(SlotResult(s, e, state))
@@ -573,7 +656,8 @@ def assign(slots: list[Slot], entries: Iterable[Any], now: datetime) -> list[Slo
 
 def slot_for_new_entry(slots: list[Slot], existing_entries: Iterable[Any],
                        recorded_at: datetime) -> Optional[Slot]:
-    """The slot a reading saved at `recorded_at` fills (same rule as assign)."""
+    """The slot a new reading fills (same rule as assign). `recorded_at` is
+    the new reading's EFFECTIVE time (the measured time of a paper reading)."""
     slots = list(slots)
     filled = _fill(slots, list(existing_entries))
     for i in sorted(range(len(slots)), key=lambda i: slots[i].due_at):
@@ -719,7 +803,7 @@ def status_today(check: Any, revisions: list[RevisionView], entries: list[Any],
         rid = _sid(getattr(open_dev, "revision_id", None))
         open_rev = next((r for r in revisions if _sid(r.id) == rid), None)
     today_live = [e for e in live if _bdate(e, tz, cutoff_hour) == today]
-    last = max(today_live, key=lambda e: e.recorded_at) if today_live else None
+    last = max(today_live, key=effective_at) if today_live else None
     closed_today = any(getattr(e, "deviation_state", None) == "closed" for e in today_live)
 
     monday = iso_week_monday(today)
@@ -790,17 +874,26 @@ def summary_today(statuses: Iterable[CheckStatus]) -> dict:
             "open_deviations": open_devs}
 
 
+def _corrected_away(e) -> bool:
+    return _voided(e) and getattr(e, "void_reason", None) == "correction"
+
+
 def day_states(slot_results: list[SlotResult], entries: Iterable[Any],
                first_day: date, last_day: date, tz: ZoneInfo, cutoff_hour: int) -> dict:
     """{date: deviation|missed|late|ok|none}, worst-of. A deviation is never
-    hidden by a good re-check the same day (D13)."""
+    hidden by a good re-check the same day (D13), nor by a correction: a
+    reading voided BY A CORRECTION that was a deviation still marks its day."""
     out = {}
+    entries = list(entries)
     live = [e for e in entries if not _voided(e)]
+    corrected = [e for e in entries if _corrected_away(e) and is_deviation(e)]
     d = first_day
     while d <= last_day:
         day_entries = [e for e in live if _bdate(e, tz, cutoff_hour) == d]
         day_slots = [r for r in slot_results if r.slot.business_date == d]
-        if any(is_deviation(e) for e in day_entries):
+        if any(is_deviation(e) for e in day_entries) or any(
+            _bdate(e, tz, cutoff_hour) == d for e in corrected
+        ):
             st = "deviation"
         elif any(r.state == "missed" for r in day_slots):
             st = "missed"
@@ -815,22 +908,120 @@ def day_states(slot_results: list[SlotResult], entries: Iterable[Any],
     return out
 
 
+# ── Correction chains (R1b) ──────────────────────────────────────────────
+
+def chains(entries: Iterable[Any]) -> dict[str, list]:
+    """{head id: [rows in order]} for every reading that was corrected.
+
+    A correction writes a NEW row (supersedes_id = the corrected row) and
+    voids the old one with void_reason 'correction'; correcting the
+    correction makes a longer chain. head = the row with no predecessor in
+    the set (the original reading), tail = the live row. Readings that were
+    never corrected are not in the result."""
+    rows = list(entries)
+    by_id = {_sid(e.id): e for e in rows}
+    succ: dict[str, list] = {}
+    has_pred: set[str] = set()
+    for e in rows:
+        p = _sid(getattr(e, "supersedes_id", None))
+        if p is not None and p in by_id and p != _sid(e.id):
+            succ.setdefault(p, []).append(e)
+            has_pred.add(_sid(e.id))
+    out: dict[str, list] = {}
+    for e in rows:
+        eid = _sid(e.id)
+        if eid in has_pred or eid not in succ:
+            continue
+        chain, seen, cur = [e], {eid}, e
+        while True:
+            nxts = succ.get(_sid(cur.id))
+            if not nxts:
+                break
+            nxt = min(nxts, key=lambda x: (getattr(x, "created_at", None) or datetime.min,
+                                           _sid(x.id)))
+            if _sid(nxt.id) in seen:
+                break
+            chain.append(nxt)
+            seen.add(_sid(nxt.id))
+            cur = nxt
+        out[eid] = chain
+    return out
+
+
+def chain_tail(chain: list) -> Any:
+    """The live row of a chain (the last one; the last live one if a raw
+    update voided the tail)."""
+    live = [e for e in chain if not _voided(e)]
+    return live[-1] if live else chain[-1]
+
+
+def chain_state(chain: list) -> str:
+    """open | closed — the live tail is still a deviation (its own state);
+    corrected — the live tail is in limit ("Rettet — ikke en afvigelse"; the
+    deviation is still LISTED, never removed)."""
+    tail = chain_tail(chain)
+    if is_deviation(tail):
+        return "closed" if getattr(tail, "deviation_state", None) == "closed" else "open"
+    return "corrected"
+
+
+def deviation_events(entries: Iterable[Any]) -> list[tuple[Any, list, str]]:
+    """One item per deviation EVENT: (head, chain or [], state). A corrected
+    deviation is ONE event (its chain), whatever the correction did; a
+    reading that was never corrected is its own event. Sorted by the head's
+    effective time."""
+    entries = list(entries)
+    ch = chains(entries)
+    in_chain = {_sid(e.id) for c in ch.values() for e in c}
+    out = []
+    for c in ch.values():
+        if any(is_deviation(e) for e in c):
+            out.append((c[0], c, chain_state(c)))
+    for e in entries:
+        if _voided(e) or _sid(e.id) in in_chain or not is_deviation(e):
+            continue
+        out.append((e, [], "closed" if getattr(e, "deviation_state", None) == "closed" else "open"))
+    out.sort(key=lambda t: (effective_at(t[0]), _sid(t[0].id)))
+    return out
+
+
 def folder_summary(slot_results: list[SlotResult], entries: Iterable[Any]) -> dict:
     entries = list(entries)
     live = [e for e in entries if not _voided(e)]
-    devs = [e for e in live if is_deviation(e)]
+    events = deviation_events(entries)
     return {
         "readings": len(live),
         "slots_on_time": sum(1 for r in slot_results if r.state == "on_time"),
         "slots_late": sum(1 for r in slot_results if r.state == "late"),
         "slots_missed": sum(1 for r in slot_results if r.state == "missed"),
-        "deviations": len(devs),
-        "deviations_open": sum(1 for e in devs if e.deviation_state != "closed"),
-        # EVERY voided reading counts and prints, whatever its reason.
-        "undone": sum(1 for e in entries if _voided(e)),
-        "paper": 0,
-        "corrections": 0,
+        # Each deviation EVENT once: a corrected one stays counted.
+        "deviations": len(events),
+        "deviations_open": sum(1 for _, _, st in events if st == "open"),
+        # Every voided reading counts and prints, whatever its reason —
+        # except a reading replaced by a correction (listed under Rettelser).
+        "undone": sum(1 for e in entries if _voided(e) and not _corrected_away(e)),
+        "paper": sum(1 for e in live if getattr(e, "source", None) == "paper"),
+        "corrections": sum(1 for e in live if getattr(e, "supersedes_id", None)),
     }
+
+
+def repeat_hints(entries: Iterable[Any], end_instant: datetime, *,
+                 days: int = REPEAT_WINDOW_DAYS, threshold: int = REPEAT_THRESHOLD) -> list:
+    """[(check_id, count)] for checks with >= threshold LIVE deviations whose
+    effective time is in (end − days, end]. A typo corrected away does not
+    count: its voided original is not live and its in-limit tail is no
+    deviation."""
+    start = end_instant - timedelta(days=days)
+    counts: dict[str, int] = {}
+    for e in entries:
+        if _voided(e) or not is_deviation(e):
+            continue
+        at = effective_at(e)
+        if start < at <= end_instant:
+            k = _sid(e.check_id)
+            counts[k] = counts.get(k, 0) + 1
+    return sorted(((k, n) for k, n in counts.items() if n >= threshold),
+                  key=lambda kv: (-kv[1], kv[0]))
 
 
 # ── Danish text helpers (PDF + folder payload) ───────────────────────────
@@ -890,14 +1081,110 @@ def late_text_da(recorded_local: str, due_local: str) -> str:
     return f"For sent · registreret kl. {recorded_local} (frist kl. {due_local})"
 
 
-def name_note_da(name_source: Optional[str], via: Optional[str]) -> str:
+def name_note_da(name_source: Optional[str], via: Optional[str],
+                 source: Optional[str] = None) -> str:
     if name_source == "typed":
-        return "(skrevet ind)"
-    if via == "kitchen":
-        return "(valgt på køkken-iPad)"
-    if via == "shared":
-        return "(valgt på delt enhed)"
-    return "(valgt i ejerens app)"
+        note = "(skrevet ind)"
+    elif via == "kitchen":
+        note = "(valgt på køkken-iPad)"
+    elif via == "shared":
+        note = "(valgt på delt enhed)"
+    else:
+        note = "(valgt i ejerens app)"
+    if source == "paper":
+        return f"(fra papir) {note}"
+    return note
+
+
+TICK_DONE_DA = "Udført"
+
+
+def correction_reason_da(code: Optional[str], text: Optional[str]) -> str:
+    """'Tastefejl' / 'Forkert kontrolpunkt valgt' / 'Andet: <text>' (the text
+    is the owner's own words — the caller escapes it for the PDF)."""
+    label = CORRECTION_REASON_LABEL_DA.get(code or "", code or "–")
+    if text:
+        return f"{label}: {text}"
+    return label
+
+
+# ── Settings / documents / weeks (R1b) ───────────────────────────────────
+
+def validate_findsmiley_url(value: Any) -> Optional[str]:
+    """None / blank → None (clears the link). Otherwise the stripped URL — a
+    URL, not prose, so the one trim allowed — must start with exactly
+    https://www.findsmiley.dk/ (case-sensitive), be at most 255 characters,
+    be more than the bare prefix, and hold no whitespace, control character
+    or backslash. Anything else: RuleError findsmiley_invalid."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise RuleError("findsmiley_invalid")
+    v = value.strip()
+    if not v:
+        return None
+    if (not v.startswith(FINDSMILEY_PREFIX) or len(v) > FINDSMILEY_MAX
+            or v == FINDSMILEY_PREFIX or "\\" in v
+            or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in v)):
+        raise RuleError("findsmiley_invalid")
+    return v
+
+
+def add_months(d: date, months: int) -> date:
+    """Calendar months; a day the target month lacks clamps to its last day
+    (29 Feb 2028 + 12 months → 28 Feb 2029)."""
+    y, m = divmod(d.month - 1 + months, 12)
+    y, m = d.year + y, m + 1
+    day = d.day
+    while day > 28:
+        try:
+            return date(y, m, day)
+        except ValueError:
+            day -= 1
+    return date(y, m, day)
+
+
+def document_review(base_local: date, today: date) -> tuple[date, str]:
+    """(review_due, ok|soon|overdue). There is NO state that calls a document
+    up to date or approved: BonBox stores the document, it never judges it."""
+    due = add_months(base_local, DOCUMENT_REVIEW_MONTHS)
+    if due < today:
+        return due, "overdue"
+    if (due - today).days <= DOCUMENT_REVIEW_SOON_DAYS:
+        return due, "soon"
+    return due, "ok"
+
+
+_ISO_WEEK = re.compile(r"^(\d{4})-W(\d{2})$")
+
+
+def iso_week_label(monday: date) -> str:
+    y, w, _ = monday.isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def parse_iso_week(s: Any) -> date:
+    """'2026-W46' → that week's Monday. RuleError bad_week otherwise."""
+    if not isinstance(s, str):
+        raise RuleError("bad_week")
+    m = _ISO_WEEK.match(s)
+    if not m:
+        raise RuleError("bad_week")
+    try:
+        return date.fromisocalendar(int(m.group(1)), int(m.group(2)), 1)
+    except ValueError:
+        raise RuleError("bad_week")
+
+
+def week_span_da(monday: date) -> str:
+    """'9.–15. nov 2026' (or '30. nov – 6. dec 2026' across a month)."""
+    sunday = monday + timedelta(days=6)
+    if monday.month == sunday.month:
+        return f"{monday.day}.–{sunday.day}. {MONTH_DA[sunday.month - 1]} {sunday.year}"
+    if monday.year == sunday.year:
+        return (f"{monday.day}. {MONTH_DA[monday.month - 1]} – {sunday.day}. "
+                f"{MONTH_DA[sunday.month - 1]} {sunday.year}")
+    return f"{format_date_da(monday)} – {format_date_da(sunday)}"
 
 
 # ── JSON helpers for revision columns ────────────────────────────────────

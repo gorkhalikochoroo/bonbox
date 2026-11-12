@@ -137,6 +137,7 @@ from app.routers import public_waitlist as public_waitlist_router
 from app.routers import stand_link as stand_link_router
 # Egenkontrol R1a (Migration 088): owner routes + the kitchen iPad's token routes.
 from app.routers import egenkontrol as egenkontrol_router
+from app.routers import egenkontrol_files as egenkontrol_files_router
 from app.routers import kitchen_link as kitchen_link_router
 from app.routers import public_gavekort as public_gavekort_router
 from app.routers import revisor_package as revisor_package_router
@@ -188,14 +189,18 @@ _OCCUPANCY_BACKFILL_CANDIDATES = """
 # without touching this function. The four columns that MAY change are
 # narrowed too, because the folder and the PDF read them: a deviation only
 # moves open <-> closed (never to or from NULL, which would drop it from the
-# print), and a void needs a known reason ('undo'; R1b adds its own). The SQLite-side twin is the pair of mapper
+# print), and a void needs a known reason ('undo'; Migration 089 adds
+# 'correction' — a reading replaced by a correction row). The function is
+# CREATE OR REPLACE and re-runs every boot, so that edit needs no lock; R1b's
+# new columns reason_text and correction_text are covered by the to_jsonb
+# comparison (immutable after insert) without a change here. The SQLite-side twin is the pair of mapper
 # listeners in app/models/food_check.py. Module-level so the PG test imports
 # the exact SQL the boot runs; no `:name` tokens (they go through text()).
 _EK_ENTRY_GUARD_FN = """CREATE OR REPLACE FUNCTION bonbox_food_check_entries_guard() RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN
   IF (to_jsonb(NEW) - 'deviation_state' - 'voided_at' - 'void_reason' - 'staff_id') IS DISTINCT FROM (to_jsonb(OLD) - 'deviation_state' - 'voided_at' - 'void_reason' - 'staff_id') THEN RAISE EXCEPTION 'food_check_entries: a saved reading cannot be changed, only voided'; END IF;
   IF OLD.voided_at IS NOT NULL AND (NEW.voided_at IS DISTINCT FROM OLD.voided_at OR NEW.void_reason IS DISTINCT FROM OLD.void_reason) THEN RAISE EXCEPTION 'food_check_entries: a voided reading stays voided'; END IF;
   IF NEW.voided_at IS NULL AND NEW.void_reason IS DISTINCT FROM OLD.void_reason THEN RAISE EXCEPTION 'food_check_entries: void_reason only with voided_at'; END IF;
-  IF OLD.voided_at IS NULL AND NEW.voided_at IS NOT NULL AND (NEW.void_reason IS NULL OR NEW.void_reason NOT IN ('undo')) THEN RAISE EXCEPTION 'food_check_entries: void_reason must be a known reason'; END IF;
+  IF OLD.voided_at IS NULL AND NEW.voided_at IS NOT NULL AND (NEW.void_reason IS NULL OR NEW.void_reason NOT IN ('undo', 'correction')) THEN RAISE EXCEPTION 'food_check_entries: void_reason must be a known reason'; END IF;
   IF NEW.deviation_state IS DISTINCT FROM OLD.deviation_state AND (OLD.deviation_state IS NULL OR NEW.deviation_state IS NULL OR NEW.deviation_state NOT IN ('open', 'closed')) THEN RAISE EXCEPTION 'food_check_entries: a deviation only moves between open and closed'; END IF;
   IF NEW.staff_id IS DISTINCT FROM OLD.staff_id AND NEW.staff_id IS NOT NULL THEN RAISE EXCEPTION 'food_check_entries: staff_id may only be cleared'; END IF;
   RETURN NEW; END $fn$"""
@@ -2976,7 +2981,7 @@ _migrations = [
     # reservations-v2 branch. The runner has no ledger (numbers live only in
     # comments; _migration_already_applied reads the live catalog), so a
     # missing 087 here is harmless and the order between them is irrelevant.
-    # Cooling (R2) and food_check_reviews (R1b) are NOT created yet.
+    # Cooling (R2) is NOT created yet; food_check_reviews came in 089 (R1b).
     #
     # kitchen_links — the kitchen iPad's device credential: stand_links' shape
     # + branch_id. `token` / `join_code` are in auth._EXPORT_SECRET_EXACT, so
@@ -3102,6 +3107,75 @@ _migrations = [
     _EK_ENTRY_GUARD_FN,
     _EK_REVISION_GUARD_FN,
     *_EK_TRIGGER_DO_BLOCKS,
+    # ── Migration 089 (2026-11-12): Egenkontrol R1b ──
+    # Three NEW tables + two ADD COLUMNs on 088 tables. Models in
+    # app/models/food_check.py; create_all builds them first on both engines,
+    # these are the create_all-bypassed safety net, typed exactly as
+    # create_all types them. Plain REFERENCES, no CASCADE; naive TIMESTAMP
+    # holding UTC. No new triggers: the new tables' rules are app-level
+    # listeners (food_check.py). The RLS sweep above gives all three the anon
+    # deny on boot. 087 (reservations-v2 quoted_at) is already live.
+    #
+    # food_check_reviews — "Ugens egenkontrol": one row per venue per ISO
+    # week, never edited; purged 730 days after reviewed_at.
+    """CREATE TABLE IF NOT EXISTS food_check_reviews (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        iso_week VARCHAR(8) NOT NULL,
+        week_start DATE NOT NULL,
+        reviewed_at TIMESTAMP NOT NULL,
+        actor_user_id VARCHAR(36),
+        actor_name VARCHAR(80),
+        note VARCHAR(280),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_food_check_reviews_week ON food_check_reviews (user_id, iso_week)",
+    # food_check_documents — the owner's own documents in the Kontrolmappe;
+    # kept until the owner deletes them or the account.
+    """CREATE TABLE IF NOT EXISTS food_check_documents (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        branch_id VARCHAR(36) REFERENCES branches(id),
+        doc_type VARCHAR(24) NOT NULL,
+        title VARCHAR(120) NOT NULL,
+        storage_key VARCHAR(200) NOT NULL,
+        content_type VARCHAR(40) NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        uploaded_at TIMESTAMP NOT NULL,
+        uploaded_by_user_id VARCHAR(36),
+        reviewed_at TIMESTAMP,
+        reviewed_by_user_id VARCHAR(36),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_food_check_documents_user ON food_check_documents (user_id)",
+    # food_check_photos — one optional photo per reading; storage_key NULL
+    # once the owner removed it (tombstone). Purged with its reading (730 d).
+    """CREATE TABLE IF NOT EXISTS food_check_photos (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        entry_id VARCHAR(36) NOT NULL REFERENCES food_check_entries(id),
+        storage_key VARCHAR(200),
+        content_type VARCHAR(40) NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        via VARCHAR(10) NOT NULL,
+        kitchen_link_id VARCHAR(36) REFERENCES kitchen_links(id),
+        actor_user_id VARCHAR(36),
+        uploaded_at TIMESTAMP NOT NULL,
+        removed_at TIMESTAMP,
+        removed_by_user_id VARCHAR(36),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_food_check_photos_entry ON food_check_photos (entry_id)",
+    "CREATE INDEX IF NOT EXISTS ix_food_check_photos_user ON food_check_photos (user_id)",
+    # reason_text: the owner's words for a paper reading (why it came in late);
+    # correction_text: a correction's own words — kept apart so a corrected
+    # paper reading still prints its real paper reason. Both immutable after
+    # insert (the 088 trigger's to_jsonb covers them).
+    # opted_in: retail (grocery / veggie_shop / kiosk) switched egenkontrol on.
+    # All metadata-only under the 5 s lock_timeout (nullable / constant default).
+    "ALTER TABLE food_check_entries ADD COLUMN IF NOT EXISTS reason_text VARCHAR(120)",
+    "ALTER TABLE food_check_entries ADD COLUMN IF NOT EXISTS correction_text VARCHAR(120)",
+    "ALTER TABLE food_check_settings ADD COLUMN IF NOT EXISTS opted_in BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
@@ -3882,6 +3956,10 @@ def _run_migrations():
             ok += _add("revisor_package_sends", "figures_json", "TEXT")
             ok += _add("revisor_package_sends", "figures_fp", "VARCHAR(64)")
             ok += _add("revisor_package_sends", "is_correction", "BOOLEAN NOT NULL DEFAULT 0")
+            # Mirror of Migration 089 (Egenkontrol R1b) — the three ADD COLUMNs.
+            ok += _add("food_check_entries", "reason_text", "VARCHAR(120)")
+            ok += _add("food_check_entries", "correction_text", "VARCHAR(120)")
+            ok += _add("food_check_settings", "opted_in", "BOOLEAN NOT NULL DEFAULT 0")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -3914,6 +3992,11 @@ def _run_migrations():
                 "CREATE INDEX IF NOT EXISTS ix_food_check_entries_check_time ON food_check_entries (check_id, recorded_at)",
                 "CREATE INDEX IF NOT EXISTS ix_food_check_entries_open_dev ON food_check_entries (user_id, deviation_state) WHERE deviation_state = 'open'",
                 "CREATE INDEX IF NOT EXISTS ix_food_check_entries_recorded ON food_check_entries (recorded_at)",
+                # Mirror of Migration 089 — egenkontrol R1b (reviews, documents, photos).
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_food_check_reviews_week ON food_check_reviews (user_id, iso_week)",
+                "CREATE INDEX IF NOT EXISTS ix_food_check_documents_user ON food_check_documents (user_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_food_check_photos_entry ON food_check_photos (entry_id)",
+                "CREATE INDEX IF NOT EXISTS ix_food_check_photos_user ON food_check_photos (user_id)",
             ]
             ix_ok = 0
             for stmt in _index_stmts:
@@ -5473,12 +5556,19 @@ async def member_read_guard(request: Request, call_next):
 # PIN. They get the shared device's OWN extra tuple, NOT the member/manager
 # tuple: that tuple is one shared set (manager == member, pinned by three
 # tests), and a manager seat DOES read the Kontrolmappe and the PDF — the
-# per-role split lives in routers/egenkontrol.py. Readings and undo
-# (/api/egenkontrol/entries…) stay open on a curtained tablet: it is the
-# counter device, and its readings are marked via="shared".
+# per-role split lives in routers/egenkontrol.py. Readings, undo AND the
+# photo upload (/api/egenkontrol/entries…, incl. POST /entries/{id}/photo)
+# stay open on a curtained tablet: it is the counter device, and its readings
+# are marked via="shared". R1b adds the weekly review, the owner's documents
+# and the photo viewer/remover; corrections and paper entries have their OWN
+# path roots (/corrections, /paper-entries) precisely so they can be
+# prefix-matched here — an /entries/{id}/correct path could not be.
 _SHARED_DEVICE_EXTRA_READ_DENY_PREFIXES = (
     "/api/egenkontrol/folder",    # the folder AND folder.pdf
     "/api/egenkontrol/devices",
+    "/api/egenkontrol/week",      # R1b: the weekly review card
+    "/api/egenkontrol/documents", # R1b: the owner's documents (list + file)
+    "/api/egenkontrol/photos",    # R1b: photo bytes (GET) — upload is under /entries
 )
 _SHARED_DEVICE_DENY_PREFIXES = _MANAGER_READ_DENY_PREFIXES + _SHARED_DEVICE_EXTRA_READ_DENY_PREFIXES
 
@@ -5499,11 +5589,19 @@ _SHARED_DEVICE_DENY_WRITE_PREFIXES = (
     # Egenkontrol config (R1a lead override): the start-list setup, the check
     # editor (create / change / switch off / archive), kitchen-iPad pairing and
     # revoking, and the settings (R1b) need the reveal PIN on a shared tablet.
-    # NOT /api/egenkontrol/entries — recording a temperature is counter work.
+    # R1b: paper entries, corrections, the weekly review, documents (upload /
+    # review / delete) and photo removal too.
+    # NOT /api/egenkontrol/entries — recording a temperature (and adding its
+    # photo) is counter work.
     "/api/egenkontrol/setup",
     "/api/egenkontrol/checks",
     "/api/egenkontrol/devices",
     "/api/egenkontrol/settings",
+    "/api/egenkontrol/paper-entries",
+    "/api/egenkontrol/corrections",
+    "/api/egenkontrol/week",
+    "/api/egenkontrol/documents",
+    "/api/egenkontrol/photos",
 )
 
 
@@ -5996,7 +6094,13 @@ _INBOUND_MAIL_WEBHOOK_PATH = "/api/inbox/postmark-webhook"
 app.add_middleware(
     BodySizeLimitMiddleware,
     max_body_bytes=_MAX_REQUEST_BYTES,
-    route_limits={("POST", _INBOUND_MAIL_WEBHOOK_PATH): inbox_router.MAX_BODY_BYTES},
+    route_limits={
+        ("POST", _INBOUND_MAIL_WEBHOOK_PATH): inbox_router.MAX_BODY_BYTES,
+        # Egenkontrol R1b: a document may be 10 MB itself; the multipart
+        # framing (title, type, boundaries) needs a little room on top, so
+        # the route's own check answers 413 {"code":"too_large"}.
+        ("POST", "/api/egenkontrol/documents"): 10 * 1024 * 1024 + 256 * 1024,
+    },
 )
 
 
@@ -6188,6 +6292,9 @@ app.include_router(stand_link_router.router, prefix="/api", tags=["Host stand"])
 # accept a kitchen token), paired through the same POST /api/stand/join.
 app.include_router(kitchen_link_router.router, prefix="/api", tags=["Kitchen device"])
 app.include_router(egenkontrol_router.router, prefix="/api", tags=["Egenkontrol"])
+# Egenkontrol R1b: documents + photos (multipart uploads, byte proxies) — the
+# same /api/egenkontrol prefix, its own Limiter.
+app.include_router(egenkontrol_files_router.router, prefix="/api", tags=["Egenkontrol"])
 # Owner-facing analytics on the booking book — GET /api/reservations/insights.
 # Mounted under the SAME prefix as the owner reservation router (separate file
 # to keep that router from growing further). Authed + tenant-scoped + fail-soft.

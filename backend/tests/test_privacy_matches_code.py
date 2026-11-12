@@ -71,6 +71,33 @@ def test_egenkontrol_records_are_kept_2_years_as_privacy_says():
             '"2 år, derefter slettet automatisk; slettes med kontoen"]') in PRIVACY
 
 
+def test_egenkontrol_photos_and_documents_are_kept_as_privacy_says():
+    """Egenkontrol R1b: a photo on a reading lives 2 years with it (the
+    nightly purge removes photos first, then readings) and goes with the
+    account; the owner's documents stay until they delete them or the
+    account. Weekly reviews are records under the readings row (730 days)."""
+    from app.jobs.privacy_purges import EGENKONTROL_RETENTION_DAYS, _PURGES
+    from app.services.storage import (
+        ACCOUNTING_RETENTION_KINDS, ALLOWED_KINDS, ERASURE_PURGE_KINDS,
+    )
+    assert EGENKONTROL_RETENTION_DAYS == 730
+    assert ("egenkontrol_photos", "purge_old_egenkontrol_photos") in _PURGES
+    assert ("egenkontrol_reviews", "purge_old_egenkontrol_reviews") in _PURGES
+    order = [k for k, _ in _PURGES]
+    assert order.index("egenkontrol_photos") < order.index("egenkontrol_entries")
+    for kind in ("food_check_photo", "food_check_document"):
+        assert kind in ALLOWED_KINDS and kind in ERASURE_PURGE_KINDS
+        assert kind not in ACCOUNTING_RETENTION_KINDS
+    assert ('["Food safety photos (egenkontrol, taken with a reading)", '
+            '"2 years, then deleted automatically; deleted with your account"]') in PRIVACY
+    assert ('["Documents you add to the inspection folder (egenkontrol programme, risk analysis '
+            'and the like)", "Until you delete them or your account"]') in PRIVACY
+    assert ('["Egenkontrol-fotos (taget ved en måling)", '
+            '"2 år, derefter slettet automatisk; slettes med kontoen"]') in PRIVACY
+    assert ('["Dokumenter, I lægger i Kontrolmappen (egenkontrolprogram, risikoanalyse o.l.)", '
+            '"Indtil I sletter dem eller kontoen"]') in PRIVACY
+
+
 def test_change_log_has_no_end_date_because_the_database_refuses_deletes():
     main = (APP / "main.py").read_text()
     assert "CREATE OR REPLACE RULE audit_logs_no_delete AS ON DELETE TO audit_logs DO INSTEAD NOTHING" in main

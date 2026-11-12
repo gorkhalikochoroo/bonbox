@@ -8,9 +8,13 @@ revoked, unknown or unpaired token is the same 404 {"error":"not_found"}.
 
 THE ALLOW-LIST IS STRUCTURAL, exactly like the host stand: a kitchen token
 reaches the wrappers below and nothing else in the API. Today's list, staff
-first names, save and undo a reading, the read-only Kontrolmappe, and letting
-go of itself. No config, devices, settings, money, reservations or PDF.
-Adding reach means adding a wrapper here, which is a visible diff.
+first names, save and undo a reading, the read-only Kontrolmappe (30 days),
+and letting go of itself. R1b adds exactly three: a photo on a reading THIS
+iPad saved, viewing a photo (last 30 business days, branch scope) and
+viewing a document the owner put in the Kontrolmappe (read-only). No config,
+devices, settings, paper entries, corrections, the weekly review, document
+upload/delete, photo removal, money, reservations or PDF. Adding reach means
+adding a wrapper here, which is a visible diff.
 
 NO `from __future__ import annotations` (slowapi limiter router).
 """
@@ -18,7 +22,7 @@ NO `from __future__ import annotations` (slowapi limiter router).
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from slowapi import Limiter
 from sqlalchemy.orm import Session
 
@@ -28,6 +32,8 @@ from app.models.kitchen_link import KitchenLink
 from app.routers.stand_link import _owner, _touch
 from app.schemas.egenkontrol import EntryIn
 from app.services import audit_service
+from app.services import egenkontrol_files as F
+from app.services import egenkontrol_rules as R
 from app.services import egenkontrol_service as S
 from app.services.billing import enforce_feature
 from app.utils.client_ip import client_ip
@@ -120,10 +126,38 @@ def kitchen_undo_entry(token: str, entry_id: UUID, request: Request,
 def kitchen_folder(token: str, request: Request,
                    days: int = Query(default=30, ge=1, le=30),
                    db: Session = Depends(get_db)):
-    """The Kontrolmappe on site, read-only. No PDF route on this surface."""
+    """The Kontrolmappe on site, read-only. No PDF route on this surface,
+    never the "Alle målinger" list."""
     link, owner = _bind(db, token)
     date_from, date_to = S.default_range(db, owner, days=days)
-    return S.build_folder(db, owner, date_from, date_to, link.branch_id)
+    return S.build_folder(db, owner, date_from, date_to, link.branch_id,
+                          max_days=R.KITCHEN_FOLDER_DAYS)
+
+
+@router.post("/{token}/entries/{entry_id}/photo", status_code=201)
+@limiter.limit("20/minute")
+def kitchen_add_photo(token: str, entry_id: UUID, request: Request,
+                      file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """A photo on a reading THIS iPad saved (a deviation or a delivery)."""
+    link, owner = _bind(db, token)
+    return F.attach_photo(db, owner, entry_id, file, via="kitchen", kitchen_link=link,
+                          actor_user_id=None)
+
+
+@router.get("/{token}/photos/{photo_id}")
+@limiter.limit("60/minute")
+def kitchen_photo(token: str, photo_id: UUID, request: Request, db: Session = Depends(get_db)):
+    link, owner = _bind(db, token)
+    return F.serve_photo(db, owner, photo_id, kitchen_link=link)
+
+
+@router.get("/{token}/documents/{doc_id}/file")
+@limiter.limit("30/minute")
+def kitchen_document_file(token: str, doc_id: UUID, request: Request,
+                          db: Session = Depends(get_db)):
+    """Read-only: the owner's documents can be OPENED on the kitchen iPad."""
+    link, owner = _bind(db, token)
+    return F.serve_document(db, owner, doc_id, kitchen_link=link)
 
 
 @router.post("/{token}/unpair")

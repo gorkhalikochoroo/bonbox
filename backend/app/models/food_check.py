@@ -33,9 +33,17 @@ deleted and a kept reading), created_by_user_id and actor_user_id (actor refs,
 like expenses.linked_expense_id).
 
 Cooling (food_cooling_runs, entries.cooling_run_id) arrives in R2 with its own
-ALTER; food_check_reviews in R1b. The R1b columns that live on these tables
-(source, paper_measured_at, supersedes_id, correction_reason, done,
-findsmiley_*, staff_card) exist now, unused, so R1b needs no ALTER.
+ALTER. R1a shipped the R1b columns source, paper_measured_at, supersedes_id,
+correction_reason, done, findsmiley_* and staff_card unused.
+
+R1b (Migration 089) adds three tables — food_check_reviews (the weekly
+review), food_check_documents (the owner's own documents in the Kontrolmappe)
+and food_check_photos (one optional photo on a reading) — and three columns:
+food_check_entries.reason_text (the paper reason) and .correction_text (a
+correction's own words), and food_check_settings.opted_in. The new
+tables carry user_id → users.id, so erasure and the GDPR export reach them
+through the same metadata walk; their immutability is app-level (listeners at
+the bottom), no new Postgres trigger.
 """
 
 import uuid
@@ -173,6 +181,13 @@ class FoodCheckEntry(Base):
     void_reason: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     supersedes_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)    # no FK, R1b
     correction_reason: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    # R1b (Migration 089): the owner's own words, verbatim, ≤ 120, immutable
+    # after insert like every other column. TWO columns, two meanings:
+    # reason_text = why a "Fra papir" reading came in late (a correction of a
+    # paper row carries it over, so the folder keeps the real paper reason);
+    # correction_text = why THIS row corrected another ("Andet: …").
+    reason_text: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    correction_text: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
@@ -184,8 +199,100 @@ class FoodCheckSettings(Base):
     findsmiley_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)             # R1b
     findsmiley_on_booking: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)   # R1b
     setup_done_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # R1b (Migration 089): a grocery / veggie_shop / kiosk switched egenkontrol
+    # on (retail opt-in). Food service and bar never need it.
+    opted_in: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class FoodCheckReview(Base):
+    """R1b — "Ugens egenkontrol": the owner marked a business week's
+    registrations as reviewed. One row per venue per ISO week (unique), never
+    edited (listener below). Kept 730 days by reviewed_at, like the readings
+    (jobs/privacy_purges), and deleted with the account. actor_name and note
+    are the owner's own words, verbatim."""
+    __tablename__ = "food_check_reviews"
+    __table_args__ = (
+        Index("ux_food_check_reviews_week", "user_id", "iso_week", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    iso_week: Mapped[str] = mapped_column(String(8))            # "2026-W46"
+    week_start: Mapped[date] = mapped_column(Date)              # the Monday
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime)     # server clock
+    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)   # no FK
+    actor_name: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(String(280), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class FoodCheckDocument(Base):
+    """R1b — a document the OWNER put in the Kontrolmappe (egenkontrolprogram,
+    risikoanalyse, rengøringsplan, hygiejnebevis, …): a PDF stored as-is or an
+    image re-encoded to JPEG (EXIF/GPS stripped), in private EU storage under
+    "<owner>/food_check_document/<sha256>.<ext>" — content-addressed, so a
+    delete removes the blob only when no other row uses the key. Served only
+    through the tenant-re-checked proxy routes, as an attachment. Not purged
+    by time: kept until the owner deletes it or the account. Only
+    reviewed_at / reviewed_by_user_id ever change (listener below)."""
+    __tablename__ = "food_check_documents"
+    __table_args__ = (
+        Index("ix_food_check_documents_user", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    # NULL = the whole venue (the R1b UI always sends NULL).
+    branch_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("branches.id"), nullable=True
+    )
+    doc_type: Mapped[str] = mapped_column(String(24))
+    title: Mapped[str] = mapped_column(String(120))             # verbatim
+    storage_key: Mapped[str] = mapped_column(String(200))
+    content_type: Mapped[str] = mapped_column(String(40))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime)
+    uploaded_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    reviewed_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class FoodCheckPhoto(Base):
+    """R1b — one optional photo on a reading (a deviation, or a goods
+    delivery): re-encoded JPEG, EXIF/GPS stripped, private EU storage under
+    "<owner>/food_check_photo/<sha256>.jpg". At most one row per reading
+    (unique entry_id), added within 24 h of the reading.
+
+    storage_key is NULLABLE on purpose: when the owner removes a photo (one
+    that shows a person, say) the blob is deleted at once and the row stays
+    as a TOMBSTONE (removed_at, removed_by_user_id, storage_key NULL), so the
+    Kontrolmappe and the PDF can say "Foto fjernet af ejeren <dato>". Kept
+    with its reading for 730 days (privacy_purges deletes the photo rows and
+    blobs first, then the readings) and deleted with the account."""
+    __tablename__ = "food_check_photos"
+    __table_args__ = (
+        Index("ux_food_check_photos_entry", "entry_id", unique=True),
+        Index("ix_food_check_photos_user", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    entry_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("food_check_entries.id"))
+    storage_key: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    content_type: Mapped[str] = mapped_column(String(40))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    via: Mapped[str] = mapped_column(String(10))                # kitchen | owner_app | shared
+    kitchen_link_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("kitchen_links.id"), nullable=True
+    )
+    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)   # no FK
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime)
+    removed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    removed_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)   # no FK
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
 # ── App-level immutability (the SQLite-side twin of the PG triggers) ─────
@@ -195,7 +302,9 @@ ENTRY_MUTABLE_COLUMNS = frozenset({"deviation_state", "voided_at", "void_reason"
 # ...and only within these values: the folder and the PDF read both columns,
 # so a deviation never goes to or from NULL and a void names its reason.
 DEVIATION_STATES = ("open", "closed")
-VOID_REASONS = ("undo",)          # R1b adds its own
+# 'correction' (R1b): the reading was replaced by a correction row
+# (supersedes_id) and stays printed under Rettelser.
+VOID_REASONS = ("undo", "correction")
 
 
 def _changed_columns(mapper, target) -> set[str]:
@@ -254,3 +363,55 @@ def _guard_revision_update(mapper, connection, target):
         raise EntryImmutableError(
             "food_check_revisions: a revision is never changed; write a new one"
         )
+
+
+# R1b — the new tables have no Postgres trigger; these listeners are the
+# app-level rule on BOTH engines (every write goes through the ORM).
+
+@event.listens_for(FoodCheckReview, "before_update")
+def _guard_review_update(mapper, connection, target):
+    if _changed_columns(mapper, target):
+        raise EntryImmutableError("food_check_reviews: a weekly review is never changed")
+
+
+DOCUMENT_MUTABLE_COLUMNS = frozenset({"reviewed_at", "reviewed_by_user_id"})
+
+
+@event.listens_for(FoodCheckDocument, "before_update")
+def _guard_document_update(mapper, connection, target):
+    illegal = _changed_columns(mapper, target) - DOCUMENT_MUTABLE_COLUMNS
+    if illegal:
+        raise EntryImmutableError(
+            "food_check_documents: only the review date changes "
+            f"(tried: {', '.join(sorted(illegal))})"
+        )
+
+
+PHOTO_MUTABLE_COLUMNS = frozenset({"removed_at", "removed_by_user_id", "storage_key"})
+
+
+@event.listens_for(FoodCheckPhoto, "before_update")
+def _guard_photo_update(mapper, connection, target):
+    """A photo row only ever moves ONE way: removed (tombstone) — removed_at
+    None → a time, once; storage_key → NULL; removed_by set with it."""
+    changed = _changed_columns(mapper, target)
+    if not changed:
+        return
+    illegal = changed - PHOTO_MUTABLE_COLUMNS
+    if illegal:
+        raise EntryImmutableError(
+            f"food_check_photos: a photo row cannot be changed (tried: {', '.join(sorted(illegal))})"
+        )
+    t = FoodCheckPhoto.__table__
+    old = connection.execute(
+        select(t.c.removed_at, t.c.storage_key, t.c.removed_by_user_id)
+        .where(t.c.id == str(target.id))
+    ).first()
+    if old is None:
+        return
+    if old[0] is not None:
+        raise EntryImmutableError("food_check_photos: a removed photo stays removed")
+    if target.removed_at is None:
+        raise EntryImmutableError("food_check_photos: only a removal may change a photo row")
+    if target.storage_key is not None:
+        raise EntryImmutableError("food_check_photos: a removed photo keeps no blob key")

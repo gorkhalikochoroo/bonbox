@@ -531,7 +531,13 @@ export const NAV_MANIFEST = [
     pillar: null,
     visibleFor: ["restaurant", "cafe", "bakery", "tea_shop", "food_truck", "takeaway", "bar"],
     visibleForArchetypes: ["food_service", "bar"],
-    hideForArchetypes: ["retail", "salon", "services", "personal", "generic"],
+    // R1b: a grocery / veggie shop / kiosk that switched egenkontrol on (one
+    // tap on /modules or /egenkontrol) — or any owner with a check — keeps it
+    // (backend pillars.used_surfaces "egenkontrol"). So retail is no longer
+    // hidden by archetype; the type gate + keepWhenUsed decide. A salon and
+    // the rest stay hidden even with the signal.
+    hideForArchetypes: ["salon", "services", "personal", "generic"],
+    keepWhenUsed: "egenkontrol",
     frequency: "daily",
     surfaces: ["sidebar", "more", "search"],
     badge: "egenkontrol",

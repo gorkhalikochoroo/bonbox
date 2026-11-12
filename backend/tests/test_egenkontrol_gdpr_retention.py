@@ -21,11 +21,17 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models.food_check import FoodCheck, FoodCheckEntry, FoodCheckRevision, FoodCheckSettings
+from app.models.food_check import (
+    FoodCheck, FoodCheckDocument, FoodCheckEntry, FoodCheckPhoto, FoodCheckReview,
+    FoodCheckRevision, FoodCheckSettings,
+)
 from app.models.kitchen_link import KitchenLink
-from tests._ek_support import env  # noqa: F401 — fixture
+from tests._ek_support import env, store  # noqa: F401 — fixtures
 
-EK_MODELS = (FoodCheck, FoodCheckRevision, FoodCheckEntry, FoodCheckSettings, KitchenLink)
+# R1b adds reviews, documents and photos (8 egenkontrol tables in all).
+EK_MODELS = (FoodCheck, FoodCheckRevision, FoodCheckEntry, FoodCheckSettings, KitchenLink,
+             FoodCheckReview, FoodCheckDocument, FoodCheckPhoto)
+R1A_MODELS = EK_MODELS[:5]
 
 
 def _seed_venue(env, name):
@@ -45,9 +51,9 @@ def _seed_venue(env, name):
     return o, tok
 
 
-def _count(env, uid):
+def _count(env, uid, models=R1A_MODELS):
     env.db.expire_all()
-    return {m.__tablename__: env.db.query(m).filter(m.user_id == uid).count() for m in EK_MODELS}
+    return {m.__tablename__: env.db.query(m).filter(m.user_id == uid).count() for m in models}
 
 
 def test_delete_account_erases_every_egenkontrol_row_and_only_that_venues(env):
@@ -145,3 +151,29 @@ def test_demo_seeders_create_no_egenkontrol_rows():
     finally:
         s.close()
     assert datetime
+
+
+def test_r1b_tables_are_in_the_export_and_erased(env, store):
+    """R1b: reviews, documents and photos travel with the export and go with
+    the account (the delete-account walk + the blob prefix purge — the blob
+    half is pinned in test_egenkontrol_r1b_documents)."""
+    with env.engine.connect() as c:
+        c.execute(text("PRAGMA foreign_keys=ON"))
+    o, _ = _seed_venue(env, "R1b")
+    fridge = env.today_json(o)["checks"][0]["id"]
+    dev = env.save(o, fridge, 9.0, action_code="thermostat_adjusted", fate_code="moved").json()
+    assert env.photo(o, dev["id"]).status_code == 201
+    assert env.doc(o).status_code == 201
+    env.clock.set(datetime(2026, 11, 17, 9, 0))
+    assert env.client.post("/api/egenkontrol/week/2026-W46/reviewed", json={},
+                           headers=env.h(o)).status_code == 201
+    body = env.client.get("/api/auth/export-data", headers=env.h(o)).text
+    for t in ("food_check_reviews", "food_check_documents", "food_check_photos"):
+        assert f"=== table: {t}" in body, t
+    uid = o.id
+    assert all(_count(env, uid, EK_MODELS[5:]).values())
+    r = env.client.request("DELETE", "/api/auth/delete-account",
+                           json={"password": "ownerpw123"}, headers=env.h(o))
+    assert r.status_code == 200, r.text
+    env.db.expunge_all()
+    assert set(_count(env, uid, EK_MODELS).values()) == {0}

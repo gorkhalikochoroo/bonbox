@@ -9,13 +9,23 @@
  * A reading saved from this screen keeps "Fortryd" until its 2-minute window
  * closes (the deadline is set when the save came back, from the server's own
  * recorded_at → undo_until span, so a wrong device clock cannot stretch it).
+ *
+ * R1b: the queue survives a reload, so a row can also hold a STALE reading
+ * (typed on an earlier business day — never sent): the kitchen says "skriv
+ * den på papir", the owner gets "Fra papir". "Fjern" (through the page's
+ * useConfirm) drops one. A photo on its way shows its own line. A queued
+ * reading whose check is no longer on today's list is shown at the end under
+ * its own name — never hidden. Ticks (Rengøring, Termometertjek) say when
+ * they were last done, in a neutral tone: an on-event tick is never missing.
  */
-import { ChevronRight, RotateCcw } from "lucide-react";
+import { ChevronRight, FileText, RotateCcw, Trash2 } from "lucide-react";
 import CheckStatusPill from "../ui/CheckStatusPill";
+import { PhotoStatusLine } from "./usePhotoUploads";
 import {
   EK_GROUP_KEYS,
   STATUS_TONE,
   formatTemp,
+  isTick,
   groupChecks,
   limitLine,
   receivingSourceLine,
@@ -24,19 +34,58 @@ import {
   weekdayName,
 } from "./ekLogic";
 
-function PendingLine({ item, onRetry, onOpen, t, lang }) {
-  const value = formatTemp(item.body?.value_c, lang);
+const LINE_BTN =
+  "min-h-14! px-4 inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 text-[15px] font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800";
+
+/** "12. nov. kl. 08:05" from the device's own clock (the typed time of a queued reading). */
+function deviceTyped(iso, lang) {
+  const at = Date.parse(iso || "");
+  if (!Number.isFinite(at)) return { date: "", time: "" };
+  const d = new Date(at);
+  let date = "";
+  try {
+    date = new Intl.DateTimeFormat(lang === "da" ? "da-DK" : "en-GB", { day: "numeric", month: "short" }).format(d);
+  } catch {
+    date = d.toDateString();
+  }
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return { date, time };
+}
+
+function PendingLine({ item, onRetry, onOpen, onDiscard, onPaper, staleMode, t, lang }) {
+  const value = item.body?.done === true ? t("ekTickDone") : formatTemp(item.body?.value_c, lang);
+  const discard = onDiscard ? (
+    <button type="button" onClick={() => onDiscard(item)} className={LINE_BTN} data-testid="ek-pending-discard">
+      <Trash2 className="w-4 h-4" aria-hidden="true" />
+      {t("ekQueueDiscard")}
+    </button>
+  ) : null;
+  if (item.state === "stale") {
+    const typed = deviceTyped(item.typedAt || item.body?.client_typed_at, lang);
+    return (
+      <div className="flex flex-wrap items-center gap-2" data-testid="ek-pending-stale">
+        <CheckStatusPill tone="bad">{value}</CheckStatusPill>
+        <span className="text-[15px] text-gray-800 dark:text-gray-200">
+          {t(staleMode === "owner" ? "ekQueueStaleOwner" : "ekQueueStaleKitchen", typed)}
+        </span>
+        {staleMode === "owner" && onPaper ? (
+          <button type="button" onClick={() => onPaper(item)} className={LINE_BTN} data-testid="ek-pending-paper">
+            <FileText className="w-4 h-4" aria-hidden="true" />
+            {t("ekPaperTitle")}
+          </button>
+        ) : null}
+        {discard}
+      </div>
+    );
+  }
   if (item.state === "needs_action") {
     return (
       <div className="flex flex-wrap items-center gap-2" data-testid="ek-pending-needs-action">
         <CheckStatusPill tone="bad">{t("ekNeedsAction")} · {value}</CheckStatusPill>
-        <button
-          type="button"
-          onClick={() => onOpen?.(item)}
-          className="min-h-14! px-4 rounded-lg border border-gray-300 dark:border-gray-600 text-[15px] font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
+        <button type="button" onClick={() => onOpen?.(item)} className={LINE_BTN}>
           {t("ekRecord")}
         </button>
+        {discard}
       </div>
     );
   }
@@ -75,9 +124,25 @@ export default function CheckList({
   undoBusy = null,
   t,
   lang = "da",
+  onDiscard = null,
+  onPaper = null,
+  staleMode = "kitchen",
+  photos = [],
+  onRetryPhoto = null,
+  onDismissPhoto = null,
+  onRetakePhoto = null,
 }) {
   const groups = groupChecks(checks);
   const wd = (i) => weekdayName(i, lang);
+  const known = new Set((checks || []).map((c) => c.id));
+  // Queued readings and photos whose check is not on today's list (switched
+  // off, or another branch's): shown at the end under their own name.
+  const orphans = (pending || []).filter((p) => !known.has(p.checkId));
+  const orphanPhotos = (photos || []).filter((p) => !known.has(p.checkId));
+  const lineProps = { onRetry, onOpen: onOpenPending, onDiscard, onPaper, staleMode, t, lang };
+  const photoLine = (p) => (
+    <PhotoStatusLine key={`ph-${p.entryId}`} photo={p} onRetry={onRetryPhoto} onDismiss={onDismissPhoto} onRetake={onRetakePhoto} t={t} />
+  );
   return (
     <div className="space-y-5" data-testid="ek-check-list">
       {groups.map((g) => (
@@ -88,8 +153,9 @@ export default function CheckList({
           <ul className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
             {g.checks.map((c) => {
               const lines = statusLines(c, lang, wd);
-              const tone = STATUS_TONE[c.status] || "muted";
+              const tone = isTick(c) ? "muted" : STATUS_TONE[c.status] || "muted";
               const mine = pending.filter((p) => p.checkId === c.id);
+              const myPhotos = (photos || []).filter((p) => p.checkId === c.id);
               const saved = recent[c.id];
               const canUndo =
                 onUndo && saved && !saved.entry?.voided_at && (now == null || now < saved.deadline);
@@ -137,11 +203,12 @@ export default function CheckList({
                   ) : (
                     <div className="w-full min-h-14! px-4 py-3 flex items-center gap-3">{body}</div>
                   )}
-                  {mine.length || canUndo ? (
+                  {mine.length || canUndo || myPhotos.length ? (
                     <div className="px-4 pb-3 -mt-1 space-y-2">
                       {mine.map((p) => (
-                        <PendingLine key={p.clientId} item={p} onRetry={onRetry} onOpen={onOpenPending} t={t} lang={lang} />
+                        <PendingLine key={p.clientId} item={p} {...lineProps} />
                       ))}
+                      {myPhotos.map(photoLine)}
                       {canUndo ? (
                         <button
                           type="button"
@@ -162,6 +229,24 @@ export default function CheckList({
           </ul>
         </section>
       ))}
+      {orphans.length || orphanPhotos.length ? (
+        <section aria-labelledby="ek-group-unsent" data-testid="ek-orphans">
+          <h2 id="ek-group-unsent" className="text-[13px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
+            {t("ekNotSavedYet")}
+          </h2>
+          <ul className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
+            {orphans.map((p) => (
+              <li key={p.clientId} className="px-4 py-3 space-y-2">
+                <p className="text-[17px] font-semibold text-gray-900 dark:text-gray-50">{p.checkName || ""}</p>
+                <PendingLine item={p} {...lineProps} />
+              </li>
+            ))}
+            {orphanPhotos.map((p) => (
+              <li key={`ph-${p.entryId}`} className="px-4 py-3">{photoLine(p)}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

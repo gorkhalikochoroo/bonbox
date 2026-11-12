@@ -418,6 +418,8 @@ def test_dry_run_counts_match_what_the_purges_would_do(Session):
         "waitlist_guest_pii": 1, "whatsapp_messages": 1,
         "magic_link_tokens": 2, "anonymous_paid_waitlist": 1,
         "egenkontrol_entries": 0,   # Egenkontrol R1a: 730-day readings purge
+        "egenkontrol_photos": 0,    # R1b: photos on those readings (first)
+        "egenkontrol_reviews": 0,   # R1b: weekly reviews, 730 days
     }
 
 

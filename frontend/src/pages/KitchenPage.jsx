@@ -17,12 +17,24 @@
  * server got it; the iPad's own time goes along as client_typed_at for
  * display only. Late, missed, in-limit, deviation: all decided server-side.
  *
- * Layout: landscape iPad (≥ 1024 px, landscape) = list left, "Registrér"
- * right (sticky). Portrait / narrow = the list, and a tap opens the panel in
- * ui/Sheet, TOP-anchored (desktop="top"): the panel grows downward as the
- * deviation questions appear, so the keypad never moves mid-entry. Tap
- * targets ≥ 56 px, keypad keys ≥ 64 px, 16 px gutter, no sideways scroll.
- * Colours only through ui/CheckStatusPill.
+ * Layout: landscape iPad (≥ 1024 px, landscape) = a FIXED-HEIGHT two-pane
+ * screen (data-layout="landscape-panes"): the header on top, the list left
+ * and "Registrér" right, each pane scrolling on its own. The panel is never
+ * taller than the screen, so its save button and the next missing step are
+ * always reachable inside it (R1a review: the old sticky column ran below the
+ * iPad's bottom edge and a tap on the not-ready button could not reveal the
+ * step). Portrait / narrow = the list, and a tap opens the panel in ui/Sheet,
+ * TOP-anchored (desktop="top"): the panel grows downward as the deviation
+ * questions appear, so the keypad never moves mid-entry. Tap targets ≥ 56 px,
+ * keypad keys ≥ 64 px, 16 px gutter, no sideways scroll. Colours only through
+ * ui/CheckStatusPill.
+ *
+ * R1b: unsent readings are kept on the iPad (a reload keeps them, and an
+ * offline reload still lists them; a reading typed on an earlier business day
+ * is sent once to ASK — a replay means it was stored — and only the server's
+ * "another day" makes it "skriv den på papir"; "Par igen" asks first); a
+ * photo can follow a deviation or a delivery; the Kontrolmappe shows the
+ * owner's documents (read-only) and the photos.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -40,9 +52,11 @@ import RecordPanel from "../components/egenkontrol/RecordPanel";
 import FolderView from "../components/egenkontrol/FolderView";
 import { MeasurerBar } from "../components/egenkontrol/NamePicker";
 import useNameRound from "../components/egenkontrol/useNameRound";
-import usePendingEntries, { useRecentSaves } from "../components/egenkontrol/usePendingEntries";
+import usePendingEntries, { kitchenQueueKey, useRecentSaves } from "../components/egenkontrol/usePendingEntries";
+import { usePhotoUploads } from "../components/egenkontrol/usePhotoUploads";
 import useScreenWakeLock from "../components/egenkontrol/useScreenWakeLock";
-import { errorCode, firstReadingLine, formatTemp, longDate } from "../components/egenkontrol/ekLogic";
+import UnsentList from "../components/egenkontrol/UnsentList";
+import { errorCode, firstReadingLine, longDate, valueText } from "../components/egenkontrol/ekLogic";
 import kitchenApi, {
   KITCHEN_TOKEN_RE,
   forgetKitchenToken,
@@ -167,9 +181,13 @@ function KitchenScreen({ token }) {
       if (document.visibilityState === "visible") load();
     };
     document.addEventListener("visibilitychange", onVis);
+    // The network came back: fetch /today now (not at the next 30 s poll), so
+    // the readings waiting on this iPad go at once.
+    window.addEventListener("online", load);
     return () => {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("online", load);
     };
   }, [load, validToken]);
 
@@ -202,7 +220,30 @@ function KitchenScreen({ token }) {
     }
   }, [token]);
 
-  const pending = usePendingEntries(useCallback((body) => kitchenApi.saveEntry(token, body), [token]));
+  // The photo follows its reading (never before it is saved).
+  const photos = usePhotoUploads(
+    useCallback((entryId, file) => kitchenApi.uploadPhoto(token, entryId, file), [token]),
+    {
+      onSaved: useCallback(() => {
+        toast({ message: t("ekPhotoSaved"), severity: "success" });
+        setLive(t("ekPhotoSaved"));
+      }, [toast, t]),
+    },
+  );
+  const afterPhoto = (item, entry) => {
+    if (!entry?.id || !item) return;
+    if (item.photo) photos.send(entry.id, item.checkId, item.photo);
+    else if (item.hadPhoto) photos.markLost(entry.id, item.checkId);
+  };
+
+  // Readings sent without a tap (after a reload once /today is in, or when
+  // the network comes back) report here like a "Prøv alle igen".
+  const autoResultsRef = useRef(null);
+  const onAutoResults = useCallback((results) => autoResultsRef.current?.(results), []);
+  const pending = usePendingEntries(
+    useCallback((body) => kitchenApi.saveEntry(token, body), [token]),
+    { storageKey: kitchenQueueKey(token), businessDate: today?.business_date || null, onAutoResults },
+  );
 
   const checks = useMemo(() => (Array.isArray(today?.checks) ? today.checks : []), [today]);
   const byId = useMemo(() => Object.fromEntries(checks.map((c) => [c.id, c])), [checks]);
@@ -217,11 +258,11 @@ function KitchenScreen({ token }) {
 
   const announce = (msg) => setLive(msg);
 
-  const afterSaved = (entry, check, who) => {
+  const afterSaved = (entry, check, who, item = null) => {
     addRecent(entry);
     if (who) nameRound.hold(who);
-    const name = check?.name || "";
-    const value = formatTemp(entry?.value_c, lang);
+    const name = check?.name || item?.checkName || "";
+    const value = valueText(entry, t, lang);
     let msg;
     let severity = "success";
     if (entry?.deviation_state) {
@@ -252,9 +293,18 @@ function KitchenScreen({ token }) {
 
   const onSave = async (body, meta) => {
     const check = byId[meta.checkId];
-    const res = await pending.submit({ clientId: meta.clientId, checkId: meta.checkId, body, draft: meta.state });
+    const res = await pending.submit({
+      clientId: meta.clientId,
+      checkId: meta.checkId,
+      checkName: meta.checkName || check?.name || null,
+      body,
+      draft: meta.state,
+      photo: meta.photo || null,
+      businessDate: meta.businessDate || today?.business_date || null,
+    });
     if (res.ok) {
       afterSaved(res.entry, check, meta.state?.who);
+      afterPhoto(res.item, res.entry);
       if (!landscape) setSheet(null);
       setPanelDraft(null);
       return res;
@@ -273,7 +323,7 @@ function KitchenScreen({ token }) {
       load();
       return { ok: false, kind: "closed" };
     }
-    if (res.kind === "failed") {
+    if (res.kind === "failed" || res.kind === "stale") {
       announce(t("ekNotSavedYet"));
       if (!landscape) setSheet(null);
       setPanelDraft(null);
@@ -286,20 +336,21 @@ function KitchenScreen({ token }) {
   const retry = async (clientId) => {
     const item = pending.items.find((x) => x.clientId === clientId);
     const res = await pending.retry(clientId);
-    if (res.ok) afterSaved(res.entry, byId[item?.checkId], null);
-    else if (res.kind === "revoked") {
+    if (res.ok) {
+      afterSaved(res.entry, byId[item?.checkId], null, item);
+      afterPhoto(res.item, res.entry);
+    } else if (res.kind === "revoked") {
       if (await deviceRevoked()) goRevoked();
       else staffGone(clientId, item?.draft?.who);
     }
   };
 
-  const retryAll = async () => {
-    const before = pending.items;
-    const results = await pending.retryAll();
+  const handleResults = async (results) => {
     for (const r of results) {
-      const item = before.find((x) => x.clientId === r.item?.clientId);
+      const item = r.item;
       if (r.ok) {
-        afterSaved(r.entry, byId[item?.checkId], null);
+        afterSaved(r.entry, byId[item?.checkId], null, item);
+        afterPhoto(item, r.entry);
       } else if (r.kind === "revoked") {
         if (await deviceRevoked()) {
           goRevoked();
@@ -309,9 +360,32 @@ function KitchenScreen({ token }) {
       }
     }
   };
+  useEffect(() => {
+    autoResultsRef.current = handleResults;
+  });
+  const retryAll = async () => handleResults(await pending.retryAll());
+
+  // "Fjern" on a reading that will never be sent from here: asked first.
+  const discard = async (item) => {
+    const ok = await confirm({
+      title: t("ekQueueDiscardConfirmTitle"),
+      message: t("ekQueueDiscardConfirmBody"),
+      confirmLabel: t("ekQueueDiscard"),
+      cancelLabel: t("cancel"),
+      destructive: true,
+    });
+    if (ok === true) pending.remove(item.clientId);
+  };
 
   const openPending = (item) => {
-    const draft = { clientId: item.clientId, state: item.draft, code: item.code, missing: item.missing };
+    const draft = {
+      clientId: item.clientId,
+      state: item.draft,
+      code: item.code,
+      missing: item.missing,
+      photo: item.photo || null,
+      businessDate: item.businessDate || null,
+    };
     setPanelNonce((n) => n + 1);
     if (landscape) {
       setSelectedId(item.checkId);
@@ -396,11 +470,33 @@ function KitchenScreen({ token }) {
           </h1>
           <p className="mt-2 text-[16px] text-gray-700 dark:text-gray-300">{t("ekKitchenRevokedBody")}</p>
           {pending.unsentCount > 0 ? (
-            <p className="mt-3 text-[16px] font-semibold text-red-700 dark:text-red-400">
-              {t("ekKitchenUnsent", { count: pending.unsentCount })}
-            </p>
+            <>
+              <p className="mt-3 text-[16px] font-semibold text-red-700 dark:text-red-400">
+                {t("ekKitchenUnsent", { count: pending.unsentCount })}
+              </p>
+              <UnsentList items={pending.items} t={t} lang={lang} />
+            </>
           ) : null}
-          <Button variant="main" className="mt-5 w-full min-h-14! text-[17px]" onClick={() => window.location.assign("/stand")}>
+          <Button
+            variant="main"
+            className="mt-5 w-full min-h-14! text-[17px]"
+            onClick={async () => {
+              // The list above was the last place these readings lived on this
+              // iPad: ask before wiping them (a wet-handed tap is easy).
+              if (pending.unsentCount > 0) {
+                const ok = await confirm({
+                  title: t("ekKitchenPairAgainConfirmTitle"),
+                  message: t("ekKitchenPairAgainConfirmBody", { count: pending.unsentCount }),
+                  confirmLabel: t("ekKitchenPairAgain"),
+                  cancelLabel: t("cancel"),
+                  destructive: true,
+                });
+                if (ok !== true) return;
+              }
+              pending.clearAll();
+              window.location.assign("/stand");
+            }}
+          >
             {t("ekKitchenPairAgain")}
           </Button>
         </div>
@@ -414,8 +510,18 @@ function KitchenScreen({ token }) {
         {phase === "loading" ? (
           <Spinner label={t("loading")} />
         ) : (
-          <div className="text-center">
+          <div className="text-center w-full max-w-md">
             <p className="text-[17px] text-gray-800 dark:text-gray-200" role="alert">{t("ekLoadFailed")}</p>
+            {pending.unsentCount > 0 ? (
+              // Offline reload: the readings are still on this iPad — say so,
+              // so nobody writes them on paper twice.
+              <div className="mt-3 text-left" data-testid="ek-kitchen-waiting">
+                <p className="text-[16px] font-semibold text-gray-900 dark:text-gray-100">
+                  {t("ekQueueWaitingOffline", { count: pending.unsentCount })}
+                </p>
+                <UnsentList items={pending.items} t={t} lang={lang} heading={t("ekQueueWaitingList")} />
+              </div>
+            ) : null}
             <button type="button" className={BTN + " mt-4"} onClick={() => load()}>
               <RotateCcw className="w-4 h-4" aria-hidden="true" />
               {t("ekRetry")}
@@ -444,6 +550,7 @@ function KitchenScreen({ token }) {
     if (!check) return null;
     return (
       <RecordPanel
+        businessDate={draft?.businessDate || today?.business_date || null}
         key={`${checkId}:${draft?.clientId || ""}:${panelNonce}`}
         check={check}
         staff={staff}
@@ -476,13 +583,33 @@ function KitchenScreen({ token }) {
       undoBusy={undoBusy}
       t={t}
       lang={lang}
+      onDiscard={discard}
+      staleMode="kitchen"
+      photos={photos.photos}
+      onRetryPhoto={photos.retry}
+      onDismissPhoto={photos.dismiss}
+      onRetakePhoto={(entryId, checkId, file) => photos.send(entryId, checkId, file)}
     />
   );
 
+  // The Kontrolmappe on the iPad: read-only — photos and the owner's
+  // documents through the token's own proxy routes, no actions.
+  const folderLoaders = {
+    loadPhoto: (id) => kitchenApi.photo(token, id),
+    loadDocument: (doc) => kitchenApi.documentFile(token, doc.id),
+  };
+
   return (
-    <div className="min-h-dvh bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 overflow-x-hidden" data-testid="ek-kitchen">
+    <div
+      className={
+        "bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 overflow-x-hidden " +
+        (landscape ? "h-dvh flex flex-col overflow-hidden" : "min-h-dvh")
+      }
+      data-testid="ek-kitchen"
+      data-layout={landscape ? "landscape-panes" : "stack"}
+    >
       <div className="sr-only" aria-live="polite" role="status">{live}</div>
-      <header className="px-4 pt-4 pb-3" style={{ paddingTop: "max(1rem, env(safe-area-inset-top, 0px))" }}>
+      <header className="px-4 pt-4 pb-3 shrink-0" style={{ paddingTop: "max(1rem, env(safe-area-inset-top, 0px))" }}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[15px] text-gray-600 dark:text-gray-400 truncate">
@@ -563,7 +690,7 @@ function KitchenScreen({ token }) {
       </header>
 
       {folderOpen ? (
-        <main className="px-4 pb-8">
+        <main className={"px-4 pb-8 " + (landscape ? "flex-1 min-h-0 overflow-y-auto overscroll-contain" : "")} data-testid="ek-kitchen-folder-main">
           <div className="flex items-center justify-between gap-3 mb-3">
             <h2 className="text-[20px] font-semibold">{t("ekKitchenFolder")}</h2>
             <button type="button" className={BTN} onClick={() => setFolderOpen(false)} aria-label={t("close")}>
@@ -583,16 +710,17 @@ function KitchenScreen({ token }) {
                 </button>
               </div>
             ) : (
-              <FolderView folder={folder} t={t} lang={lang} />
+              <FolderView folder={folder} t={t} lang={lang} loaders={folderLoaders} />
             )}
           </div>
         </main>
       ) : landscape ? (
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(380px,440px)] gap-4 px-4 pb-4 items-start">
-          <main className="min-w-0">{list}</main>
+        <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_minmax(380px,440px)] gap-4 px-4 pb-4" data-testid="ek-kitchen-panes">
+          <main className="min-w-0 min-h-0 overflow-y-auto overscroll-contain" data-testid="ek-kitchen-list-pane">{list}</main>
           <aside
-            className="sticky top-4 min-w-0 max-h-[calc(100dvh-2rem)] flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden"
+            className="min-w-0 min-h-0 h-full flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden"
             aria-label={t("ekRecord")}
+            data-testid="ek-kitchen-record-pane"
           >
             {panelCheckId
               ? panelFor(panelCheckId, panelDraft && panelDraft.checkId === panelCheckId ? panelDraft : null, null)

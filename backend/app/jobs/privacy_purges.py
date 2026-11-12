@@ -31,7 +31,13 @@ up by itself).
     (EGENKONTROL_RETENTION_DAYS = 730) — ALWAYS ON, no flag: /privacy promises
     "2 years, then deleted automatically". Readings only: the revisions and
     checks they point at hold no personal data and stay referenced. Nothing
-    is due before Nov 2028.
+    is due before Nov 2028. R1b: the PHOTOS on those readings go first (row
+    + blob; a blob is deleted only when no other photo row uses its key, and
+    a storage error leaves the row for the next night), and a reading whose
+    photo is still there waits a night (never an FK failure). Weekly reviews
+    (food_check_reviews) go 730 days after reviewed_at. The owner's documents
+    are NOT purged by time: they stay until the owner deletes them or the
+    account.
 
 Accounting records and everything /privacy says is kept (reservations,
 audit_logs, security_events, notification_log, event_logs, invoices,
@@ -46,7 +52,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
-from app.models.food_check import FoodCheckEntry
+from sqlalchemy import exists
+
+from app.models.food_check import FoodCheckEntry, FoodCheckPhoto, FoodCheckReview
 from app.models.magic_link_token import MagicLinkToken
 from app.models.reservation_waitlist import ReservationWaitlistEntry
 from app.models.waitlist import WaitlistEntry
@@ -98,7 +106,25 @@ def _anon_paid_waitlist_due(db: Session, now: datetime):
 
 def _egenkontrol_due(db: Session, now: datetime):
     cutoff = now - timedelta(days=EGENKONTROL_RETENTION_DAYS)
-    return db.query(FoodCheckEntry.id).filter(FoodCheckEntry.recorded_at < cutoff)
+    # A reading whose photo row is still there (its blob could not be
+    # deleted tonight) waits for the next night — never an FK failure.
+    has_photo = exists().where(FoodCheckPhoto.entry_id == FoodCheckEntry.id)
+    return db.query(FoodCheckEntry.id).filter(FoodCheckEntry.recorded_at < cutoff, ~has_photo)
+
+
+def _egenkontrol_photos_due(db: Session, now: datetime):
+    """Photo rows (removed tombstones included) whose READING is due."""
+    cutoff = now - timedelta(days=EGENKONTROL_RETENTION_DAYS)
+    return (
+        db.query(FoodCheckPhoto.id)
+        .join(FoodCheckEntry, FoodCheckEntry.id == FoodCheckPhoto.entry_id)
+        .filter(FoodCheckEntry.recorded_at < cutoff)
+    )
+
+
+def _egenkontrol_reviews_due(db: Session, now: datetime):
+    cutoff = now - timedelta(days=EGENKONTROL_RETENTION_DAYS)
+    return db.query(FoodCheckReview.id).filter(FoodCheckReview.reviewed_at < cutoff)
 
 
 def _count(q) -> int:
@@ -113,7 +139,9 @@ def dry_run_counts(db: Session, now: datetime | None = None) -> dict:
         "whatsapp_messages": _count(_whatsapp_due(db, now)),
         "magic_link_tokens": _count(_magic_link_due(db, now)),
         "anonymous_paid_waitlist": _count(_anon_paid_waitlist_due(db, now)),
+        "egenkontrol_photos": _count(_egenkontrol_photos_due(db, now)),
         "egenkontrol_entries": _count(_egenkontrol_due(db, now)),
+        "egenkontrol_reviews": _count(_egenkontrol_reviews_due(db, now)),
     }
 
 
@@ -272,6 +300,76 @@ def purge_old_egenkontrol_entries(*, now: datetime | None = None, batch: int = B
                        batch=batch, max_batches=max_batches, label="egenkontrol_entries")
 
 
+def purge_old_egenkontrol_photos(*, now: datetime | None = None, batch: int = BATCH,
+                                 max_batches: int = MAX_BATCHES) -> dict:
+    """Delete the photos of egenkontrol readings older than 730 days — the
+    blob first, then the row. ALWAYS ON. A blob is deleted only when no
+    photo row OUTSIDE this batch still uses its key (keys are
+    content-addressed); a storage error leaves that row for the next night
+    (its reading then waits too). Counts only in the logs."""
+    from app.services.storage import get_storage
+
+    now = now or utc_now()
+    P = FoodCheckPhoto
+    db: Session = SessionLocal()
+    try:
+        due = _count(_egenkontrol_photos_due(db, now))
+        deleted = skipped = 0
+        held: set = set()
+        storage = None
+        for _ in range(max_batches):
+            q = (
+                db.query(P.id, P.storage_key)
+                .join(FoodCheckEntry, FoodCheckEntry.id == P.entry_id)
+                .filter(FoodCheckEntry.recorded_at
+                        < now - timedelta(days=EGENKONTROL_RETENTION_DAYS))
+            )
+            if held:
+                q = q.filter(~P.id.in_(list(held)))
+            rows = q.order_by(FoodCheckEntry.recorded_at).limit(batch).all()
+            if not rows:
+                break
+            batch_ids = [r[0] for r in rows]
+            gone = []
+            for pid, key in rows:
+                if key:
+                    other = (
+                        db.query(P.id)
+                        .filter(P.storage_key == key, ~P.id.in_(batch_ids))
+                        .first()
+                    )
+                    if other is None:
+                        try:
+                            storage = storage or get_storage()
+                            storage.delete(key)
+                        except Exception:  # noqa: BLE001 — retried next night
+                            held.add(pid)
+                            skipped += 1
+                            continue
+                gone.append(pid)
+            if gone:
+                db.query(P).filter(P.id.in_(gone)).delete(synchronize_session=False)
+                db.commit()
+                deleted += len(gone)
+        if skipped:
+            logger.warning("[retention] egenkontrol photos: %d held for the next night", skipped)
+        return {"due": due, "deleted": deleted, "dry_run": False}
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        logger.warning("[retention] egenkontrol_photos purge failed: %s", type(e).__name__)
+        raise
+    finally:
+        db.close()
+
+
+def purge_old_egenkontrol_reviews(*, now: datetime | None = None, batch: int = BATCH,
+                                  max_batches: int = MAX_BATCHES) -> dict:
+    """Delete weekly reviews reviewed more than 730 days ago. ALWAYS ON."""
+    return _delete_due(_egenkontrol_reviews_due, FoodCheckReview, FoodCheckReview.reviewed_at,
+                       enabled=True, now=now or utc_now(),
+                       batch=batch, max_batches=max_batches, label="egenkontrol_reviews")
+
+
 # ── The nightly step ─────────────────────────────────────────────────────
 
 _PURGES = (
@@ -282,7 +380,10 @@ _PURGES = (
     ("whatsapp_messages", "purge_old_whatsapp_messages"),
     ("magic_link_tokens", "purge_expired_magic_links"),
     ("anonymous_paid_waitlist", "purge_anonymous_paid_waitlist"),
+    # Photos BEFORE their readings (FK entry_id), reviews after.
+    ("egenkontrol_photos", "purge_old_egenkontrol_photos"),
     ("egenkontrol_entries", "purge_old_egenkontrol_entries"),
+    ("egenkontrol_reviews", "purge_old_egenkontrol_reviews"),
 )
 
 

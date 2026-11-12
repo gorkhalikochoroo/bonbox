@@ -1,5 +1,7 @@
 """
-Egenkontrol R1a — owner routes (/api/egenkontrol/*).
+Egenkontrol R1a + R1b — owner routes (/api/egenkontrol/*). Documents and
+photos (multipart uploads + byte proxies) live in routers/egenkontrol_files.py
+under the same prefix.
 
 NO `from __future__ import annotations` in this file: it uses slowapi
 @limiter decorators, and string annotations make FastAPI read request bodies
@@ -18,6 +20,13 @@ WHO MAY DO WHAT (plan C2/C3):
     device list and every config write need the reveal PIN — enforced by
     main.py's shared_device_pin_gate through its OWN tuples. Readings and undo
     stay open there (it is the counter device) and are marked via="shared".
+
+R1b:
+  • owner only: settings PUT, "Fra papir" (/paper-entries), corrections
+    (/corrections), marking a week reviewed. Their own path roots, so the
+    shared-device gate can prefix-match them (PIN on a curtained tablet).
+  • owner + manager: settings GET, the week card (GET /week).
+  • the folder and PDF take up to 92 days (default the last 30).
 """
 
 import secrets
@@ -34,10 +43,16 @@ from app.models.kitchen_link import KitchenLink
 from app.models.stand_link import StandLink
 from app.models.user import User
 from app.routers import stand_link as stand_link_router
-from app.schemas.egenkontrol import CheckIn, CheckPatchIn, DeviceIn, EntryIn, SetupIn
+from app.schemas.egenkontrol import (
+    CheckIn, CheckPatchIn, CorrectionIn, DeviceIn, EntryIn, PaperEntryIn, ReviewIn,
+    SettingsIn, SetupIn,
+)
 from app.services import audit_service
+from app.services import egenkontrol_records as REC
 from app.services import egenkontrol_rules as R
 from app.services import egenkontrol_service as S
+from app.services import egenkontrol_settings as SET
+from app.services import egenkontrol_week as W
 from app.services.auth import get_current_user, is_accountant_view
 from app.services.billing import enforce_feature
 from app.utils.client_ip import client_ip
@@ -85,10 +100,12 @@ def _ip(request: Request) -> Optional[str]:
 
 
 def _range(db: Session, user, date_from: Optional[date], date_to: Optional[date]):
+    """Default: the last FOLDER_DEFAULT_DAYS (30) business days. An explicit
+    range may be up to FOLDER_MAX_DAYS (92); validate_range refuses more."""
     if date_to is None:
         _, date_to = S.default_range(db, user)
     if date_from is None:
-        date_from = date_to - timedelta(days=R.FOLDER_MAX_DAYS - 1)
+        date_from = date_to - timedelta(days=R.FOLDER_DEFAULT_DAYS - 1)
     return date_from, date_to
 
 
@@ -190,12 +207,13 @@ def ek_folder(
     date_from: Optional[date] = Query(default=None, alias="from"),
     date_to: Optional[date] = Query(default=None, alias="to"),
     branch_id: Optional[UUID] = Query(default=None),
+    include_readings: int = Query(default=0, ge=0, le=1),
     db: Session = Depends(get_db),
     user: User = Depends(_ek_user),
 ):
     _require_folder_reader(user)
     f, t = _range(db, user, date_from, date_to)
-    return S.build_folder(db, user, f, t, branch_id)
+    return S.build_folder(db, user, f, t, branch_id, include_readings=bool(include_readings))
 
 
 @router.get("/folder.pdf")
@@ -236,6 +254,76 @@ def ek_folder_pdf(
                 f'attachment; filename="Kontrolmappe_{f.isoformat()}_{t.isoformat()}.pdf"',
         },
     )
+
+
+# ── R1b: settings (findsmiley.dk link, retail opt-in) ────────────────────
+
+@router.get("/settings")
+def ek_settings(db: Session = Depends(get_db), user: User = Depends(_ek_user)):
+    _require_folder_reader(user)
+    return SET.settings_out(db, user)
+
+
+@router.put("/settings")
+@limiter.limit("20/minute")
+def ek_put_settings(payload: SettingsIn, request: Request, db: Session = Depends(get_db),
+                    user: User = Depends(_ek_user)):
+    _require_owner(user)
+    return SET.update_settings(db, user, payload, actor_user_id=_actor_id(user))
+
+
+# ── R1b: "Fra papir" and corrections (owner only) ────────────────────────
+
+@router.post("/paper-entries", status_code=201)
+@limiter.limit("30/minute")
+def ek_paper_entry(payload: PaperEntryIn, request: Request, response: Response,
+                   db: Session = Depends(get_db), user: User = Depends(_ek_user)):
+    _require_owner(user)
+    out, replayed = REC.save_paper_entry(db, user, payload, via=_via(user),
+                                         actor_user_id=_actor_id(user))
+    if replayed:
+        response.status_code = 200
+        out = {**out, "replayed": True}
+    return out
+
+
+@router.post("/corrections", status_code=201)
+@limiter.limit("30/minute")
+def ek_correct(payload: CorrectionIn, request: Request, response: Response,
+               db: Session = Depends(get_db), user: User = Depends(_ek_user)):
+    _require_owner(user)
+    out, replayed = REC.correct_entry(db, user, payload, actor_user_id=_actor_id(user))
+    if replayed:
+        response.status_code = 200
+        out = {**out, "replayed": True}
+    return out
+
+
+# ── R1b: "Ugens egenkontrol" ─────────────────────────────────────────────
+
+@router.get("/week")
+def ek_week(
+    start: Optional[date] = Query(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(_ek_user),
+):
+    _require_folder_reader(user)
+    return W.build_week(db, user, start, role=_role(user))
+
+
+@router.post("/week/{iso_week}/reviewed", status_code=201)
+@limiter.limit("10/minute")
+def ek_week_reviewed(iso_week: str, request: Request, response: Response,
+                     payload: Optional[ReviewIn] = None,
+                     db: Session = Depends(get_db), user: User = Depends(_ek_user)):
+    """The body is optional (name + note); an empty POST marks the week."""
+    _require_owner(user)
+    out, replayed = W.mark_reviewed(db, user, iso_week, payload or ReviewIn(),
+                                    actor_user_id=_actor_id(user))
+    if replayed:
+        response.status_code = 200
+        out = {**out, "replayed": True}
+    return out
 
 
 # ── Kitchen iPads (owner only) ───────────────────────────────────────────

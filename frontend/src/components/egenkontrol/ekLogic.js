@@ -207,6 +207,17 @@ const filled = (code, other) => !!code && (code !== "other" || String(other || "
 export function ctaFor(s) {
   const lang = s?.lang || "da";
   if (s?.saving) return { key: "ekCtaSaving", vars: null, disabled: true, step: "saving" };
+  // "Fra papir": when it was measured and why it is typed in now come first —
+  // they sit above the keypad (PaperEntrySheet), in the order the eye reads.
+  if (s?.paper) {
+    if (!s.paper.whenOk) return { key: "ekCtaPaperWhen", vars: null, disabled: true, step: "paper_when" };
+    if (!s.paper.reasonOk) return { key: "ekCtaPaperReason", vars: null, disabled: true, step: "paper_reason" };
+  }
+  // A tick (Rengøring, Termometertjek): no value, no deviation — only who did it.
+  if (s?.kind === "tick") {
+    if (!s.who) return { key: "ekCtaChooseName", vars: null, disabled: true, step: "name" };
+    return { key: "ekCtaSaveDone", vars: null, disabled: false, step: "save" };
+  }
   if (s?.kind === "receiving" && !s?.productType) {
     return { key: "ekChooseProduct", vars: null, disabled: true, step: "product" };
   }
@@ -230,10 +241,27 @@ export function ctaFor(s) {
  * Typed text goes as typed (the server stores it verbatim and escapes it on
  * print); an empty field is null.
  */
-export function buildEntryBody({ clientId, check, value, productType, productNote, labelOk, action, actionOther, fate, fateOther, note, who, out, followup, typedAt }) {
+export function buildEntryBody({ clientId, check, value, productType, productNote, labelOk, action, actionOther, fate, fateOther, note, who, out, followup, typedAt, businessDate = null }) {
   const receiving = check?.kind === "receiving" || check?.template_key === "receiving";
   const text = (v) => (typeof v === "string" && v.trim() ? v : null);
   const withFate = out || followup;
+  if (isTick(check)) {
+    // A tick: done, and the optional note — no value, no deviation fields.
+    const tick = {
+      client_id: clientId,
+      check_id: check?.id,
+      value_c: null,
+      done: true,
+      action_note: text(note),
+      staff_id: null,
+      typed_name: null,
+      client_typed_at: typedAt || null,
+      client_business_date: businessDate || null,
+    };
+    if (who?.kind === "staff") tick.staff_id = who.id;
+    else if (who?.kind === "typed") tick.typed_name = String(who.name || "").trim();
+    return tick;
+  }
   const body = {
     client_id: clientId,
     check_id: check?.id,
@@ -249,6 +277,10 @@ export function buildEntryBody({ clientId, check, value, productType, productNot
     staff_id: null,
     typed_name: null,
     client_typed_at: typedAt || null,
+    // The business day the reading was typed on (from /today). A queued
+    // reading that reaches the server on a LATER day is refused (409
+    // business_day_changed) instead of landing on the wrong day.
+    client_business_date: businessDate || null,
   };
   if (who?.kind === "staff") body.staff_id = who.id;
   else if (who?.kind === "typed") body.typed_name = String(who.name || "").trim();
@@ -283,6 +315,9 @@ export function classifySaveError(err) {
   const code = typeof detail.code === "string" ? detail.code : null;
   const missing = Array.isArray(detail.missing) ? detail.missing : [];
   if (status === 404) return { kind: "revoked", code, missing };
+  // Typed on an earlier business day: never sent again (it would land on the
+  // wrong day) — written on paper, or typed in by the owner as "Fra papir".
+  if (code === "business_day_changed") return { kind: "stale", code, missing };
   return { kind: "needs_action", code, missing };
 }
 
@@ -319,6 +354,15 @@ export function statusLines(check, lang = "da", weekdayName = null) {
   const slot = check?.slot || null;
   const last = check?.last || null;
   const lines = [];
+  if (isTick(check)) {
+    // On-event: a tick is never "missing" — when it was last done, or not today.
+    if (last && last.recorded_local) {
+      lines.push(["ekTickLast", { date: shortDate(last.recorded_local_date, lang), time: last.recorded_local }]);
+    } else {
+      lines.push(["ekTickNotToday", null]);
+    }
+    return lines;
+  }
   switch (s) {
     case "later":
       if (slot?.weekday != null && check?.schedule?.type === "weekly" && weekdayName) {
@@ -361,8 +405,10 @@ export function statusLines(check, lang = "da", weekdayName = null) {
 }
 
 /** Groups in the order the list shows them, each with its checks. */
+export const GROUP_ORDER = ["temperatures", "reheating", "receiving", "cleaning", "other"];
+
 export function groupChecks(checks) {
-  const order = ["temperatures", "reheating", "receiving"];
+  const order = GROUP_ORDER;
   const by = new Map(order.map((g) => [g, []]));
   for (const c of Array.isArray(checks) ? checks : []) {
     const g = by.has(c.group_key) ? c.group_key : "temperatures";
@@ -493,6 +539,10 @@ export function startItemName(item, t) {
       return t("ekTplHotHolding");
     case "reheating":
       return t("ekTplReheating");
+    case "cleaning":
+      return t("ekTemplateCleaning");
+    case "thermometer":
+      return t("ekTemplateThermometer");
     default:
       return t("ekTplReceiving");
   }
@@ -550,12 +600,16 @@ export const EK_TEMPLATE_KEYS = {
   hot_holding: "ekTplHotHolding",
   reheating: "ekTplReheating",
   receiving: "ekTplReceiving",
+  cleaning: "ekTemplateCleaning",
+  thermometer: "ekTemplateThermometer",
 };
 
 export const EK_GROUP_KEYS = {
   temperatures: "ekGroupTemperatures",
   reheating: "ekGroupReheating",
   receiving: "ekGroupReceiving",
+  cleaning: "ekGroupCleaning",
+  other: "ekGroupOther",
 };
 
 export const EK_ERROR_KEYS = {
@@ -569,6 +623,69 @@ export const EK_ERROR_KEYS = {
   value_out_of_range: "ekOutOfRange",
   too_many_decimals: "ekOutOfRange",
   due_before_day_start: "ekDueBeforeDayStart",
+  // R1b
+  business_day_changed: "ekErrBusinessDayChanged",
+  done_required: "ekErrSaveFailed",
+  value_not_allowed: "ekErrSaveFailed",
+  limit_not_allowed: "ekErrSaveFailed",
+  schedule_not_allowed: "ekErrSaveFailed",
+  paper_too_old: "ekErrPaperTooOld",
+  check_inactive_measured: "ekErrPaperCheckNotYet",
+  paper_in_future: "ekErrPaperFuture",
+  paper_fate_must_close: "ekErrPaperFateMustClose",
+  paper_reason_required: "ekErrPaperReason",
+  paper_reason_too_long: "ekErrPaperReason",
+  bad_time: "ekErrPaperWhen",
+  correction_too_old: "ekErrCorrectionTooOld",
+  correction_no_change: "ekErrCorrectionNoChange",
+  reason_unknown: "ekErrCorrectionReason",
+  other_text_required: "ekErrCorrectionReason",
+  reason_too_long: "ekErrCorrectionReason",
+  check_change_needs_reason: "ekErrCorrectionCheck",
+  kind_mismatch: "ekErrCorrectionCheck",
+  already_voided: "ekErrAlreadyCorrected",
+  client_id_reused: "ekErrSaveFailed",
+  photo_not_allowed: "ekErrSaveFailed",
+  photo_window_passed: "ekPhotoWindowPassed",
+  photo_exists: "ekPhotoSaved",
+  photo_too_large: "ekPhotoTooLarge",
+  photo_unreadable: "ekPhotoUnreadable",
+  photo_removed: "ekPhotoRemovedShort",
+  already_removed: "ekPhotoRemovedShort",
+  findsmiley_invalid: "ekErrSmileyUrl",
+  opt_in_not_offered: "ekErrSaveFailed",
+  has_checks: "ekErrOptOutHasChecks",
+  title_required: "ekErrDocTitle",
+  title_too_long: "ekErrDocTitle",
+  doc_type_unknown: "ekErrDocType",
+  too_many_documents: "ekErrDocsFull",
+  unsupported_type: "ekErrDocType",
+  too_large: "ekErrDocTooLarge",
+  empty: "ekErrDocType",
+  storage_unavailable: "ekErrStorage",
+  week_not_over: "ekErrWeekNotOver",
+  bad_week: "ekErrSaveFailed",
+  name_too_long: "ekErrSaveFailed",
+  note_too_long: "ekErrSaveFailed",
+  range_too_long: "ekErrRangeTooLong",
+  bad_range: "ekErrRangeTooLong",
+};
+
+/** Document types (Kontrolmappe → Dokumenter) → i18n keys. */
+export const EK_DOC_TYPE_KEYS = {
+  programme: "ekDocTypeProgramme",
+  risk_analysis: "ekDocTypeRisk",
+  cleaning_plan: "ekDocTypeCleaning",
+  hygiene_cert: "ekDocTypeHygiene",
+  other: "ekDocTypeOther",
+};
+export const DOC_TYPES = Object.keys(EK_DOC_TYPE_KEYS);
+
+/** Correction reasons → i18n keys (the chips, and "Rettet: Tastefejl" lines). */
+export const EK_CORRECTION_REASON_KEYS = {
+  typo: "ekCorrectReasonTypo",
+  wrong_check: "ekCorrectReasonWrongCheck",
+  other: "ekCorrectReasonOther",
 };
 
 export const EK_DAY_KEYS = {
@@ -588,3 +705,219 @@ export function nameNoteKey(nameSource, via) {
 }
 
 export const EK_NAME_NOTE_KEYS = ["ekNamePicked", "ekNamePickedShared", "ekNamePickedOwner", "ekNameTyped"];
+
+// ─── R1b ─────────────────────────────────────────────────────────────────
+
+export const PAPER_MAX_DAYS = 14;
+export const PAPER_REASON_MAX = 120;
+export const CORRECTION_REASON_MAX = 120;
+export const CORRECTION_MAX_DAYS = 14;
+export const REVIEW_NAME_MAX = 80;
+export const REVIEW_NOTE_MAX = 280;
+export const DOCUMENT_TITLE_MAX = 120;
+export const DOCUMENTS_MAX = 30;
+export const RANGE_MAX_DAYS = 92;
+export const FINDSMILEY_PREFIX = "https://www.findsmiley.dk/";
+export const FINDSMILEY_MAX = 255;
+export const RETAIL_OPT_IN_TYPES = ["grocery", "veggie_shop", "kiosk"];
+export const QUEUE_MAX_ITEMS = 200;
+export const PHOTO_MAX_DIMENSION = 1600;
+
+/** A tick check (Rengøring, Termometertjek): done or not, no value. */
+export function isTick(check) {
+  return check?.kind === "tick";
+}
+
+/** May this reading carry a photo? Out of limit, or goods receiving. */
+export function photoAllowed(check, out) {
+  if (!check || isTick(check)) return false;
+  return !!out || check.kind === "receiving" || check.template_key === "receiving";
+}
+
+/**
+ * FNV-1a, 32-bit, as 8 hex chars. Names the kitchen queue's storage key
+ * after the token WITHOUT putting the token itself in localStorage keys.
+ */
+export function fnv1a32hex(str) {
+  let h = 0x811c9dc5;
+  const s = String(str ?? "");
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** YYYY-MM-DD + n calendar days (UTC arithmetic on a date, no zone). */
+export function addDays(isoDate, n) {
+  if (typeof isoDate !== "string" || !ISO_DATE.test(isoDate)) return null;
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + Number(n || 0)));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
+/**
+ * A photo added more than this long after its reading says WHEN it was added
+ * ("Foto vedlagt (tilføjet 12. nov. kl. 15:00)") — the same rule as the PDF
+ * (backend egenkontrol_pdf.PHOTO_LATE_AFTER; a backend test pins the two).
+ */
+export const PHOTO_LATE_AFTER_MIN = 10;
+
+/** True when `photo` was uploaded more than PHOTO_LATE_AFTER_MIN after the
+ *  reading's official time (recorded_at). Unknown times → false. */
+export function photoAddedLater(photo, entry) {
+  const up = Date.parse(photo?.uploaded_at || "");
+  const rec = Date.parse(entry?.recorded_at || "");
+  if (!Number.isFinite(up) || !Number.isFinite(rec)) return false;
+  return up - rec > PHOTO_LATE_AFTER_MIN * 60 * 1000;
+}
+
+/** The device-local calendar date (YYYY-MM-DD) of an ISO timestamp, or null
+ *  — the same clock the queue's "tastet … kl. …" line and its time use. */
+export function localDateOf(iso) {
+  const at = Date.parse(iso || "");
+  if (!Number.isFinite(at)) return null;
+  const d = new Date(at);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * The venue's CALENDAR date now. "Fra papir" takes a calendar wall time (the
+ * server reads date + time in the venue's zone), but /today gives the
+ * BUSINESS date — one day behind between midnight and the cutoff (06:00). So
+ * the answer is the business date or the day after, never anything else; the
+ * clock only picks which (the server still refuses a future time).
+ */
+export function venueCalendarToday(businessDate, timeZone = null, nowMs = Date.now()) {
+  if (typeof businessDate !== "string" || !ISO_DATE.test(businessDate)) return null;
+  const next = addDays(businessDate, 1);
+  let local = null;
+  try {
+    const opts = { year: "numeric", month: "2-digit", day: "2-digit" };
+    if (timeZone) opts.timeZone = timeZone;
+    const parts = new Intl.DateTimeFormat("en-CA", opts).formatToParts(new Date(nowMs));
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+    local = `${get("year")}-${get("month")}-${get("day")}`;
+  } catch {
+    local = null;
+  }
+  return local === next ? next : businessDate;
+}
+
+/** Days in [from, to], both included (null if either is bad or to < from). */
+export function spanDays(from, to) {
+  if (typeof from !== "string" || typeof to !== "string" || !ISO_DATE.test(from) || !ISO_DATE.test(to)) return null;
+  const ms = (v) => {
+    const [y, m, d] = v.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const n = Math.round((ms(to) - ms(from)) / 86400000) + 1;
+  return n >= 1 ? n : null;
+}
+
+/**
+ * The Kontrolmappe's period presets, from the venue's business date:
+ *   last30     — the last 30 days (the default)
+ *   thisMonth  — the 1st of this month … today
+ *   lastMonth  — the whole of last month
+ *   last92     — today − 91 … today ("Seneste 3 måneder", one file)
+ */
+export function rangePreset(preset, today) {
+  if (typeof today !== "string" || !ISO_DATE.test(today)) return { from: null, to: null };
+  const [y, m] = today.split("-").map(Number);
+  const iso = (dt) => `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+  switch (preset) {
+    case "thisMonth":
+      return { from: iso(new Date(Date.UTC(y, m - 1, 1))), to: today };
+    case "lastMonth":
+      return { from: iso(new Date(Date.UTC(y, m - 2, 1))), to: iso(new Date(Date.UTC(y, m - 1, 0))) };
+    case "last92":
+      return { from: addDays(today, -(RANGE_MAX_DAYS - 1)), to: today };
+    default:
+      return { from: addDays(today, -29), to: today };
+  }
+}
+
+/** A chosen period the server will take: from ≤ to ≤ today, at most 92 days. */
+export function rangeProblem(from, to, today) {
+  const n = spanDays(from, to);
+  if (n == null) return "bad_range";
+  if (typeof today === "string" && ISO_DATE.test(today) && to > today) return "bad_range";
+  if (n > RANGE_MAX_DAYS) return "range_too_long";
+  return null;
+}
+
+/**
+ * The client-side pre-check of a findsmiley.dk link (the server's rule is
+ * the truth): https://www.findsmiley.dk/ + something, ≤ 255, no spaces or
+ * control characters, no backslash. Surrounding spaces are trimmed (a URL,
+ * not prose). Returns the trimmed value, "" (clear) or null (refused).
+ */
+export function checkFindsmiley(raw) {
+  const v = String(raw ?? "").trim();
+  if (!v) return "";
+  if (!v.startsWith(FINDSMILEY_PREFIX)) return null;
+  if (v === FINDSMILEY_PREFIX || v.length > FINDSMILEY_MAX) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001f\u007f\\]/.test(v)) return null;
+  return v;
+}
+
+/** "12. nov." / "12 Nov" for a YYYY-MM-DD (the venue's day, never shifted). */
+export function shortDate(isoDate, lang = "da") {
+  if (typeof isoDate !== "string" || !ISO_DATE.test(isoDate)) return "";
+  const [y, m, d] = isoDate.split("-").map(Number);
+  try {
+    return new Intl.DateTimeFormat(lang === "da" ? "da-DK" : "en-GB", { day: "numeric", month: "short", timeZone: "UTC" })
+      .format(new Date(Date.UTC(y, m - 1, d)));
+  } catch {
+    return isoDate;
+  }
+}
+
+/** "12. nov. kl. 08:05" — a local date + HH:MM from the server. */
+export function dateTime(isoDate, hhmm, t, lang = "da") {
+  const d = shortDate(isoDate, lang);
+  if (!d) return hhmm || "";
+  return hhmm ? t("ekDateAtTime", { date: d, time: hhmm }) : d;
+}
+
+/** A reading's value in words: "3,1 °C", or "Udført" for a tick. */
+export function valueText(e, t, lang = "da") {
+  if (!e) return "";
+  if (e.done === true || (e.value_c == null && e.kind === "tick")) return t("ekTickDone");
+  return formatTemp(e.value_c, lang);
+}
+
+/**
+ * The line a paper reading shows wherever it appears:
+ * "Indtastet 12. nov. kl. 14:10 fra papir · målt 10. nov. kl. 08:05".
+ */
+export function paperLine(e, t, lang = "da") {
+  if (!e || e.source !== "paper") return "";
+  return t("ekPaperShown", {
+    entered: dateTime(e.created_local_date || e.recorded_local_date, e.created_local || e.recorded_local, t, lang),
+    measured: dateTime(e.paper_measured_local_date, e.paper_measured_local, t, lang),
+  });
+}
+
+/** Still correctable by the owner (≤ 14 days, live, not voided)? */
+export function correctable(e, nowMs = Date.now()) {
+  if (!e || e.voided_at || !e.correctable_until) return false;
+  const until = Date.parse(e.correctable_until);
+  return Number.isFinite(until) && nowMs < until;
+}
+
+/** The document-type label for a code (never the raw code). */
+export function docTypeLabel(code, t) {
+  return t(EK_DOC_TYPE_KEYS[code] || "ekDocTypeOther");
+}
+
+/** A title made safe as a file name (the server does the same for its header). */
+export function safeFileTitle(title) {
+  // eslint-disable-next-line no-control-regex
+  const s = String(title || "").replace(/[/\\:*?"<>|\u0000-\u001f\u007f]/g, "").trim().slice(0, 80);
+  return s || "dokument";
+}

@@ -22,7 +22,7 @@ from app.main import (
 )
 from app.models.food_check import FoodCheckEntry
 from app.services.auth import hash_password, mint_device_pin_proof
-from tests._ek_support import START, env  # noqa: F401 — fixture
+from tests._ek_support import START, env, store  # noqa: F401 — fixtures
 
 NONCE = "shared-ipad-1"
 
@@ -123,15 +123,85 @@ def test_the_member_and_manager_tuples_are_untouched():
     assert "/api/egenkontrol/folder" in _SHARED_DEVICE_DENY_PREFIXES
     assert "/api/egenkontrol/devices" in _SHARED_DEVICE_DENY_PREFIXES
     assert set(_SHARED_DEVICE_EXTRA_READ_DENY_PREFIXES) == {
-        "/api/egenkontrol/folder", "/api/egenkontrol/devices"}
-    # readings and undo are counter work: neither shared tuple catches them
+        "/api/egenkontrol/folder", "/api/egenkontrol/devices",
+        # R1b
+        "/api/egenkontrol/week", "/api/egenkontrol/documents", "/api/egenkontrol/photos"}
+    # readings, undo and (R1b) the photo upload are counter work: neither
+    # shared tuple catches them
     for path in ("/api/egenkontrol/entries", "/api/egenkontrol/entries/x/undo",
+                 "/api/egenkontrol/entries/x/photo",
                  "/api/egenkontrol/today", "/api/egenkontrol/status"):
         assert not any(path.startswith(p) for p in _SHARED_DEVICE_DENY_PREFIXES), path
         assert not any(path.startswith(p) for p in _SHARED_DEVICE_DENY_WRITE_PREFIXES), path
     for path in ("/api/egenkontrol/setup", "/api/egenkontrol/checks",
                  "/api/egenkontrol/checks/x/archive", "/api/egenkontrol/devices/x",
-                 "/api/egenkontrol/settings"):
+                 "/api/egenkontrol/settings",
+                 # R1b
+                 "/api/egenkontrol/paper-entries", "/api/egenkontrol/corrections",
+                 "/api/egenkontrol/week/2026-W45/reviewed", "/api/egenkontrol/documents",
+                 "/api/egenkontrol/documents/x/reviewed", "/api/egenkontrol/photos/x"):
         assert any(path.startswith(p) for p in _SHARED_DEVICE_DENY_WRITE_PREFIXES), path
     # the existing payroll entry is still there
     assert "/api/staff/payroll" in _SHARED_DEVICE_DENY_WRITE_PREFIXES
+
+
+# ── R1b ─────────────────────────────────────────────────────────────────
+
+def test_r1b_owner_records_need_the_pin_on_a_shared_tablet(env, store):
+    from datetime import datetime
+    o = _shared_owner(env)
+    checks = env.setup(o)
+    fridge = checks["fridge"]["id"]
+    locked, rev = _locked(env, o), _revealed(env, o)
+    c = env.client
+    e = env.save(o, fridge, 3.0).json()
+    env.clock.tick(minutes=60)                                   # 08:30
+
+    # paper entries and corrections
+    assert _pin_required(env.paper(o, fridge, 3.0, "2026-11-12", "08:00", headers=locked))
+    assert env.paper(o, fridge, 3.0, "2026-11-12", "08:00", headers=rev).status_code == 201
+    assert _pin_required(env.correct(o, e["id"], "typo", value_c=3.5, headers=locked))
+    assert env.correct(o, e["id"], "typo", value_c=3.5, headers=rev).status_code == 201
+
+    # documents: list, upload, file, review, delete
+    assert _pin_required(c.get("/api/egenkontrol/documents", headers=locked))
+    assert _pin_required(env.doc(o, headers=locked))
+    d = env.doc(o, headers=rev)
+    assert d.status_code == 201, d.text
+    did = d.json()["id"]
+    assert c.get("/api/egenkontrol/documents", headers=rev).status_code == 200
+    assert _pin_required(c.get(f"/api/egenkontrol/documents/{did}/file", headers=locked))
+    assert c.get(f"/api/egenkontrol/documents/{did}/file", headers=rev).status_code == 200
+    assert _pin_required(c.post(f"/api/egenkontrol/documents/{did}/reviewed", headers=locked))
+    assert _pin_required(c.delete(f"/api/egenkontrol/documents/{did}", headers=locked))
+
+    # photos: the UPLOAD is counter work (no PIN); viewing / removing needs it
+    dev = env.save(o, fridge, 9.0, action_code="thermostat_adjusted", fate_code="moved",
+                   headers=locked).json()
+    p = env.photo(o, dev["id"], headers=locked)
+    assert p.status_code == 201, p.text
+    assert p.json()["via"] == "shared"
+    pid = p.json()["id"]
+    assert _pin_required(c.get(f"/api/egenkontrol/photos/{pid}", headers=locked))
+    assert c.get(f"/api/egenkontrol/photos/{pid}", headers=rev).status_code == 200
+    assert _pin_required(c.delete(f"/api/egenkontrol/photos/{pid}", headers=locked))
+    assert c.delete(f"/api/egenkontrol/photos/{pid}", headers=rev).status_code == 200
+
+    # the weekly review, and settings
+    env.clock.set(datetime(2026, 11, 17, 9, 0))
+    assert _pin_required(c.get("/api/egenkontrol/week", headers=locked))
+    assert c.get("/api/egenkontrol/week", headers=rev).status_code == 200
+    assert _pin_required(c.post("/api/egenkontrol/week/2026-W46/reviewed", json={}, headers=locked))
+    assert c.post("/api/egenkontrol/week/2026-W46/reviewed", json={}, headers=rev).status_code == 201
+    assert _pin_required(c.put("/api/egenkontrol/settings", json={}, headers=locked))
+
+
+def test_r1b_a_manager_seat_still_reads(env, store):
+    o = _shared_owner(env)
+    env.setup(o)
+    env.doc(o)
+    h = env.h(env.member(o, "manager"))
+    for path in ("/api/egenkontrol/folder", "/api/egenkontrol/folder.pdf",
+                 "/api/egenkontrol/week", "/api/egenkontrol/documents",
+                 "/api/egenkontrol/settings"):
+        assert env.client.get(path, headers=h).status_code == 200, path

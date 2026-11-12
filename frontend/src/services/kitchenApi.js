@@ -8,8 +8,8 @@
  * can do; the backend scopes the token to the kitchen wrappers and 404s the
  * rest (routers/kitchen_link.py).
  *
- * GETs retry twice (1.5 s, 3 s) on a network error or a 5xx. A POST of a
- * reading is NEVER replayed inside axios: the screen's own retry resends the
+ * GETs retry twice (1.5 s, 3 s) on a network error or a 5xx. A POST (a
+ * reading, a photo) is NEVER replayed inside axios: the screen's own retry resends the
  * same body with the same client_id, which the server answers with the row it
  * already stored (200, replayed) — so a retry can never make a second row.
  *
@@ -105,6 +105,21 @@ export const kitchenApi = {
     client.post(`${base(token)}/entries/${encodeURIComponent(entryId)}/undo`, {}).then((r) => r.data),
   folder: (token, days = 30) => client.get(`${base(token)}/folder`, { params: { days } }).then((r) => r.data),
   unpair: (token) => client.post(`${base(token)}/unpair`, {}).then((r) => r.data),
+  // R1b. A photo upload is a POST: never replayed inside axios (the screen's
+  // own "prøv igen" sends it again; the server answers 409 photo_exists once
+  // it has one, which the screen treats as done).
+  uploadPhoto: (token, entryId, file) => {
+    const form = new FormData();
+    form.append("file", file, file?.name || "foto.jpg");
+    return client
+      .post(`${base(token)}/entries/${encodeURIComponent(entryId)}/photo`, form, { timeout: 60000 })
+      .then((r) => r.data);
+  },
+  // Bytes through the token-checked proxy only — never a public or signed URL.
+  photo: (token, photoId) =>
+    client.get(`${base(token)}/photos/${encodeURIComponent(photoId)}`, { responseType: "blob" }).then((r) => r.data),
+  documentFile: (token, docId) =>
+    client.get(`${base(token)}/documents/${encodeURIComponent(docId)}/file`, { responseType: "blob" }).then((r) => r.data),
 };
 
 export default kitchenApi;

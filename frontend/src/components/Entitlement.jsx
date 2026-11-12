@@ -42,6 +42,9 @@ import { canPurchaseInApp, isNativeApp } from "../utils/platform";
  * another. Three purchasable tiers + the trial state — Business was
  * dropped May 2026 (kept as a defensive label below in case a legacy
  * user payload somehow surfaces it). */
+/** The plans an upgrade prompt may point at (never free / trial). */
+const UPGRADE_TARGETS = new Set(["starter", "pro"]);
+
 function planLabel(plan, t) {
   const map = {
     free:     t("planFree")     || "Free",
@@ -125,7 +128,7 @@ export function TierBadge({ plan, className = "" }) {
  * fires onClose. The "See plans" CTA is a Link to /subscription so
  * the back button works correctly.
  */
-export function UpgradePrompt({ feature, forCap = false, open = true, onClose }) {
+export function UpgradePrompt({ feature, forCap = false, open = true, onClose, targetPlan: targetPlanProp = null }) {
   const { t } = useLanguage();
   const ent = useEntitlements();
   if (!open) return null;
@@ -136,7 +139,10 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
   // prompt is never opened there; returning null is the belt-and-braces guard.
   if (isNativeApp()) return null;
 
-  const upgradePlan = forCap ? null : ent.minPlanForFeature(feature);
+  // A cap prompt can name its plan: the server's 402 says which plan lifts
+  // THIS limit (detail.upgrade_to), so the sheet never oversells.
+  const upgradePlan = (UPGRADE_TARGETS.has(targetPlanProp) ? targetPlanProp : null)
+    || (forCap ? null : ent.minPlanForFeature(feature));
   // Fallback: when min_plan_by_feature returns null (unknown feature) or
   // the caller didn't pass enough info, point them to Pro as the safe
   // upsell (covers most premium features in practice).

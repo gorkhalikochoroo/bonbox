@@ -38,7 +38,9 @@ def test_templates_list_the_start_values_with_their_sources(env):
     r = env.client.get("/api/egenkontrol/templates", headers=env.h(o))
     assert r.status_code == 200, r.text
     t = {x["key"]: x for x in r.json()["templates"]}
-    assert set(t) == {"fridge", "freezer", "hot_holding", "reheating", "receiving"}
+    # R1b adds the two ticks (cleaning, thermometer) — tests/test_egenkontrol_r1b_ticks.py
+    assert set(t) == {"fridge", "freezer", "hot_holding", "reheating", "receiving",
+                      "cleaning", "thermometer"}
     assert t["hot_holding"]["limit"] == {
         "limit_c": 56.0, "direction": "min", "source": "law",
         "ref": "BEK nr. 1331 af 20/11/2025, § 29, stk. 3",
@@ -382,7 +384,8 @@ def test_a_manager_reads_the_folder_and_pdf_but_not_the_devices(env):
 def test_the_feature_and_the_cap_key_exist_on_all_four_plans():
     for plan in ("free", "starter", "pro", "trial"):
         assert billing.PLAN_FEATURES[plan]["egenkontrol"] is True, plan
-        assert billing.PLAN_CAPS[plan]["egenkontrol_active_checks"] == 100, plan
+        # R1b: Free = 6 (Decision 1); the paid plans keep the 100 abuse ceiling.
+        assert billing.PLAN_CAPS[plan]["egenkontrol_active_checks"] == (6 if plan == "free" else 100), plan
 
 
 def test_the_cap_is_enforced_on_create_setup_and_reactivate(env, monkeypatch):
@@ -491,8 +494,9 @@ def test_folder_range_rules(env):
     o = env.owner()
     env.setup(o)
     h = env.h(o)
-    r = env.client.get("/api/egenkontrol/folder", params={"from": "2026-10-13", "to": "2026-11-12"}, headers=h)
-    assert r.status_code == 422 and r.json()["detail"] == {"code": "range_too_long", "max_days": 30}
+    # R1b: up to 92 days (93 refused); was 30 in R1a.
+    r = env.client.get("/api/egenkontrol/folder", params={"from": "2026-08-12", "to": "2026-11-12"}, headers=h)
+    assert r.status_code == 422 and r.json()["detail"] == {"code": "range_too_long", "max_days": 92}
     r = env.client.get("/api/egenkontrol/folder", params={"from": "2026-11-12", "to": "2026-11-11"}, headers=h)
     assert r.json()["detail"]["code"] == "bad_range"
     r = env.client.get("/api/egenkontrol/folder", params={"to": "2026-11-20"}, headers=h)

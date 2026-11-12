@@ -35,6 +35,76 @@ import { errText } from "../utils/errText";
  * (pillar, true). Optimistic with rollback + an undo toast, inherited from
  * the usePillars setter.
  */
+/**
+ * Egenkontrol for a grocery, a veggie shop or a kiosk (R1b): offered, never
+ * pushed. One tap "Slå egenkontrol til" (PUT /egenkontrol/settings
+ * {opted_in: true}) puts Egenkontrol in the menu (the server's used-surfaces
+ * signal, re-read through useActivation). Shown only while the server says
+ * it is offered and not yet on. Free + uncapped: NOT a vertical-module slot.
+ */
+const EK_OPT_IN_TYPES = ["grocery", "veggie_shop", "kiosk"];
+
+function EgenkontrolOptInRow({ businessType }) {
+  const { t } = useLanguage();
+  const { refresh } = useActivation();
+  const offerable = EK_OPT_IN_TYPES.includes(String(businessType || ""));
+  const [offered, setOffered] = useState(false);
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!offerable) return undefined;
+    let alive = true;
+    api
+      .get("/egenkontrol/settings", { _noRetry: true })
+      .then((r) => alive && setOffered(!!r?.data?.opt_in_offered))
+      .catch(() => alive && setOffered(false));
+    return () => {
+      alive = false;
+    };
+  }, [offerable]);
+  if (!offerable || (!offered && !done)) return null;
+  const optIn = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.put("/egenkontrol/settings", { opted_in: true });
+      setDone(true);
+      setOffered(false);
+      try { await refresh?.(); } catch { /* the nav catches up on the next read */ }
+    } catch {
+      setError(t("ekErrSaveFailed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div
+      className="flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 px-5 py-4"
+      data-testid="ek-modules-optin"
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+        <Icon name="Thermometer" size={18} strokeWidth={1.75} />
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-gray-900 dark:text-white">{t("navEgenkontrol")}</div>
+        <div className="text-[12.5px] text-gray-600 dark:text-gray-400">{done ? t("ekOptInDone") : t("ekOptInBody")}</div>
+        {error ? <p className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">{error}</p> : null}
+      </div>
+      {done ? (
+        <Link to="/egenkontrol" className="text-sm font-semibold text-gray-900 dark:text-white underline underline-offset-2">
+          {t("nyqEkAction")}
+        </Link>
+      ) : (
+        <Button variant="secondary" className="h-10" busy={busy} disabled={busy} onClick={optIn}>
+          {t("ekOptInButton")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function FunktionerSection() {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -123,6 +193,7 @@ function FunktionerSection() {
               </div>
             );
           })}
+          <EgenkontrolOptInRow businessType={user?.business_type} />
         </div>
         {error && (
           <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">
