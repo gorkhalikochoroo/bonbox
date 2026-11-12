@@ -2393,7 +2393,7 @@ export const en = {
     rsvpSeatTableTaken: "That table is now taken — pick another free table.",
     rsvpSeatTableBookedSoon: "{table} is reserved at {time} and isn't free for the whole sitting — pick another table, or put them on the waitlist.",
     // New booking (owner takes a phone booking) + assign table + occupancy
-    rsvpNewBooking: "New booking",
+    rsvpNewBooking: "New reservation",
     rsvpBookingTableOptional: "Table (optional — auto if blank)",
     rsvpBookingTableAuto: "Auto",
     rsvpBookTableTaken: "That table is taken for this time — pick another table (or Auto) or another time.",
@@ -12029,7 +12029,7 @@ export const en = {
     tdGuestsWord: "guests",
     tdMoreBookings: "+{count} more",
     tdOnWaitlist: "On the waitlist: {count}",
-    tdSeatWalkIn: "Seat a walk-in",
+    tdSeatWalkIn: "Seat a drop-in",
     tdNeedPublishTitle: "Week {week} isn't published",
     tdNeedPublishSub: "{count} {word} still drafts · your staff can't see them",
     tdPublishAction: "Publish",

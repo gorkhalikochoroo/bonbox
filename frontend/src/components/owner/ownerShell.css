@@ -80,6 +80,13 @@ html.dark .ow-dock {
 @media (max-width: 359px) {
   .ow-dock { height: 48px; border-radius: 24px; }
 }
+/* Phones only. The element's md:hidden cannot do it: Tailwind's utilities
+   sit in a cascade layer, and this file's unlayered `display: grid` beats
+   any layered rule — the dock showed on iPad and desktop, over the rail.
+   48rem is Tailwind's md, the width where the rail takes over. */
+@media (min-width: 48rem) {
+  .ow-dock { display: none; }
+}
 /* The indicator's track: the dock's shape, clipping the spring's overshoot
    at the rounded ends. The dock itself never clips (focus ring, badge). */
 .ow-dock-track {
@@ -136,7 +143,10 @@ html.dark .ow-dock-pill { background: var(--td-chip); }
   user-select: none;
 }
 html.dark .ow-dock-item { color: var(--td-muted); }
-.ow-dock-item[aria-current="page"] { color: var(--td-ink); }
+/* The current tab reads in ink, in dark too: the dark rule above outranks a
+   bare [aria-current] rule, which left both the same grey. */
+.ow-dock-item[aria-current="page"],
+html.dark .ow-dock-item[aria-current="page"] { color: var(--td-ink); }
 .ow-dock-item:focus-visible { outline: 2px solid var(--td-brass); outline-offset: -2px; }
 /* Pressed: .96, down in 0.11 s. A finger presses from data-pressed; a mouse
    from :active. */
@@ -184,6 +194,20 @@ html[data-modality="touch"] .ow-dock-item[data-pressed] {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* A narrow phone (360 px Android): "Reservationer" and "Kasserapport" took
+   all five names down to 9.1 px, under the old bar's 10 px. Below 390 px
+   (where the 12 px dock already holds 10 px) the dock gives the names back
+   width instead — 8 px from the edges, 3 px inside, no label padding:
+   10.1 px at 360, 11 px at 375–389. The indicator keeps its column. */
+@media (max-width: 389.98px) {
+  .ow-dock {
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    padding: 0 3px;
+  }
+  .ow-dock-ind { left: 3px; width: calc((100% - 6px) / var(--n, 5)); }
+  .ow-dock-label { padding: 0; }
 }
 
 /* ── The "+" sheet's jobs (4, decision 3) ─────────────────────────────── */

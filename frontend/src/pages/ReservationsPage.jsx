@@ -2235,7 +2235,7 @@ function NewBookingSheet({
           <h3 id="rsvp-new-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {apptWords
               ? t("rsvpNewBookingProvider", "Book an appointment")
-              : t("rsvpNewBooking", "New booking")}
+              : t("rsvpNewBooking", "New reservation")}
           </h3>
           <button
             type="button"
@@ -7250,7 +7250,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           >
             {apptWords
               ? t("rsvpNewBookingProvider", "Book an appointment")
-              : t("rsvpNewBooking", "New booking")}
+              : t("rsvpNewBooking", "New reservation")}
           </Button>
           </div>
       </div>

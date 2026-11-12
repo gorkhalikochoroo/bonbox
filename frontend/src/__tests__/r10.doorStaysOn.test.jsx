@@ -267,6 +267,7 @@ describe("the paired door device's book", () => {
     expect(document.body.textContent).not.toContain("not_found");
     expect(guestOnScreen()).toBe(false);
     expect(screen.queryByText("New booking")).toBeNull();
+    expect(screen.queryByText("New reservation")).toBeNull();   // the book's own button (rsvpNewBooking)
     expect(watchedBook()).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Enter a new code" }));

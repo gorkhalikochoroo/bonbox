@@ -109,15 +109,36 @@ describe('the "+" sheet: Drop-in · Ny reservation on top', () => {
     noteBookFacts("u-2", { has_book: true, seats: 6 });
     openSheet();
     await waitFor(() => expect(chips()).toEqual(["new"]));
-    cleanup();
+  });
 
-    // Not known yet, and I dag's read cannot say (a manager seat: I dag is
-    // owner-only) — Ny reservation only, and no read is made.
-    __resetQuickJobsForTests();
-    mockUser = { id: "u-3", business_type: "restaurant", currency: "DKK", role: "manager" };
+  it.each(["manager", "cashier", "viewer", "accountant"])(
+    "seat %s: no jobs row at all (every write is refused server-side: a chip would be a dead end), and no /today read",
+    async (role) => {
+      noteBookFacts("u-3", { has_book: true, seats: 24 });
+      mockUser = { id: "u-3", business_type: "restaurant", currency: "DKK", role };
+      openSheet();
+      // The sheet itself still opens, with its sale form.
+      await waitFor(() => expect(screen.getByRole("button", { name: da.logSaleTab })).toBeTruthy());
+      expect(document.querySelector("[data-quick-jobs]")).toBeNull();
+      expect(chips()).toEqual([]);
+      expect(apiGet.mock.calls.some(([u]) => u === "/today")).toBe(false);
+    },
+  );
+
+  it("the owner's seat with no role on the account reads as the owner (chips shown)", async () => {
+    noteBookFacts("u-1", { has_book: true, seats: 24 });
+    mockUser = { id: "u-1", business_type: "restaurant", currency: "DKK" };
+    openSheet();
+    await waitFor(() => expect(chips()).toEqual(["walkin", "new"]));
+  });
+
+  it("a salon's chip says what its own sheet says: Book en tid (rsvpNewBookingProvider), not Ny reservation", async () => {
+    mockUser = { id: "u-2", business_type: "salon", currency: "DKK", role: "owner" };
+    noteBookFacts("u-2", { has_book: true, seats: 0 });
     openSheet();
     await waitFor(() => expect(chips()).toEqual(["new"]));
-    expect(apiGet.mock.calls.some(([u]) => u === "/today")).toBe(false);
+    expect(document.querySelector('[data-quick-job="new"]').textContent).toBe(da.rsvpNewBookingProvider);
+    expect(da.rsvpNewBookingProvider).toBe("Book en tid");
   });
 
   it("opened before I dag ever answered: one /today read, and Drop-in once it says the venue seats drop-ins", async () => {
@@ -190,6 +211,11 @@ describe("one model, two ways in (quickJobs.js)", () => {
     expect(src).toContain("const newBookingTo = NEW_BOOKING_TO;");
     expect(src).toContain("const walkInTo = WALK_IN_TO;");
     expect(src).toContain("noteBookFacts(user?.id, data.reservations)");
+    // The same word as the "+" chip and the sheet it opens: Ny reservation,
+    // or Book en tid where the business books a time (Reservationer's rule).
+    expect(src).toContain('const newBookingWord = t(speaksAppointments(user?.business_type) ? "rsvpNewBookingProvider" : "tdNewBooking");');
+    expect(src).not.toContain('{t("tdNewBooking")}');
+    expect(src.match(/\/>\{newBookingWord\}<\/Link>/g)).toHaveLength(3);
   });
 });
 
@@ -201,6 +227,19 @@ describe("the words (decision 3): real Danish and English, one key each", () => 
     expect(en.tdNewBooking).toBe("New reservation");
     // The live Reservationer page's own word for these guests.
     expect(da.rsvpSeatWalkInShort).toBe(da.tdWalkIn);
+    // I dag's Bookinger card says Drop-in too (it opens the same sheet).
+    expect(da.tdSeatWalkIn).toBe("Placér drop-in");
+    expect(en.tdSeatWalkIn).toBe("Seat a drop-in");
+    // English: the chip and the sheet it opens say the same thing.
+    expect(en.rsvpNewBooking).toBe(en.tdNewBooking);
+    expect(da.rsvpNewBooking).toBe(da.tdNewBooking);
+  });
+
+  it('no I dag (td*) word says "walk-in" any more, in either language', () => {
+    for (const [name, dict] of [["da", da], ["en", en]]) {
+      const left = Object.entries(dict).filter(([k, v]) => k.startsWith("td") && typeof v === "string" && /walk-?in/i.test(v));
+      expect(left, name).toEqual([]);
+    }
   });
   it('Reservationer\'s phone chip keeps "Kræver dig": "Kræver handling" does not fit at 360 px', () => {
     // Measured on the running page (phone R1, headless Chromium, DM Sans
@@ -212,7 +251,7 @@ describe("the words (decision 3): real Danish and English, one key each", () => 
   });
 
   it("every key the dock and the jobs row read is a real word in da and en", () => {
-    for (const k of ["tdWalkIn", "tdNewBooking", "tdQuickActions", "bottomNav", "navTodayHome", "navToday", "reservations", "more"]) {
+    for (const k of ["tdWalkIn", "tdNewBooking", "tdSeatWalkIn", "rsvpNewBookingProvider", "tdQuickActions", "bottomNav", "navTodayHome", "navToday", "reservations", "more"]) {
       for (const [name, dict] of [["da", da], ["en", en]]) {
         expect(typeof dict[k], `${name}.${k}`).toBe("string");
         expect(dict[k].trim().length, `${name}.${k}`).toBeGreaterThan(0);

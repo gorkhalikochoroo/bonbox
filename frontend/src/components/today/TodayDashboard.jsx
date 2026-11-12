@@ -34,6 +34,7 @@ import { useLanguage } from "../../hooks/useLanguage";
 import { useAuth } from "../../hooks/useAuth";
 import { usePillars } from "../../hooks/usePillars";
 import { archetypeIdFor } from "../../config/archetypes";
+import { speaksAppointments } from "../../config/venueProfiles";
 import { formatOwnerMoney } from "../../utils/currency";
 import { dateLocale } from "../../utils/dateFormat";
 import { DATED_CODES, RENDERERS, keyFor, loadDismissed, saveDismissal, skipParamFor } from "../needsYouRenderers";
@@ -93,6 +94,10 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   const archetype = archetypeIdFor(user?.business_type);
   const isFood = archetype === "food_service" || archetype === "bar";
   const isAppointments = archetype === "salon" || archetype === "retail" || archetype === "services";
+  // "Ny reservation" (decision 3) for a venue with tables; a business that
+  // books a time says what its own sheet says ("Book en tid"), as Reservationer
+  // does (speaksAppointments) — the "+" sheet reads the same.
+  const newBookingWord = t(speaksAppointments(user?.business_type) ? "rsvpNewBookingProvider" : "tdNewBooking");
   const rsvOn = !hiddenPillars.has("reservations");
   const staffOn = !hiddenPillars.has("staff");
 
@@ -236,7 +241,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
           <div className="td-head-actions">
             <Link to="/home" className="td-link">{t("tdFullOverview")}</Link>
             {showRsv && (
-              <Link to={newBookingTo} className="td-btn"><CalendarPlus size={18} aria-hidden="true" />{t("tdNewBooking")}</Link>
+              <Link to={newBookingTo} className="td-btn"><CalendarPlus size={18} aria-hidden="true" />{newBookingWord}</Link>
             )}
             <Link to={closeTo} className="td-btn td-btn-brass"><Moon size={18} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
           </div>
@@ -246,7 +251,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
           rsv={showRsv ? rsv : null} shifts={shifts} sum={sum} staffOn={staffOn} isAppointments={isAppointments} />
 
         <div className="td-quick" role="group" aria-label={t("tdQuickActions")}>
-          {showRsv && <Link to={newBookingTo} className="td-btn"><CalendarPlus size={16} aria-hidden="true" />{t("tdNewBooking")}</Link>}
+          {showRsv && <Link to={newBookingTo} className="td-btn"><CalendarPlus size={16} aria-hidden="true" />{newBookingWord}</Link>}
           {canWalkIn && <Link to={walkInTo} className="td-btn"><UserPlus size={16} aria-hidden="true" />{t("tdWalkIn")}</Link>}
           <Link to={closeTo} className="td-btn td-btn-brass"><Moon size={16} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
         </div>
@@ -257,7 +262,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
           <Needs t={t} needs={needs} known={known} failed={findingsFailed} navigate={navigate} onDismiss={dismiss} isAppointments={isAppointments} />
           {showRsv && (
             <Bookings t={t} rsv={rsv} day={data.business_day} cutoff={cutoff} nowMin={nowMin}
-              isFood={isFood} isAppointments={isAppointments} canWalkIn={canWalkIn} newBookingTo={newBookingTo} walkInTo={walkInTo} />
+              isFood={isFood} isAppointments={isAppointments} canWalkIn={canWalkIn} newBookingTo={newBookingTo} walkInTo={walkInTo} newBookingWord={newBookingWord} />
           )}
           {staffOn && shifts.length > 0 && (
             <Staff t={t} shifts={shifts} sum={sum} nowMin={nowMin} cutoff={cutoff} before={before} />
@@ -532,7 +537,7 @@ const STATUS_KEY = {
   completed: "tdStCompleted",
 };
 
-function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalkIn, newBookingTo, walkInTo }) {
+function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalkIn, newBookingTo, walkInTo, newBookingWord }) {
   const split = useMemo(() => splitService(rsv.items, cutoff), [rsv.items, cutoff]);
   const both = isFood && split.lunch.length > 0 && split.dinner.length > 0;
   const [svc, setSvc] = useState(() => defaultService(split, nowMin));
@@ -571,7 +576,7 @@ function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalk
       {shown.length === 0 ? (
         <div className="td-empty">
           <span>{isAppointments ? t("tdNoApptsYet") : t("tdNoBookingsTonight")}</span>
-          <Link to={newBookingTo} className="td-btn td-btn-sm"><CalendarPlus size={16} aria-hidden="true" />{t("tdNewBooking")}</Link>
+          <Link to={newBookingTo} className="td-btn td-btn-sm"><CalendarPlus size={16} aria-hidden="true" />{newBookingWord}</Link>
         </div>
       ) : (
         <div role="table" aria-label={title}>

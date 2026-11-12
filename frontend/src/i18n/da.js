@@ -11706,7 +11706,7 @@ export const da = {
     tdGuestsWord: "gæster",
     tdMoreBookings: "+{count} mere",
     tdOnWaitlist: "På venteliste: {count}",
-    tdSeatWalkIn: "Placér walk-in",
+    tdSeatWalkIn: "Placér drop-in",
     tdNeedPublishTitle: "Uge {week} er ikke udgivet",
     tdNeedPublishSub: "{count} {word} er stadig kladder · personalet kan ikke se dem",
     tdPublishAction: "Udgiv",

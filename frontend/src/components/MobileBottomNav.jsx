@@ -133,7 +133,10 @@ function OwnerDock({ tabs, badges, t, lang }) {
               // The tab you are on: back to the top, no navigation.
               if (active && path === tab.to) {
                 e.preventDefault();
-                try { window.scrollTo({ top: 0, behavior: motionOk() ? "smooth" : "auto" }); } catch { /* old WebView */ }
+                // "instant", never "auto": auto follows the CSS, and index.css
+                // makes html scroll smooth, which Reduce Motion does not undo.
+                try { window.scrollTo({ top: 0, behavior: motionOk() ? "smooth" : "instant" }); }
+                catch { try { window.scrollTo(0, 0); } catch { /* old WebView */ } }
                 return;
               }
               // Any other: the pill goes now, the page follows.

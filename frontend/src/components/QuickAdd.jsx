@@ -16,6 +16,7 @@ import { parseMoneyInput, moneyLocale, moneyExample, formatOwnerMoney } from "..
 import { isFloatingChromeHidden } from "../config/floatingChrome";
 import { usePillars } from "../hooks/usePillars";
 import { NEW_BOOKING_TO, WALK_IN_TO, bookFactsFor, isFoodVenue, noteBookFacts, quickJobs } from "./today/quickJobs";
+import { speaksAppointments } from "../config/venueProfiles";
 // Lazy-load Smart Scan modal — only fetched when the owner taps the
 // "Smart skan" entry below. Keeps QuickAdd's bundle lean for owners
 // who use the keypad path 99% of the time.
@@ -91,9 +92,16 @@ export default function QuickAdd() {
   // selected: a sale costs no extra tap.
   const { hiddenPillars } = usePillars();
   const [, setFactsSeen] = useState(0);
-  const jobs = mode === "personal"
+  // The owner's seat only. Every invited seat (manager, cashier, viewer) and
+  // the revisor are refused every write server-side (main.py's member and
+  // accountant write guards: 403 read_only), so a chip there would open a
+  // sheet that can only fail — a dead end. No row at all for them.
+  const ownerSeat = String(user?.role || "owner").toLowerCase() === "owner";
+  const jobs = mode === "personal" || !ownerSeat
     ? null
     : quickJobs({ businessType: user?.business_type, hiddenPillars, facts: bookFactsFor(user?.id) });
+  // A salon books a time: its chip says what its own sheet says (Book en tid).
+  const newBookingWord = speaksAppointments(user?.business_type) ? t("rsvpNewBookingProvider") : t("tdNewBooking");
   const [tab, setTab] = useState(mode === "personal" ? "personal_income" : "sale");
   const [categories, setCategories] = useState([]);
   const [success, setSuccess] = useState("");
@@ -213,7 +221,7 @@ export default function QuickAdd() {
   useEffect(() => {
     if (!open || mode === "personal" || !user?.id) return undefined;
     if (bookFactsFor(user.id)) return undefined;
-    if (String(user.role || "owner").toLowerCase() !== "owner") return undefined;
+    if (!ownerSeat) return undefined;
     if (!isFoodVenue(user.business_type) || hiddenPillars.has("reservations")) return undefined;
     let live = true;
     api.get("/today").then((res) => {
@@ -442,7 +450,7 @@ export default function QuickAdd() {
             {jobs.newBooking && (
               <button type="button" className="ow-job" data-quick-job="new"
                 onClick={() => { setOpen(false); navigate(NEW_BOOKING_TO); }}>
-                <CalendarPlus size={16} aria-hidden="true" /><span>{t("tdNewBooking")}</span>
+                <CalendarPlus size={16} aria-hidden="true" /><span>{newBookingWord}</span>
               </button>
             )}
           </div>

@@ -193,6 +193,33 @@ describe("one sliding indicator", () => {
   });
 });
 
+describe("the dock is for phones only, and reads in both themes", () => {
+  const strip = (x) => x.replace(/\/\*[\s\S]*?\*\//g, "");
+  it("hidden from Tailwind's md (48rem) up in its own CSS: the class md:hidden alone loses to the unlayered display: grid", () => {
+    const css = strip(read("components/owner/ownerShell.css"));
+    expect(css).toMatch(/\.ow-dock \{[^}]*display: grid;/);
+    expect(css).toMatch(/@media \(min-width: 48rem\) \{\s*\.ow-dock \{ display: none; \}\s*\}/);
+    // The hide comes after the rule it overrides.
+    expect(css.indexOf("@media (min-width: 48rem)")).toBeGreaterThan(css.search(/\.ow-dock \{[^}]*display: grid;/));
+  });
+
+  it("dark: the current tab is ink, not the inactive grey (the dark rule used to outrank [aria-current])", () => {
+    const css = strip(read("components/owner/ownerShell.css"));
+    expect(css).toMatch(/html\.dark \.ow-dock-item \{ color: var\(--td-muted\); \}/);
+    expect(css).toMatch(/html\.dark \.ow-dock-item\[aria-current="page"\] \{ color: var\(--td-ink\); \}/);
+    // It comes after the dark rule (same specificity would also need order).
+    expect(css.indexOf('html.dark .ow-dock-item[aria-current="page"]')).toBeGreaterThan(css.indexOf("html.dark .ow-dock-item { color"));
+  });
+
+  it("below 390 px the dock gives its names width (8 px edges, 3 px inside, no label padding), the indicator keeping its column", () => {
+    const css = strip(read("components/owner/ownerShell.css"));
+    const narrow = css.slice(css.indexOf("@media (max-width: 389.98px)"));
+    expect(narrow).toMatch(/^@media \(max-width: 389\.98px\) \{\s*\.ow-dock \{\s*left: max\(8px, env\(safe-area-inset-left, 0px\)\);\s*right: max\(8px, env\(safe-area-inset-right, 0px\)\);\s*padding: 0 3px;\s*\}/);
+    expect(narrow).toMatch(/\.ow-dock-ind \{ left: 3px; width: calc\(\(100% - 6px\) \/ var\(--n, 5\)\); \}/);
+    expect(narrow).toMatch(/\.ow-dock-label \{ padding: 0; \}/);
+  });
+});
+
 describe("re-tap and silence", () => {
   it("tapping the tab you are on scrolls to the top and stays", () => {
     const scrollTo = vi.fn();
@@ -210,6 +237,40 @@ describe("re-tap and silence", () => {
       fireEvent.click(dock().querySelector('[data-dock-tab="/reservations"]'));
       expect(where.pathname).toBe("/reservations");
       expect(scrollTo).toHaveBeenCalledTimes(1);
+    } finally {
+      window.scrollTo = was;
+    }
+  });
+
+  it.each([
+    [true, "instant"],
+    [false, "smooth"],
+  ])("Reduce Motion %s: the re-tap scroll is %s (never \"auto\", which follows html's smooth scroll-behavior)", (reduce, behavior) => {
+    const scrollTo = vi.fn();
+    const was = window.scrollTo;
+    const wasMM = window.matchMedia;
+    window.scrollTo = scrollTo;
+    window.matchMedia = (q) => ({ matches: reduce && /prefers-reduced-motion: reduce/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+    try {
+      renderDock("/dashboard");
+      fireEvent.click(dock().querySelector('[data-dock-tab="/dashboard"]'));
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo.mock.calls[0][0]).toEqual({ top: 0, behavior });
+    } finally {
+      window.scrollTo = was;
+      window.matchMedia = wasMM;
+    }
+  });
+
+  it("an old WebView that refuses the options object still goes to the top", () => {
+    const calls = [];
+    const was = window.scrollTo;
+    window.scrollTo = (...a) => { calls.push(a); if (typeof a[0] === "object") throw new TypeError("bad behavior"); };
+    try {
+      renderDock("/dashboard");
+      fireEvent.click(dock().querySelector('[data-dock-tab="/dashboard"]'));
+      expect(calls.at(-1)).toEqual([0, 0]);
+      expect(where.pathname).toBe("/dashboard");
     } finally {
       window.scrollTo = was;
     }
