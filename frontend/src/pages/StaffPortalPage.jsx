@@ -3,7 +3,7 @@
  * Mobile-first, dark theme, no login required.
  * Route: /s/:token
  */
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useTransition } from "react";
+import { memo, useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useTransition } from "react";
 
 import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
@@ -1452,6 +1452,7 @@ function useClock(token) {
   // after CLOCK_ANSWER_WAIT_MS; at once with a seed. Until then Stempl ind
   // waits (the card itself draws at once — nothing jumps).
   const [answered, setAnswered] = useState(!!seed);
+  const [anchor, setAnchor] = useState(0);
   // The clock beat (components/staff/clockBeat.js). stRef is what this screen
   // showed, written synchronously with every answer, so a punch's beat is
   // decided against the screen at the ANSWER, not at the tap. punchSeq
@@ -1475,6 +1476,7 @@ function useClock(token) {
     lastClock = { token, data: data || null, at: Date.now() };
     setLiveSec(data?.elapsed_sec ?? null);
     setBreakSec(data?.on_break ? (data?.break_elapsed_sec ?? 0) : null);
+    setAnchor((n) => n + 1);   // the card's +1/s count starts again from these
   }, [token]);
 
   const load = useCallback(async () => {
@@ -1503,21 +1505,13 @@ function useClock(token) {
     return () => clearInterval(id);
   }, [load]);
 
-  // 1-second live tick — ONLY while clocked in (keyed on the boolean so the
-  // interval is created once on clock-in and cleared on clock-out / unmount,
-  // not rebuilt every 30s poll). Display-only; the server stays source of truth.
-  const clockedInNow = !!st?.clocked_in;
-  useEffect(() => {
-    if (!clockedInNow) return;
-    const id = setInterval(() => {
-      setLiveSec((s) => (s == null ? s : s + 1));
-      setBreakSec((s) => (s == null ? s : s + 1));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [clockedInNow]);
-
-  // The live card as last committed: what a clock-out's leave fades out.
-  useEffect(() => { if (st?.clocked_in) shownRef.current = { st, liveSec, breakSec }; });
+  // The 1-second live tick is NOT here: it lives in the live card
+  // (useLiveTicks), so each second re-renders that card alone, never the
+  // whole Vagtplan screen (Release A perf). liveSec / breakSec are the
+  // server's anchors; `anchor` counts the answers, and the card counts the
+  // seconds since the last one. The card hands back what it showed
+  // (noteShown → shownRef): a clock-out's leave fades out exactly that.
+  const noteShown = useCallback((v) => { shownRef.current = v; }, []);
 
   // Resolve device location (only when the venue lock is on). Denied / no-fix
   // → resolves null; the server then allows the punch but flags it unverified.
@@ -1707,7 +1701,8 @@ function useClock(token) {
     return `${ss}s`;
   };
 
-  return { st, busy, err, result, act, breakAct, fmtDur, liveLabel: fmtElapsed(liveSec), liveSec, breakSec, lastFix, beat, answered };
+  // liveLabel is the anchor's (no reader today); the ticking value is the card's.
+  return { st, busy, err, result, act, breakAct, fmtDur, liveLabel: fmtElapsed(liveSec), liveSec, breakSec, anchor, noteShown, lastFix, beat, answered };
 }
 
 // ── Live countdown to the next shift's start. No timer of its own; the parent
@@ -3618,6 +3613,21 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
  * Pause cell shows the planned break only — the app cannot know whether it
  * was taken, so it does not say "mangler".
  */
+/** Seconds since the clock's last answer (`anchor`), +1 each second while
+    `running`. The interval is made once per run, not per answer: a new
+    answer only restarts the count, exactly as the old +1/s on liveSec did.
+    It lives in the live card so a tick re-renders the card alone. */
+function useLiveTicks(anchor, running) {
+  const [tk, setTk] = useState({ anchor, n: 0 });
+  if (tk.anchor !== anchor) setTk({ anchor, n: 0 });   // a new answer re-anchors ("adjust while rendering")
+  useEffect(() => {
+    if (!running) return undefined;
+    const id = setInterval(() => setTk((c) => ({ ...c, n: c.n + 1 })), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+  return tk.anchor === anchor ? tk.n : 0;
+}
+
 function LiveShiftCard({ clock, live, menuBtn }) {
   const { t, lang } = useLanguage();
   const confirmOut = useConfirm();
@@ -3633,7 +3643,20 @@ function LiveShiftCard({ clock, live, menuBtn }) {
   const dimUnlessTapped = (kind) => (clock.busy && lastTap !== kind ? 0.6 : undefined);
   const st = clock.st || {};
   const shift = live?.shift || null;
-  const elapsed = clock.liveSec ?? st.elapsed_sec ?? 0;
+  // The 1 s tick (moved here from useClock). During a clock-out's leave the
+  // card is the snapshot of what it showed: nothing is added to it.
+  const ticks = useLiveTicks(clock.anchor, !!st.clocked_in && !clock.leaving);
+  const add = clock.leaving ? 0 : ticks;
+  const liveShown = clock.liveSec == null ? null : clock.liveSec + add;
+  const breakShown = clock.breakSec == null ? null : clock.breakSec + add;
+  // What this card showed, as last committed: a clock-out's leave fades out
+  // exactly this (it was useClock's, when the tick lived there).
+  const noteShown = clock.noteShown;
+  useEffect(() => {
+    if (clock.leaving || !clock.st?.clocked_in) return;
+    noteShown?.({ st: clock.st, liveSec: liveShown, breakSec: breakShown });
+  });
+  const elapsed = liveShown ?? st.elapsed_sec ?? 0;
   const totalSec = live ? (live.end.getTime() - live.start.getTime()) / 1000 : null;
   const p = totalSec ? Math.min(1, Math.max(0, elapsed / totalSec)) : 0;
   // Time left on the plan, from the clock itself (planned end − the
@@ -3684,7 +3707,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
   // On a pause the ring PAUSES: the big number is the pause's own time (the
   // server's break_elapsed_sec, ticking), the line under it the whole shift,
   // and the arc turns sage. Off a pause it is the shift, as always.
-  const breakSec = onBreak ? (clock.breakSec ?? st.break_elapsed_sec ?? 0) : null;
+  const breakSec = onBreak ? (breakShown ?? st.break_elapsed_sec ?? 0) : null;
   const ringSub = onBreak
     ? t("portalLiveBreakSub", "{d} on shift", { d: dur(Math.floor(elapsed / 60)) })
     : sub;
@@ -6866,10 +6889,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               // the keyboard is up, and the dock has stepped aside (dockAway),
               // so its room goes back to the stream — without it ~84 px of
               // empty stream sat above the composer.
-              ? `calc(100vh - 20rem - env(safe-area-inset-top, 0px) - ${kb}px + ${COMPOSER_OVER_DOCK}px)`
+              ? `calc(${VP_IH} - 20rem - env(safe-area-inset-top, 0px) - ${kb}px + ${COMPOSER_OVER_DOCK}px)`
               // iOS's shell has no top inset here (env is 0 there).
-              : `calc(100vh - 20rem - ${kb}px)`)
-            : "calc(100vh - 20rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+              : `calc(${VP_IH} - 20rem - ${kb}px)`)
+            : `calc(${VP_IH} - 20rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))`,
           gap: 10,
         }}
       >
@@ -8511,6 +8534,19 @@ const BAR_V3 = BAR_MODE === "v3";
 const DOCK_LIFT = 8;
 const DOCK_H = 52;
 // "safe area + N px": N px above the bottom edge of the screen's usable area.
+// The portal shell's frame: fixed over the layout viewport (the same frame the
+// dock, the composer and the sheets use), never in the document's flow. 100%
+// of a fixed box is the layout viewport, and it follows it after the keyboard.
+const PORTAL_SHELL_FRAME = {
+  position: "fixed", top: 0, height: "100%",
+  // The body's side insets (index.css keeps them on the portal) still apply.
+  left: "env(safe-area-inset-left, 0px)", right: "env(safe-area-inset-right, 0px)",
+};
+// The layout viewport's height, published as --vp-ih by the page: the chat
+// stream is sized from the same frame as the shell and the fixed composer.
+// WKWebView's 100vh stayed 42 px taller than it after a keyboard (device pass
+// A), and the newest bubble sat under the composer.
+const VP_IH = "var(--vp-ih, 100vh)";
 const aboveDock = (gap) => `calc(env(safe-area-inset-bottom, 0px) + ${DOCK_LIFT + DOCK_H + gap}px)`;
 // How far the chat composer drops when the dock steps aside for the Android
 // keyboard (dockAway): the dock's lift + height + the composer's 8 px gap
@@ -9217,6 +9253,122 @@ function StaffPushOptIn({ token }) {
 
 
 
+/**
+ * PortalDock — the v3 floating dock, its pill and the tab transition (premium
+ * feel 1.6a; Release A perf). The pill's state lives here, not on the page:
+ * a dock tap's urgent render (the pill, the name pop, aria-current) is this
+ * component alone, and the new screen commits in a transition right after.
+ * memo + stable props (setTab, a stable scroll-to-top, the dock ref setter):
+ * the page's own renders (polls, the 15 s freshness tick) skip it.
+ * `pillKey` is the tab the pill already shows while its screen is on the
+ * way. It clears once that screen is there, or once the transition is over
+ * some other way (BACK chose another tab meanwhile), so the pill can never
+ * stay on a tab that is not shown.
+ */
+const PortalDock = memo(function PortalDock({ tab, navIdx, navMoved, setTab, onReselect, chatUnread, swapAsks, dockAway, dockRef }) {
+  const { t } = useLanguage();
+  const [pillKey, setPillKey] = useState(null);
+  const [tabPending, startTabTransition] = useTransition();
+  if (pillKey && (pillKey === tab || !tabPending)) setPillKey(null);   // caught up ("adjust while rendering")
+  const shownKey = pillKey || tab;
+  const shownIdx = DOCK_TABS.findIndex((x) => x.key === shownKey);
+  const selectTab = (key) => {
+    if (key === shownKey) { onReselect(); return; }   // tapping the tab you are on
+    setPillKey(key);
+    startTabTransition(() => setTab(key));
+  };
+  return (
+    <>
+    <div
+      aria-hidden
+      className="fixed inset-x-0 bottom-0 z-10 m-0 pointer-events-none"
+      // The canvas's fade: content dissolves into the ivory under the dock.
+      style={{ height: aboveDock(42), background: `linear-gradient(to bottom, rgba(246,244,238,0), ${IVORY} 70%)`, ...(dockAway ? { display: "none" } : {}) }}
+    />
+    <nav data-bb-consent-clear="" aria-label={t("portalTabsLabel", "Tabs")} data-testid="portal-tabbar-v3"
+      ref={dockRef}
+      className="vp-dock"
+      data-kb-away={dockAway ? "" : undefined}
+      style={{ gridTemplateColumns: `repeat(${DOCK_TABS.length}, minmax(0, 1fr))`, "--n": DOCK_TABS.length, ...(dockAway ? { display: "none" } : {}) }}
+    >
+      {/* The track clips the pill to the dock's shape when the spring
+          overshoots; the dock itself never clips (focus ring, count). */}
+      <span aria-hidden className="vp-dock-track" data-testid="portal-dock-track">
+        <span
+          className="vp-dock-ind"
+          data-testid="portal-dock-indicator"
+          // On Alerts (the header bell, not a dock tab) the pill fades out
+          // where it was, and slides on from there when a tab is chosen.
+          // It follows the tap at once (shownKey, 1.6a).
+          {...(shownIdx < 0 ? { "data-hidden": "" } : {})}
+          style={{ "--i": shownIdx >= 0 ? shownIdx : navIdx }}
+        >
+          <span className="vp-dock-pill" />
+        </span>
+      </span>
+      {DOCK_TABS.map((item) => {
+        const active = shownKey === item.key;
+        const label = item.v3LabelKey ? t(item.v3LabelKey, item.v3LabelFallback) : t(item.labelKey, item.labelFallback);
+        const Icon = item.V3Icon || item.Icon;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => selectTab(item.key)}
+            aria-current={active ? "page" : undefined}
+            data-testid={`portal-tab-${item.key}`}
+            className="vp-dock-item focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+          >
+            <span className="vp-dock-icon">
+              {/* BeloBag: the active icon draws heavier (2.3), the rest 1.9. */}
+              <Icon aria-hidden strokeWidth={active ? 2.3 : 1.9} />
+              {item.key === "messages" && chatUnread > 0 && (
+                <span
+                  key={`n${chatUnread > 9 ? "9+" : chatUnread}`}
+                  className="absolute inline-flex items-center justify-center vp-pop"
+                  style={{
+                    top: -4, right: -9, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 8,
+                    background: PINE, color: CREAM, font: "700 10px/1 var(--font-text)", boxShadow: "0 0 0 2px #FFFDF9",
+                  }}
+                  aria-label={t("staffChatUnreadBadge", "Unread messages")}
+                >
+                  {chatUnread > 9 ? "9+" : chatUnread}
+                </span>
+              )}
+              {/* The same pine count on Byt: requests only this staffer
+                  can answer. */}
+              {item.key === "swaps" && swapAsks > 0 && (
+                <span
+                  key={`s${swapAsks > 9 ? "9+" : swapAsks}`}
+                  data-testid="portal-swaps-badge"
+                  className="absolute inline-flex items-center justify-center vp-pop"
+                  style={{
+                    top: -4, right: -9, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 8,
+                    background: PINE, color: CREAM, font: "700 10px/1 var(--font-text)", boxShadow: "0 0 0 2px #FFFDF9",
+                  }}
+                  aria-label={t("portalSwapAsksBadge", "Swap requests waiting for your answer")}
+                >
+                  {swapAsks > 9 ? "9+" : swapAsks}
+                </span>
+              )}
+            </span>
+            <span
+              // Re-mounts when the tab becomes active, so the name pops in
+              // (not on the page's first paint) — with the pill, at the tap.
+              key={active ? "on" : "off"}
+              className={`vp-dock-label${active && (navMoved || !!pillKey) ? " vp-label-in" : ""}`}
+              style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+            >
+              {label}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+    </>
+  );
+});
+
 export default function StaffPortalPage() {
   const { token } = useParams();
   const { t, lang, setLang } = useLanguage();
@@ -9251,6 +9403,20 @@ export default function StaffPortalPage() {
   // on top of it (KB_LIFT_STYLE), and the focused field — any field — is
   // scrolled into what is left. See hooks/useKeyboardReveal.js.
   const kbShell = useKeyboardReveal();
+  // --vp-ih: the layout viewport's height (see VP_IH). Read again on every
+  // resize and when the native keyboard comes or goes.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const put = () => root.style.setProperty("--vp-ih", `${window.innerHeight}px`);
+    put();
+    const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame(put) : 0;
+    window.addEventListener("resize", put);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("resize", put);
+    };
+  }, [kbShell]);
+  useEffect(() => () => document.documentElement.style.removeProperty("--vp-ih"), []);
   // Android: the window shrinks for the keyboard, so the dock (and its fade)
   // would ride on top of it — on iOS it stays behind the keyboard. Hide it
   // while typing there, as iOS effectively does.
@@ -9288,20 +9454,10 @@ export default function StaffPortalPage() {
   const dockIdx = DOCK_TABS.findIndex((x) => x.key === tab);
   const [nav, setNav] = useState(() => ({ tab, idx: Math.max(0, dockIdx), moved: false }));
   if (nav.tab !== tab) setNav({ tab, idx: dockIdx >= 0 ? dockIdx : nav.idx, moved: true });
-  // Pill first, page second (premium feel 1.6a). A dock tap moves the pill in
-  // the tap's own frame; the new screen mounts in a transition right after,
-  // so a slow phone never makes the pill wait for a 1,400-line screen to
-  // render. The pill is a CSS transform transition on a will-change layer, so
-  // it keeps running on the compositor while the new screen commits.
-  // `pillKey` is the tab the pill already shows while its screen is on the
-  // way. It clears once that screen is there, or once the transition is over
-  // some other way (BACK chose another tab meanwhile), so the pill can never
-  // stay on a tab that is not shown.
-  const [pillKey, setPillKey] = useState(null);
-  const [tabPending, startTabTransition] = useTransition();
-  if (pillKey && (pillKey === tab || !tabPending)) setPillKey(null);   // caught up ("adjust while rendering")
-  const shownKey = pillKey || tab;
-  const shownIdx = DOCK_TABS.findIndex((x) => x.key === shownKey);
+  // Pill first, page second (premium feel 1.6a): the pill's state and the
+  // tab transition live in <PortalDock/> (below), so a dock tap's urgent
+  // render is the dock alone, never this whole page.
+
   // Each tab keeps its own scroll (1.6c). The shell's onScroll writes it under
   // the committed tab; this puts it back before the tab paints. A first visit
   // has no memory and starts at the top. Tab content that paints at once (the
@@ -9311,14 +9467,10 @@ export default function StaffPortalPage() {
   useLayoutEffect(() => {
     if (shellRef.current) shellRef.current.scrollTop = scrollMem.current[tab] ?? 0;
   }, [tab]);
-  const scrollTabToTop = () => {
+  // Stable, so the memoized dock is not re-rendered by this page's renders.
+  const scrollTabToTop = useCallback(() => {
     shellRef.current?.scrollTo?.({ top: 0, behavior: motionAllowed() ? "smooth" : "auto" });
-  };
-  const selectTab = (key) => {
-    if (key === shownKey) { scrollTabToTop(); return; }   // tapping the tab you are on
-    setPillKey(key);
-    startTabTransition(() => setTab(key));
-  };
+  }, []);
   // Android BACK (key, edge swipe, 3-button bar): close the top layer, else
   // back to Vagtplan, else the app goes to the background — never nothing.
   // Android shell only; see utils/androidBack.js.
@@ -10202,8 +10354,20 @@ export default function StaffPortalPage() {
     // and makes the sticky header + fixed bottom nav feel loose. The nav and
     // chat composer stay position:fixed (viewport-pinned) — .scrollable has no
     // transform, so it doesn't trap them.
+    // Release A device pass (iPhone, already at 4724866a): the shell is
+    // itself position:fixed over the layout viewport (PORTAL_SHELL_FRAME), not
+    // a 100dvh block in the flow. In the flow the document was 28 px taller
+    // than the screen (the open-shift rows' sr-only day labels sat against the
+    // page, not this scroller), so WKWebView let an upward swipe shift the
+    // whole page 62 px; and after the keyboard 100dvh / 100vh no longer
+    // matched the frame the fixed dock and composer use (the page 42 px short,
+    // the last bubble under the composer). Now nothing in the flow: the
+    // document cannot scroll (vagtplan.css also sets overflow: hidden on the
+    // root), the shell is always exactly the frame the fixed bars sit in, and
+    // it is the containing block for anything absolute inside it.
     <div
       ref={shellRef}
+      data-page-shell=""
       className="full-height scrollable text-gray-900 pb-24"
       /* pb-24 clears the tab bar; while the cookie banner sits on it, the
          scroller pads by the banner too (--bb-consent-h, CookieConsent.jsx). */
@@ -10233,7 +10397,9 @@ export default function StaffPortalPage() {
         scrollPaddingBottom: BAR_V3
           ? "calc(76px + env(safe-area-inset-bottom, 0px))"
           : "calc(6rem + env(safe-area-inset-bottom, 0px))",
-        ...(kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : {}),
+        ...PORTAL_SHELL_FRAME,
+        // The native keyboard (iOS): the shell ends at its top edge.
+        ...(kbShell > 0 ? { height: `calc(100% - ${kbShell}px)` } : {}),
       }}
     >
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
@@ -10901,94 +11067,17 @@ export default function StaffPortalPage() {
          on Beskeder. Fixed, not sticky. Five columns hold at 320 px: ~57 px
          each, names 11 px on one line; at large text they shrink together
          (dockLabelFit.js), ellipsis only below 8 px. */
-      <>
-      <div
-        aria-hidden
-        className="fixed inset-x-0 bottom-0 z-10 m-0 pointer-events-none"
-        // The canvas's fade: content dissolves into the ivory under the dock.
-        style={{ height: aboveDock(42), background: `linear-gradient(to bottom, rgba(246,244,238,0), ${IVORY} 70%)`, ...(dockAway ? { display: "none" } : {}) }}
+      <PortalDock
+        tab={tab}
+        navIdx={nav.idx}
+        navMoved={nav.moved}
+        setTab={setTab}
+        onReselect={scrollTabToTop}
+        chatUnread={chatUnread}
+        swapAsks={swapAsks}
+        dockAway={dockAway}
+        dockRef={setDockEl}
       />
-      <nav data-bb-consent-clear="" aria-label={t("portalTabsLabel", "Tabs")} data-testid="portal-tabbar-v3"
-        ref={setDockEl}
-        className="vp-dock"
-        data-kb-away={dockAway ? "" : undefined}
-        style={{ gridTemplateColumns: `repeat(${DOCK_TABS.length}, minmax(0, 1fr))`, "--n": DOCK_TABS.length, ...(dockAway ? { display: "none" } : {}) }}
-      >
-        {/* The track clips the pill to the dock's shape when the spring
-            overshoots; the dock itself never clips (focus ring, count). */}
-        <span aria-hidden className="vp-dock-track" data-testid="portal-dock-track">
-          <span
-            className="vp-dock-ind"
-            data-testid="portal-dock-indicator"
-            // On Alerts (the header bell, not a dock tab) the pill fades out
-            // where it was, and slides on from there when a tab is chosen.
-            // It follows the tap at once (shownKey, 1.6a).
-            {...(shownIdx < 0 ? { "data-hidden": "" } : {})}
-            style={{ "--i": shownIdx >= 0 ? shownIdx : nav.idx }}
-          >
-            <span className="vp-dock-pill" />
-          </span>
-        </span>
-        {DOCK_TABS.map((item) => {
-          const active = shownKey === item.key;
-          const label = item.v3LabelKey ? t(item.v3LabelKey, item.v3LabelFallback) : t(item.labelKey, item.labelFallback);
-          const Icon = item.V3Icon || item.Icon;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => selectTab(item.key)}
-              aria-current={active ? "page" : undefined}
-              data-testid={`portal-tab-${item.key}`}
-              className="vp-dock-item focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
-            >
-              <span className="vp-dock-icon">
-                {/* BeloBag: the active icon draws heavier (2.3), the rest 1.9. */}
-                <Icon aria-hidden strokeWidth={active ? 2.3 : 1.9} />
-                {item.key === "messages" && chatUnread > 0 && (
-                  <span
-                    key={`n${chatUnread > 9 ? "9+" : chatUnread}`}
-                    className="absolute inline-flex items-center justify-center vp-pop"
-                    style={{
-                      top: -4, right: -9, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 8,
-                      background: PINE, color: CREAM, font: "700 10px/1 var(--font-text)", boxShadow: "0 0 0 2px #FFFDF9",
-                    }}
-                    aria-label={t("staffChatUnreadBadge", "Unread messages")}
-                  >
-                    {chatUnread > 9 ? "9+" : chatUnread}
-                  </span>
-                )}
-                {/* The same pine count on Byt: requests only this staffer
-                    can answer. */}
-                {item.key === "swaps" && swapAsks > 0 && (
-                  <span
-                    key={`s${swapAsks > 9 ? "9+" : swapAsks}`}
-                    data-testid="portal-swaps-badge"
-                    className="absolute inline-flex items-center justify-center vp-pop"
-                    style={{
-                      top: -4, right: -9, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 8,
-                      background: PINE, color: CREAM, font: "700 10px/1 var(--font-text)", boxShadow: "0 0 0 2px #FFFDF9",
-                    }}
-                    aria-label={t("portalSwapAsksBadge", "Swap requests waiting for your answer")}
-                  >
-                    {swapAsks > 9 ? "9+" : swapAsks}
-                  </span>
-                )}
-              </span>
-              <span
-                // Re-mounts when the tab becomes active, so the name pops in
-                // (not on the page's first paint) — with the pill, at the tap.
-                key={active ? "on" : "off"}
-                className={`vp-dock-label${active && (nav.moved || !!pillKey) ? " vp-label-in" : ""}`}
-                style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-              >
-                {label}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
-      </>
       ) : (
       <nav data-bb-consent-clear="" className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""}`} style={dockAway ? { display: "none" } : undefined}>
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">

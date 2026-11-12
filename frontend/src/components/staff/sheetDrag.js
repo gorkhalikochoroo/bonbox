@@ -6,11 +6,17 @@ import { springKeyframes } from "./spring";
 // review fixes: a handle instead of a fixed 76 px zone, no preventDefault
 // before the direction is clear, no WAAPI fill that could outlive a reopen,
 // and a system cancel never dismisses).
-// STOPPED: a finger that sent no move for 40 ms before it lifted was resting,
-// so the release speed is 0 (Android's VelocityTracker and Flutter use 40 ms).
-// A resting finger sends no touchmove (iOS, Chrome), so the last samples
-// would still read as a throw (fix round, drag-stale-velocity / PLAT-1).
-export const DRAG = { SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 40 };
+// STOPPED: a finger that sent no move for 100 ms before it lifted was resting,
+// so the release speed is 0. A resting finger sends no touchmove (iOS,
+// Chrome), so the last samples would still read as a throw (fix round,
+// drag-stale-velocity / PLAT-1). It was 40 ms (Android's VelocityTracker
+// "pointer stopped"); a busy Android 14 at 4x CPU delivers a flick's moves
+// 40-80 ms apart, and 2 flicks in 5 sprang back (device pass A). 100 ms is
+// the tracker's own horizon. HORIZON: the speed is read over the samples of
+// the last 100 ms before the last move (at least the two newest): on a fast
+// phone that is all six, exactly as before; on a slow one, six samples could
+// reach back into the pull's slow start.
+export const DRAG = { SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 100, HORIZON: 100 };
 // BeloBag's rule: a control never starts a drag.
 const CONTROL = 'input,textarea,select,button,a[href],label,[role="button"],[role="slider"],[role="switch"],[contenteditable="true"],[contenteditable=""]';
 /** Past the top: a rubber band that never gives more than DRAG.RUBBER px. */
@@ -26,6 +32,19 @@ export function releaseOf(dy, v, h) {
     ms: thrown ? Math.round(Math.min(240, Math.max(120, (h - dy) / v))) : 240,
     easing: thrown ? "linear" : "cubic-bezier(.4, 0, 1, 1)",   // keep the throw; or --ease-in
   };
+}
+/** The release speed in px/ms from the move samples ([timeStamp, dy], oldest
+    first) and the lift's time `at`: 0 when the finger rested (no move for more
+    than DRAG.STOPPED ms before it lifted); else over the samples within
+    DRAG.HORIZON ms of the last move, at least the two newest. */
+export function releaseSpeed(s, at) {
+  if (!s || s.length < 2) return 0;
+  const b = s[s.length - 1];
+  if (at != null && at - b[0] > DRAG.STOPPED) return 0;   // held still, then lifted
+  let i = s.length - 2;
+  while (i > 0 && b[0] - s[i - 1][0] <= DRAG.HORIZON) i -= 1;
+  const a = s[i];
+  return (b[1] - a[1]) / Math.max(1, b[0] - a[0]);
 }
 // Anything between the finger and the sheet (the sheet included) scrolled down?
 const scrolledBetween = (n, stop) => {
@@ -96,11 +115,7 @@ export function useSheetDrag(sheetRef, onDismiss, { enabled = true } = {}) {
       const was = g; g = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       if (!was?.on) return;
-      const s = was.s;
-      const a = s[0];
-      const b = s[s.length - 1];
-      const rested = b && at != null && at - b[0] > DRAG.STOPPED;   // held still, then lifted
-      const v = s.length > 1 && !rested ? (b[1] - a[1]) / Math.max(1, b[0] - a[0]) : 0;
+      const v = releaseSpeed(was.s, at);
       const from = was.dy >= 0 ? was.dy : -rubber(-was.dy);
       const fade = scrimAt(Math.max(0, was.dy), was.h);
       const r = cancelled ? { dismiss: false } : releaseOf(was.dy, v, was.h);   // the system took the touch: never dismiss

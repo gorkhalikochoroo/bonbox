@@ -39,6 +39,16 @@ describe("findBackTarget — the top-most open layer's way out", () => {
     expect(findBackTarget(document, visible).id).toBe("sheet");
   });
 
+  it("the portal's shell is position: fixed but it is the page: the chat thread's back inside it ranks below a z-less sheet opened before it", () => {
+    // Release A device pass (iPhone shell): the shell became the fixed scroller.
+    page(`
+      <div data-page-shell style="position:fixed">
+        <div style="position:fixed"><div id="photoSheet" class="vp-scrim"></div></div>
+        <button id="threadBack" data-back-close>Alle samtaler</button>
+      </div>`);
+    expect(findBackTarget(document, visible).id).toBe("photoSheet");
+  });
+
   it("two sheets at the same z: the one opened later (later in the document) wins", () => {
     page(`
       <div style="position:fixed;z-index:60"><button id="profile" class="vp-scrim"></button></div>

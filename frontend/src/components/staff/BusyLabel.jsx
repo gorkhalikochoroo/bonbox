@@ -5,8 +5,9 @@ import { Check } from "lucide-react";
 
 // Busy → done inside the button (premium feel P6 / 1.7). The button stays the
 // same object: same size, same colour, full opacity. After 300 ms of waiting
-// the label fades and a small ring turns; on a yes a check pops in and holds
-// 900 ms. Styles: .vp-busy* and .vp-ring in vagtplan.css.
+// the label gives way (at once: a compositor fade left it painted under the
+// ring on iPhone) and a small ring fades in and turns; on a yes a check pops
+// in and holds 900 ms. Styles: .vp-busy* and .vp-ring in vagtplan.css.
 export const BUSY_WAIT_MS = 300;   // most answers land sooner and never show a ring
 export const DONE_HOLD_MS = 900;
 

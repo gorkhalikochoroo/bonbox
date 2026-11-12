@@ -473,6 +473,28 @@ describe("10-11 · Clock-out leaves the card as it stood; Næste vagt comes and 
     expect(anyBeat()).toBeNull();
   });
 
+  it("10b · the 1 s tick lives in the card: the minute rolls on between answers, and the leave freezes what the card showed", async () => {
+    // Release A perf: the tick moved from useClock (all of Vagtplan) into the
+    // live card. The frozen leave must still be the ticked value, not the
+    // last answer's.
+    at(2026, 11, 11, 12, 14);
+    shifts = [WED_SHIFT, THU_SHIFT];
+    clockImpl = () => ok({ ...CLOCKED, elapsed_sec: 2 * 3600 + 16 * 60 + 50 });
+    await mount();
+    expect(screen.getByTestId("portal-live-elapsed").textContent).toBe("2:16");
+    await advance(10000);   // ten ticks: 2:16:50 → 2:17:00
+    await advance(700);     // the minute's roll (ROLL_MS 600) settles
+    expect(screen.getByTestId("portal-live-elapsed").textContent).toBe("2:17");
+    const d = holdPost();
+    await click(screen.getByTestId("portal-clock-out"));
+    clockImpl = () => ok(OUT);
+    await settle(d, { data: { ...fx("clock_out"), worked_hours: 2.25 } });
+    expect(home().dataset.beatPhase).toBe("leave");
+    expect(screen.getByTestId("portal-live-elapsed").textContent).toBe("2:17");
+    await advance(200);
+    expect(screen.getByTestId("portal-live-elapsed").textContent).toBe("2:17");
+  });
+
   it("11 · clock-in: Næste vagt arrives with the swap, as a vp-after-live block", async () => {
     shifts = [WED_SHIFT, THU_SHIFT];
     await mount();

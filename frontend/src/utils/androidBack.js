@@ -29,9 +29,13 @@
  */
 export const BACK_TARGETS = ".vp-scrim, [data-back-close], [data-bb-confirm] > [data-bb-confirm-scrim]";
 
-/** z-index of the fixed overlay `el` sits in; -1 when it is in the page flow. */
+/** z-index of the fixed overlay `el` sits in; -1 when it is in the page flow.
+    The portal's shell is itself position: fixed (the page's one scroller,
+    Release A device pass) but it IS the page: reaching it first means the
+    control is inline ([data-page-shell], StaffPortalPage.jsx). */
 function layerOf(el, win) {
   for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    if (n.hasAttribute("data-page-shell")) return -1;
     const cs = win.getComputedStyle(n);
     if (cs.position === "fixed") {
       const z = parseInt(cs.zIndex, 10);

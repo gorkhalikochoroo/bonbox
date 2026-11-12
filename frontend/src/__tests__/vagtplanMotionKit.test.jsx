@@ -444,6 +444,16 @@ describe("Premium feel primitives (P1, P6)", () => {
     expect(CSS).toMatch(/@keyframes vp-spin \{ to \{ transform: rotate\(360deg\); \} \}/);
   });
 
+  it("the busy label hides at once (no opacity transition): WebKit's compositor fade left 'St◯pl ud' under the ring on iPhone", () => {
+    // Release A device pass: on-break Stempl ud, slow network, iPhone only.
+    // The label must leave by a plain repaint; only the ring (on top) fades.
+    const label = rules.filter(([sels]) => sels.some((x) => /\.vp-busy-label$/.test(x)) && !sels.some((x) => /data-state/.test(x)));
+    expect(label.length).toBeGreaterThan(0);
+    for (const [, decl] of label) expect(decl).not.toMatch(/transition/);
+    expect(CSS).toMatch(/\.vp-busy\[data-state="busy"\] > \.vp-busy-label,\s*\.vp-busy\[data-state="done"\] > \.vp-busy-label \{ opacity: 0; \}/);
+    expect(CSS).toMatch(/\.vp-busy > \.vp-busy-spin \{ opacity: 0; animation: none; transition: opacity 120ms var\(--ease-out\); \}/);
+  });
+
   it(".vp-ring, .vp-busy, .vp-busy-label, .vp-busy-spin and .vp-busy-check are in the reduce block", () => {
     for (const c of [".vp-ring", ".vp-busy", ".vp-busy-label", ".vp-busy-spin", ".vp-busy-check"]) expect(body).toContain(c);
   });
@@ -700,6 +710,41 @@ describe("Premium feel 1.6: tab change feel", () => {
     expect(PAGE).not.toContain('${nav.moved ? " vp-screen-in" : ""}');
     expect(PAGE).toContain("onClick={() => selectTab(item.key)}");
     expect(PAGE).toContain("startTabTransition(() => setTab(key));");
+  });
+
+  it("source pin (Release A, iPhone shell): the document never scrolls; the shell is fixed over the layout viewport; the chat stream uses its height", () => {
+    // Device pass A: the page was 28 px taller than the screen (an upward
+    // swipe shifted it 62 px), and after a keyboard 100dvh / 100vh no longer
+    // matched the frame the fixed dock and composer use.
+    expect(CSS).toMatch(/html:has\(> body\.portal-shell\) \{ overflow: hidden; \}/);
+    expect(CSS).toMatch(/body\.portal-shell::before \{[^}]*position: fixed;[^}]*top: -120px;[^}]*bottom: -120px;[^}]*z-index: -1;[^}]*pointer-events: none;/);
+    expect(PAGE).toMatch(/const PORTAL_SHELL_FRAME = \{\s*position: "fixed", top: 0, height: "100%",/);
+    expect(PAGE).toContain("...PORTAL_SHELL_FRAME,");
+    expect(PAGE).toContain("height: `calc(100% - ${kbShell}px)`");
+    expect(PAGE).not.toContain("calc(100dvh - ${kbShell}px)");
+    expect(PAGE).toContain('const VP_IH = "var(--vp-ih, 100vh)";');
+    expect(PAGE).not.toMatch(/calc\(100vh - 20rem/);
+  });
+
+  it("source pin (Release A perf): a dock tap's urgent render is the memoized dock alone; the 1 s tick lives in the live card", () => {
+    // Android 14 at 4x: setPillKey on the page re-rendered the whole portal
+    // (87 ms of a 182 ms click task), and the 1 s tick re-rendered all of
+    // Vagtplan (14-34 ms a second). The pill and the transition are the
+    // dock's; the page passes stable props only.
+    const dock = PAGE.slice(PAGE.indexOf("const PortalDock = memo(function PortalDock("), PAGE.indexOf("export default function StaffPortalPage()"));
+    expect(dock).toContain("const [pillKey, setPillKey] = useState(null);");
+    expect(dock).toContain("const [tabPending, startTabTransition] = useTransition();");
+    expect(dock).toContain("onClick={() => selectTab(item.key)}");
+    const page = PAGE.slice(PAGE.indexOf("export default function StaffPortalPage()"));
+    expect(page).not.toMatch(/setPillKey|useTransition\(/);
+    expect(page).toMatch(/const scrollTabToTop = useCallback\(/);
+    expect(page).toMatch(/<PortalDock\s+tab=\{tab\}/);
+    const useClock = PAGE.slice(PAGE.indexOf("function useClock("), PAGE.indexOf("function pineTone("));
+    expect(useClock).not.toMatch(/setInterval\([^)]*\)\s*=>\s*\{\s*setLiveSec/);
+    expect(useClock).not.toContain("s + 1");
+    const card = PAGE.slice(PAGE.indexOf("function useLiveTicks("), PAGE.indexOf("function VenueMapImage("));
+    expect(card).toContain("setInterval(() => setTk((c) => ({ ...c, n: c.n + 1 })), 1000)");
+    expect(card).toContain("const ticks = useLiveTicks(clock.anchor, !!st.clocked_in && !clock.leaving);");
   });
 });
 

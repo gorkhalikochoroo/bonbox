@@ -76,7 +76,7 @@ const { ConfirmProvider } = await import("../hooks/useConfirm");
 
 async function mount() {
   localStorage.setItem("lang", "da");
-  render(
+  const r = render(
     <LanguageProvider>
       <ConfirmProvider>
         <MemoryRouter initialEntries={[`/portal/${TOK}`]}>
@@ -88,6 +88,7 @@ async function mount() {
     </LanguageProvider>,
   );
   await waitFor(() => expect(screen.getByTitle("Rediger profil")).toBeInTheDocument());
+  return r;
 }
 
 beforeEach(() => {
@@ -105,19 +106,23 @@ describe("Native keyboard over the portal", () => {
     expect(form.hasAttribute("data-kb-block")).toBe(true);
 
     const shell = document.querySelector(".full-height.scrollable");
-    expect(shell.style.height).toBe("");
+    // Release A device pass: the shell is fixed over the layout viewport
+    // (100% of it), never a 100dvh block in the document's flow.
+    expect(shell.style.position).toBe("fixed");
+    expect(shell.style.height).toBe("100%");
 
     const note = within(form).getByPlaceholderText("Note (valgfri)");
     note.focus();
     setKeyboard(336);
-    await waitFor(() => expect(shell.style.height).toBe("calc(100dvh - 336px)"));
+    await waitFor(() => expect(shell.style.height).toBe("calc(100% - 336px)"));
     expect(document.documentElement.style.getPropertyValue("--kb-h")).toBe("336px");
     // iOS keeps the dock's room under the content while typing (only the
     // Android app hides the dock and gives it back).
     expect(shell.style.paddingBottom).toContain("76px");
 
     setKeyboard(0);
-    await waitFor(() => expect(shell.style.height).toBe(""));
+    await waitFor(() => expect(shell.style.height).toBe("100%"));   // the full frame again
+    expect(shell.style.position).toBe("fixed");
     expect(document.documentElement.style.getPropertyValue("--kb-h")).toBe("");
   });
 
@@ -127,5 +132,21 @@ describe("Native keyboard over the portal", () => {
     await waitFor(() => expect(document.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull());
     const sheet = document.querySelector('[role="dialog"][aria-modal="true"]');
     expect(sheet.style.paddingBottom).toBe("var(--kb-h, 0px)");
+  });
+
+  it("--vp-ih is the layout viewport's height, read again on a resize (WKWebView after a keyboard), gone after unmount", async () => {
+    const was = window.innerHeight;
+    try {
+      const { unmount } = await mount();
+      const ih = () => document.documentElement.style.getPropertyValue("--vp-ih");
+      expect(ih()).toBe(`${window.innerHeight}px`);
+      window.innerHeight = 778;
+      act(() => { window.dispatchEvent(new Event("resize")); });
+      expect(ih()).toBe("778px");
+      unmount();
+      expect(ih()).toBe("");
+    } finally {
+      window.innerHeight = was;
+    }
   });
 });

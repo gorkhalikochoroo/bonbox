@@ -20,7 +20,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DRAG, releaseOf, rubber, scrimAt, useSheetDrag } from "../components/staff/sheetDrag";
+import { DRAG, releaseOf, releaseSpeed, rubber, scrimAt, useSheetDrag } from "../components/staff/sheetDrag";
 import { springKeyframes } from "../components/staff/spring";
 
 function motionPref({ reduce }) {
@@ -117,9 +117,27 @@ afterEach(() => {
 });
 
 describe("the numbers and the pure parts", () => {
-  it("slop 8, dismiss at 30 %, flick 0.5 px/ms after 16 px, rubber 64, 6 samples, a finger still for 40 ms has stopped", () => {
+  it("slop 8, dismiss at 30 %, flick 0.5 px/ms after 16 px, rubber 64, 6 samples, a finger still for 100 ms has stopped, speed over the last 100 ms", () => {
     // Fix round (drag-stale-velocity / PLAT-1): STOPPED added, the others unchanged.
-    expect(DRAG).toEqual({ SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 40 });
+    // Device pass A (slow Android 14): STOPPED 40 → 100 and HORIZON added.
+    expect(DRAG).toEqual({ SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 100, HORIZON: 100 });
+  });
+
+  it("releaseSpeed: a fast phone reads all six samples, as before; a slow one only the last 100 ms; a rest is 0", () => {
+    // 60 Hz, 10 px a frame: all six (80 ms) → 0.625 px/ms, the old first-to-last.
+    const fast = [0, 16, 32, 48, 64, 80].map((t, k) => [t, k * 10]);
+    expect(releaseSpeed(fast, 90)).toBeCloseTo(50 / 80, 6);
+    // A busy phone: a slow start, then a flick's moves 60 ms apart. Six
+    // samples reach back 300 ms (0.5 px/ms, not over the line); the last 100 ms
+    // read 1.5 px/ms.
+    const slow = [[0, 0], [60, 4], [120, 10], [180, 30], [240, 60], [300, 150]];
+    expect(releaseSpeed(slow, 370)).toBeCloseTo(90 / 60, 6);
+    // Only one move inside the horizon: the two newest still give a speed.
+    expect(releaseSpeed([[0, 0], [200, 40], [400, 160]], 410)).toBeCloseTo(120 / 200, 6);
+    // Still for more than 100 ms before the lift: resting.
+    expect(releaseSpeed(slow, 401)).toBe(0);
+    expect(releaseSpeed(slow, 400)).toBeCloseTo(90 / 60, 6);
+    expect(releaseSpeed([[0, 0]], 10)).toBe(0);
   });
 
   it("rubber: 40 → about 16 px, 200 → about 40.5 px, never 64 or more", () => {
@@ -364,7 +382,7 @@ describe("release", () => {
 
   // Fix round (drag-stale-velocity / PLAT-1): a resting finger sends no
   // touchmove, so the last samples still read as a throw. The lift's own time
-  // now counts: still for more than 40 ms before it lifted = speed 0.
+  // now counts: still for more than 100 ms (it was 40) before it lifted = speed 0.
   it("a fast pull, then held still, then lifted (100 px in 100 ms, the lift 400 ms later): no dismiss, a spring back from rest", () => {
     const onDismiss = vi.fn();
     render(<Sheet onDismiss={onDismiss} />);
@@ -392,13 +410,13 @@ describe("release", () => {
     expect(anims.find((a) => a.el === sheet).frames.at(-1).transform).toBe("translateY(0px)");
   });
 
-  it("lifted 40 ms after the last move still throws; 41 ms is a stop", () => {
+  it("lifted 100 ms after the last move still throws; 101 ms is a stop", () => {
     const first = vi.fn();
     const { unmount } = render(<Sheet onDismiss={first} />);
     let { sheet } = prime();
     grab(sheet);
     dragTo(sheet, 40, { step: 8, every: 10 });    // 0.8 px/ms
-    touch(sheet, "touchend", 0, 0, 40);
+    touch(sheet, "touchend", 0, 0, 100);
     expect(first).toHaveBeenCalledTimes(1);
     unmount();
     anims = [];
@@ -407,8 +425,19 @@ describe("release", () => {
     ({ sheet } = prime());
     grab(sheet);
     dragTo(sheet, 40, { step: 8, every: 10 });
-    touch(sheet, "touchend", 0, 0, 41);
+    touch(sheet, "touchend", 0, 0, 101);
     expect(second).not.toHaveBeenCalled();
+  });
+
+  it("a slow Android flick (moves 50 ms apart, the lift 70 ms after the last): it throws (device pass A: 2 in 5 sprang back at 40 ms)", () => {
+    const onDismiss = vi.fn();
+    render(<Sheet onDismiss={onDismiss} />);
+    const { sheet, root } = prime();
+    grab(sheet);
+    dragTo(sheet, 90, { step: 30, every: 50 });    // 0.6 px/ms, 90 px: short of 30 % (120)
+    touch(sheet, "touchend", 0, 0, 70);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(root.hasAttribute("data-dragged-out")).toBe(true);
   });
 
   it("touchcancel at 50 % (the system took the touch): never a dismiss, a spring back", () => {

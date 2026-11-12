@@ -332,6 +332,28 @@ html:not([data-modality="touch"]) .vp-tint:active { background-color: var(--pres
 .tap-44 { position: relative; }
 .tap-44::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
 body.portal-shell { touch-action: manipulation; }
+/* The document never scrolls on the portal (Release A device pass, iPhone):
+   the shell is the one scroller, position: fixed over the layout viewport
+   (StaffPortalPage.jsx PORTAL_SHELL_FRAME). A document 28 px taller than the
+   screen let WKWebView shift the whole page 62 px on an upward swipe. With
+   nothing in the flow and the root's overflow hidden, there is nothing to
+   shift. :has() keeps it to the portal; without it the rule drops out. */
+html:has(> body.portal-shell) { overflow: hidden; }
+/* The ivory goes on past the layout viewport. After a keyboard WKWebView can
+   keep the page inside the safe-area insets (42 px short); the strips around
+   it showed the native grey under the dock. A fixed layer painted under
+   everything fills them; where the page fills the screen it is never seen. */
+body.portal-shell::before {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: -120px;
+  bottom: -120px;
+  z-index: -1;
+  background: #F6F4EE;
+  pointer-events: none;
+}
 
 /* ── Screens (tab content) ─────────────────────────────────────────────── */
 /* A short rise + fade (the clock beat's parts use its keyframe). `backwards`,
@@ -442,7 +464,7 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
 
 /* ── Busy → done (components/staff/BusyLabel.jsx) ─────────────────────────
  * The button stays the same object: same size, same colour, full opacity.
- * After 300 ms of waiting the label fades and a small ring turns; on a yes a
+ * After 300 ms of waiting the label gives way and a small ring turns; on a yes a
  * check pops in with the action's one haptic and holds 900 ms. The ring is
  * progress information, never a loading screen (content loading stays the
  * shimmer). */
@@ -450,7 +472,13 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
 .vp-ring-sm { width: 13px; height: 13px; }
 .vp-busy { display: inline-grid; place-items: center; gap: inherit; min-width: 0; max-width: 100%; }
 .vp-busy > * { grid-area: 1 / 1; min-width: 0; }
-.vp-busy-label { display: inline-flex; align-items: center; justify-content: center; gap: inherit; min-width: 0; max-width: 100%; transition: opacity 120ms var(--ease-out); }
+/* The label hides at once, never on an opacity transition. WebKit runs that
+   fade on the compositor: it lifts the label onto its own layer and, after the
+   on-break Stempl ud's confirm sheet, left the old label painted in the
+   button's layer under the ring ("St◯pl ud" for the whole wait, iPhone only;
+   Android was right). A plain opacity change is a repaint in every engine.
+   The ring still fades in; it sits on top, so the swap reads as one fade. */
+.vp-busy-label { display: inline-flex; align-items: center; justify-content: center; gap: inherit; min-width: 0; max-width: 100%; }
 .vp-busy > .vp-busy-spin { opacity: 0; animation: none; transition: opacity 120ms var(--ease-out); }
 .vp-busy-check { opacity: 0; }
 .vp-busy[data-state="busy"] > .vp-busy-label,
