@@ -24,6 +24,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app.models.business_profile import BusinessProfile
 from app.main import app, _db_ready
 from app.models.staff import Schedule, StaffLink, StaffMember
 from app.models.user import User
@@ -235,26 +236,104 @@ def client(engine_and_session):
     sp.limiter.reset()
 
 
-def _seed(db, tz):
+def _seed(db, tz, *, currency="DKK", country="DK", shifts=None):
     u = User(email=f"o-{uuid.uuid4().hex[:6]}@bonbox.dk", password_hash=hash_password("x"),
-             business_name="Café Nord", business_type="cafe", currency="DKK",
+             business_name="Café Nord", business_type="cafe", currency=currency,
              role="owner", timezone=tz)
     db.add(u); db.commit(); db.refresh(u)
+    if country is not _NO_PROFILE:
+        db.add(BusinessProfile(user_id=u.id, company_name="Café Nord", country=country))
     a = StaffMember(id=uuid.uuid4(), user_id=u.id, name="Agnes", role="server")
     db.add(a); db.commit(); db.refresh(a)
     db.add(StaffLink(id=uuid.uuid4(), user_id=u.id, staff_id=a.id, token="tokTZ", active=True))
-    db.add(Schedule(id=uuid.uuid4(), user_id=u.id, staff_id=a.id,
-                    date=date.today() + timedelta(days=1), start_time="16:00",
-                    end_time="22:00", status="published"))
+    for s in shifts or [_shift(date.today() + timedelta(days=1), "16:00", "22:00",
+                               id=uuid.uuid4())]:
+        db.add(Schedule(id=s.id, user_id=u.id, staff_id=a.id, date=s.date,
+                        start_time=s.start_time, end_time=s.end_time,
+                        role_on_shift=s.role_on_shift, notes=s.notes,
+                        status="published"))
     db.commit()
 
 
-@pytest.mark.parametrize("tz, other", [("Europe/Lisbon", "Copenhagen"),
-                                       ("Europe/Copenhagen", "Lisbon")])
-def test_the_feed_endpoint_uses_the_venue_zone(client, db, tz, other):
-    _seed(db, tz)
+_NO_PROFILE = object()
+
+
+@pytest.mark.parametrize("tz, other, currency, country", [
+    ("Europe/Lisbon", "Copenhagen", "EUR", "PT"),
+    ("Europe/Copenhagen", "Lisbon", "DKK", "DK"),
+])
+def test_the_feed_endpoint_uses_the_venue_zone(client, db, tz, other, currency, country):
+    _seed(db, tz, currency=currency, country=country)
     r = client.get("/api/portal/tokTZ/schedule.ics")
     assert r.status_code == 200
     assert f"DTSTART;TZID={tz}:" in r.text
     assert f"X-WR-TIMEZONE:{tz}" in r.text
     assert other not in r.text
+
+
+# ─── 2c. users.timezone is the owner's BROWSER zone, not the venue's ────
+# useAuth.syncTimezoneIfChanged writes the browser's zone on login, and 10
+# DKK owners in production carry Asia/Katmandu, America/Los_Angeles,
+# Asia/Tokyo, ... A Danish venue's feed must never follow the owner abroad.
+
+@pytest.fixture
+def frozen_day(monkeypatch, frozen_stamp):
+    """The endpoint's 'today' and DTSTAMP pinned to the reference file's."""
+    class _Day(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 11, 12)
+    monkeypatch.setattr(frozen_stamp, "date", _Day)
+    return frozen_stamp
+
+
+@pytest.mark.parametrize("tz", ["UTC", "Asia/Katmandu", "Asia/Kathmandu",
+                                "America/Los_Angeles", "Asia/Tokyo",
+                                "Europe/Lisbon", None])
+@pytest.mark.parametrize("currency, country", [
+    ("DKK", "DK"), ("DKK", ""), ("DKK", _NO_PROFILE), ("DKK", "PT"),
+    ("EUR", "DK"), ("EUR", ""), ("EUR", _NO_PROFILE),
+])
+def test_a_danish_or_dkk_venue_gets_the_old_file_whatever_the_owner_zone(
+        client, db, frozen_day, tz, currency, country):
+    _seed(db, tz, currency=currency, country=country, shifts=_shifts())
+    r = client.get("/api/portal/tokTZ/schedule.ics")
+    assert r.status_code == 200
+    assert r.text == _old_danish_file()
+
+
+@pytest.mark.parametrize("tz, want", [
+    ("Europe/Lisbon", "Europe/Lisbon"),
+    ("Atlantic/Madeira", "Atlantic/Madeira"),
+    ("Atlantic/Azores", "Atlantic/Azores"),
+    # Not a Portuguese zone -> the country's own, never the owner's browser.
+    ("Europe/Copenhagen", "Europe/Lisbon"),
+    ("Asia/Katmandu", "Europe/Lisbon"),
+    ("UTC", "Europe/Lisbon"),
+    (None, "Europe/Lisbon"),
+])
+def test_a_portuguese_venue_gets_a_portuguese_zone(client, db, tz, want):
+    _seed(db, tz, currency="EUR", country="PT")
+    r = client.get("/api/portal/tokTZ/schedule.ics")
+    assert r.status_code == 200
+    assert f"X-WR-TIMEZONE:{want}\r\n" in r.text
+    assert f"TZID:{want}\r\n" in r.text
+    assert f"DTSTART;TZID={want}:" in r.text
+    assert "Copenhagen" not in r.text
+
+
+@pytest.mark.parametrize("country, currency, tz, want", [
+    ("DK", "DKK", "Asia/Tokyo", None),
+    ("", "EUR", "Asia/Tokyo", None),
+    (None, "EUR", "Europe/Lisbon", None),
+    ("dk", "EUR", "Europe/Lisbon", None),
+    ("PT", "DKK", "Europe/Lisbon", None),          # a DKK owner: always Copenhagen
+    ("PT", None, "Europe/Lisbon", None),           # currency unset = the DKK default
+    (" pt ", "eur", "Atlantic/Azores", "Atlantic/Azores"),
+    ("PT", "EUR", "Asia/Tokyo", "Europe/Lisbon"),
+    ("PRT", "EUR", "", "Europe/Lisbon"),
+    ("DE", "EUR", "Europe/Berlin", "Europe/Berlin"),  # other non-DK: its stored zone
+    ("DE", "EUR", None, None),
+])
+def test_feed_zone_rules(country, currency, tz, want):
+    assert ics_timezone.feed_zone(country, currency, tz) == want

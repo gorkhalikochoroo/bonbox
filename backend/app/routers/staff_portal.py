@@ -53,7 +53,7 @@ import re
 from app.utils.time import utc_now
 from app.models.user import User
 from app.services.tz_utils import now_local, business_today_local
-from app.services.ics_timezone import venue_vtimezone
+from app.services.ics_timezone import feed_zone, venue_vtimezone
 
 # ── Multi-layer link protection ──────────────────────────────────────────
 # The magic link is the staff credential, so it gets defense in depth —
@@ -896,8 +896,18 @@ def get_portal_schedule_ics(token: str, request: Request, db: Session = Depends(
         Schedule.date <= week_start + timedelta(days=56),
         Schedule.status == "published",
     ).order_by(Schedule.date, Schedule.start_time).all()
-    body = _build_schedule_ics(member.name, venue, shifts,
-                               getattr(owner, "timezone", None) if owner else None)
+    # The zone comes from the venue's COUNTRY, not users.timezone alone: that
+    # column is the owner's browser zone (re-synced at every login), so a
+    # Danish owner on holiday in Kathmandu would move every shift. DK / unset
+    # country, or a DKK owner -> the old Copenhagen file, byte for byte.
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == link.user_id).first()
+    tz_name = feed_zone(
+        getattr(profile, "country", None) if profile else None,
+        getattr(owner, "currency", None) if owner else None,
+        getattr(owner, "timezone", None) if owner else None,
+    )
+    body = _build_schedule_ics(member.name, venue, shifts, tz_name)
     return Response(
         content=body,
         media_type="text/calendar; charset=utf-8",

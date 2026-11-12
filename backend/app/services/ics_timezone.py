@@ -5,9 +5,10 @@ under `TZID=<zone>` plus a VTIMEZONE block, so a strict client resolves it
 without anything ever being converted to UTC (the naive-UTC bug class).
 
 Until Portugal Stage 0a every feed said Europe/Copenhagen, so a Lisbon shift
-at 16:00 landed at 15:00 on a Lisbon phone. Now the zone follows
-`users.timezone`. A Danish venue gets the exact block it always had
-(`CPH_VTIMEZONE`, byte for byte).
+at 16:00 landed at 15:00 on a Lisbon phone. Now a non-Danish venue's feed
+follows its zone (`feed_zone`: the country first, `users.timezone` only
+inside it). A Danish venue, or any DKK owner, gets the exact block it always
+had (`CPH_VTIMEZONE`, byte for byte) whatever users.timezone says.
 
 Any other zone is written from the tz database: this year's two transitions
 become yearly "nth weekday of the month" rules, checked against next year
@@ -138,6 +139,47 @@ def _generated(tzid: str, year: int) -> tuple[str, ...] | None:
         )))
     parts.sort(key=lambda p: p[0] != "DAYLIGHT")  # DAYLIGHT first, like CPH
     return (*head, *parts[0][1], *parts[1][1], "END:VTIMEZONE")
+
+
+# A country whose zones we know: (main zone, every zone of the country).
+# Portugal: mainland, Madeira, the Azores.
+_COUNTRY_ZONES = {
+    "PT": ("Europe/Lisbon",
+           frozenset({"Europe/Lisbon", "Atlantic/Madeira", "Atlantic/Azores"})),
+    "PRT": ("Europe/Lisbon",
+            frozenset({"Europe/Lisbon", "Atlantic/Madeira", "Atlantic/Azores"})),
+}
+_DK_COUNTRIES = frozenset({"", "DK", "DNK"})
+
+
+def feed_zone(country: str | None, currency: str | None,
+              stored_tz: str | None) -> str | None:
+    """The zone a venue's staff calendar is written in. None = the
+    historical Copenhagen block.
+
+    users.timezone is the owner's BROWSER zone (synced at login), so it says
+    where the owner happens to be, not where the venue is: Danish owners
+    carry Asia/Kathmandu, Asia/Tokyo, America/Los_Angeles. A Danish venue
+    must never follow that. So:
+      - a DKK owner, or a venue whose country is DK or unset -> None
+        (Copenhagen, byte-identical to the file it always got);
+      - Portugal -> the stored zone if it is a Portuguese one (Lisbon,
+        Madeira, Azores), otherwise Europe/Lisbon;
+      - any other country -> the stored zone (venue_vtimezone still falls
+        back to Copenhagen if it can't be written safely).
+    """
+    cur = (currency or "DKK").strip().upper()
+    if cur == "DKK":
+        return None
+    code = (country or "").strip().upper()
+    if code in _DK_COUNTRIES:
+        return None
+    tz = (stored_tz or "").strip()
+    known = _COUNTRY_ZONES.get(code)
+    if known:
+        main, zones = known
+        return tz if tz in zones else main
+    return tz or None
 
 
 def venue_vtimezone(tzid: str | None, *, year: int | None = None) -> tuple[str, tuple[str, ...]]:
