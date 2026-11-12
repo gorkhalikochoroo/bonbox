@@ -181,9 +181,16 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
 }
 /* Wide screens: the page uses the width it has (it was one 1200 px column with wide empty margins). The column grows with
    the window, 1440 px of content up to a 2300 px window and 1680 px at most; the gutters grow too. Text keeps its line
-   length (em-based widths on the long paragraphs). */
+   length (em-based widths on the long paragraphs).
+   The stage does not simply follow the column (review, 12 Nov 2026: it did, so on a tall screen it ran past the window's
+   foot: 2560 x 1440 showed 82 % of it on load, the live page all of it). It keeps the live page's size, 1152 px (the old
+   column), and grows past that only as far as the whole stage still fits under the headline: its top is at most 618 px
+   down the page (top bar, eyebrow, the three lines of the 124 px headline), 24 px to spare under it, hence 642. With the
+   rule above (never taller than the window under the top bar) no window shows less of the devices on load than the live
+   page did, and the stage is whole once scrolled to on every window; a window taller than ~1360 px shows all of it. */
 @media (min-width:1280px){
   .lp7 .wrap{--gut:clamp(32px,2.5vw,64px);max-width:calc(clamp(1440px,62.5vw,1680px) + 2 * var(--gut));padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
+  .lp7 .stage-wrap{width:min(100%,max(480px,calc((100vh - 116px) * 1.6)),max(1152px,calc((100vh - 642px) * 1.6)))}
 }
 @media (prefers-reduced-motion:reduce){.lp7 *,.lp7 *::before,.lp7 *::after{animation:none!important;transition:none!important}html:has(.lp7){scroll-behavior:auto}}
 /*</fs>*/
@@ -382,14 +389,19 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
 .lp7 .mbar.on{transform:none}
 
 /* Tablet and up: the section phones at their true shape too (the frames above): a bezel of 3 % of the phone (the duo's
-   phones are 44 % of the duo, the trio's fill their column) */
+   phones are 44 % of the duo, the trio's fill their column). The duo is a little shorter to match (10/10.26, was 10/10.6):
+   its phones lost ~3 % of their height, and the space under the lower one is again ~1.2 % of the duo (6 px at 540 px). */
 @media (min-width:720px){
+  .lp7 .duo{aspect-ratio:10/10.26}
   .lp7 .duo .phone{padding:1.32%}
   .lp7 .trio .phone{padding:3%}
 }
-/* Wide screens: the long paragraphs keep a readable line on the wider column */
+/* Wide screens: the long paragraphs keep a readable line on the wider column. The solo iPad's bezel (1.25 % of its
+   column) stays the live page's 14.4 px (1.25 % of the old 1152 px column; 1.38 % of the 1040 px iPad): the column grows
+   to 1680 px here, the iPad stops at 1040, and a percentage would thicken the bezel to 2 % of it. */
 @media (min-width:1280px){
   .lp7 .log-row p,.lp7 .addon p,.lp7 .apps p,.lp7 .end p{max-width:40em}
+  .lp7 .ipad.solo{padding:14.4px}
 }
 
 /* ---------- tablet ---------- */

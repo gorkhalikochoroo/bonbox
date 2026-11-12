@@ -33,7 +33,7 @@ const PICS = '/static/landing-v7/'
 export const HERO_IMG_V7 = Object.freeze({
   src: `${PICS}sched-draft.webp`,
   srcset: `${PICS}sched-draft-700.webp 700w, ${PICS}sched-draft-1100.webp 1100w, ${PICS}sched-draft.webp 1600w`,
-  sizes: '(max-width: 719px) calc(100vw - 40px), (max-width: 1099px) calc(84vw - 40px), (max-width: 1599px) 1040px, 1180px',
+  sizes: '(max-width: 719px) calc(100vw - 40px), (max-width: 1099px) calc(84vw - 40px), (max-width: 1279px) 940px, (max-height: 1362px) 940px, calc(130.4vh - 837px)',
 })
 // The stage's 3D rise (the design's arrival) plays only on a wide screen with a fine pointer: on a phone or a tablet the
 // stage sits at the first screen's foot, half in view, and the rise would only delay its picture. LandingV7Page bootState
@@ -42,7 +42,7 @@ export const RISE_QUERY_V7 = '(hover: hover) and (pointer: fine) and (min-width:
 const STAFF_IMG = {
   src: `${PICS}staff.webp`,
   srcset: `${PICS}staff-320.webp 320w, ${PICS}staff.webp 640w`,
-  sizes: '(max-width: 719px) 40vw, (max-width: 1099px) 22vw, (max-width: 2303px) 300px, 360px',
+  sizes: '(max-width: 719px) 40vw, (max-width: 1099px) 22vw, (max-width: 1279px) 260px, (max-height: 1362px) 260px, calc(36.1vh - 232px)',
 }
 
 /** The first-screen part of landingV7.css (raw text). */

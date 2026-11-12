@@ -24,8 +24,9 @@ describe("landing head for search engines", () => {
   // replaces it with the app's on every page the landing is not on (isReplaceableTitle), so it must be exactly
   // LANDING_TITLES.da.
   // Landing v7 (12 Nov 2026): the share card is the v7 design's (og-image-v7.png, a new name so scrapers fetch it fresh);
-  // the v4 card stays in public/ for anything that already links it.
-  it("the tab title, og:title and twitter:title are LANDING_TITLES.da exactly; the og image is the absolute v7 card", () => {
+  // the v4 card stays in public/ for anything that already links it. Later that day: og-image-v8.png, the same card with
+  // the official BonBox tile (v7 showed the placeholder "b"); v7 stays in public/ too.
+  it("the tab title, og:title and twitter:title are LANDING_TITLES.da exactly; the og image is the absolute v8 card", () => {
     const title = html.match(/<title>([^<]*)<\/title>/)[1];
     expect(title).toBe(LANDING_TITLES.da);
     expect(metaContent("property", "og:title")).toBe(LANDING_TITLES.da);
@@ -34,8 +35,9 @@ describe("landing head for search engines", () => {
     expect(LANDING_TITLES.en).toBeTruthy();
     expect(LANDING_TITLES.en).not.toBe(LANDING_TITLES.da);
     expect(SHELL_TITLES.da).not.toBe(LANDING_TITLES.da);
-    expect(metaContent("property", "og:image")).toBe("https://www.bonbox.dk/og-image-v7.png");
-    expect(metaContent("name", "twitter:image")).toBe("https://www.bonbox.dk/og-image-v7.png");
+    expect(metaContent("property", "og:image")).toBe("https://www.bonbox.dk/og-image-v8.png");
+    expect(metaContent("name", "twitter:image")).toBe("https://www.bonbox.dk/og-image-v8.png");
+    expect(existsSync(resolve(root, "public", "og-image-v8.png"))).toBe(true);
     expect(existsSync(resolve(root, "public", "og-image-v7.png"))).toBe(true);
     expect(existsSync(resolve(root, "public", "og-image-v4.png"))).toBe(true);
   });
