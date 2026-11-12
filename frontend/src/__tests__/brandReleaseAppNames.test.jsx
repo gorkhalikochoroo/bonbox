@@ -8,8 +8,12 @@
  *     Scheduler" and "Daily Close" (as an app name) are gone from everything a
  *     person reads. The App Store URLs keep their ids (and their old slugs —
  *     Apple redirects by id).
- *   • Versions: owner 2.5 (2.4 submitted; was 2.2 at the rename), staff 1.5. Build numbers
- *     stay with the CI scripts.
+ *   • Versions: owner 2.6 (2.5 accepted in the App Store; 2.4 before; was 2.2 at the
+ *     rename), staff 1.5. Build numbers stay with the CI scripts.
+ *     12 Nov 2026 push (Manoj, option B): owner 2.5 -> 2.6 on purpose. The staff
+ *     project stays 1.5 here: the live iPhone Vagtplan is 1.6 from branch
+ *     vagtplan-1.6, which is NOT in this push; integrating it (then iPhone 1.7)
+ *     is the next work item and moves the staff pin below.
  *   • Danish permission prompts (da.lproj) next to the English ones (en.lproj)
  *     for both apps, registered in each Xcode project.
  *   • The staff app ships a COMMITTED web bundle: the rename is only real once
@@ -220,11 +224,13 @@ describe("staff app (ios-scheduler): Vagtplan on the home screen and in all four
   });
 });
 
-describe("versions: owner 2.5, staff 1.5 (build numbers untouched, CI-driven)", () => {
+describe("versions: owner 2.6, staff 1.5 (build numbers untouched, CI-driven)", () => {
   it("MARKETING_VERSION in both configurations of each project", () => {
     const owner = read("ios/App/App.xcodeproj/project.pbxproj");
     const staff = read("ios-scheduler/App/App.xcodeproj/project.pbxproj");
-    expect(owner.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 2.5;", "MARKETING_VERSION = 2.5;"]);
+    // 2.6 on purpose (12 Nov 2026 push): 2.5 is accepted in the App Store, so the next
+    // owner build needs a higher version. Bump this pin with the project, never alone.
+    expect(owner.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 2.6;", "MARKETING_VERSION = 2.6;"]);
     expect(staff.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 1.5;", "MARKETING_VERSION = 1.5;"]);
   });
 });
