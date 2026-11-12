@@ -226,7 +226,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
         {/* DOM order is the phone's (canvas: Kræver dig before the book); on a
             wide page the grid areas put the book left, Kræver dig + Personale right. */}
         <div className={`td-grid${showRsv ? "" : " no-res"}`}>
-          <Needs t={t} needs={needs} known={known} failed={findingsFailed} navigate={navigate} onDismiss={dismiss} />
+          <Needs t={t} needs={needs} known={known} failed={findingsFailed} navigate={navigate} onDismiss={dismiss} isAppointments={isAppointments} />
           {showRsv && (
             <Bookings t={t} rsv={rsv} day={data.business_day} cutoff={cutoff} nowMin={nowMin}
               isFood={isFood} isAppointments={isAppointments} canWalkIn={canWalkIn} newBookingTo={newBookingTo} walkInTo={walkInTo} />
@@ -585,7 +585,7 @@ function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalk
 
 /* ── Kræver dig ────────────────────────────────────────────────────────── */
 
-function needWords(t, item) {
+function needWords(t, item, isAppointments = false) {
   if (item.kind === "publish") {
     return {
       tone: "amber", Icon: Users,
@@ -608,7 +608,12 @@ function needWords(t, item) {
     return {
       tone: "green", Icon: r.icon,
       title: t("tdNeedOneRequestTitle", { name: item.guest.name || t("tdGuestNoName") }),
-      sub: t("tdNeedOneRequestSub", { time: item.guest.time, count: item.guest.party, word: plural(t, item.guest.party, "tdWGuest", "tdWGuests") }),
+      // A salon's request is one client and a treatment, not "1 gæst".
+      sub: isAppointments
+        ? (item.guest.service
+          ? t("tdNeedOneRequestSubAppt", { time: item.guest.time, service: item.guest.service })
+          : t("tdNeedOneRequestSubApptNoSvc", { time: item.guest.time }))
+        : t("tdNeedOneRequestSub", { time: item.guest.time, count: item.guest.party, word: plural(t, item.guest.party, "tdWGuest", "tdWGuests") }),
       action: t("tdNeedAnswer"),
     };
   }
@@ -621,7 +626,7 @@ function needWords(t, item) {
   };
 }
 
-function Needs({ t, needs, known, failed, navigate, onDismiss }) {
+function Needs({ t, needs, known, failed, navigate, onDismiss, isAppointments }) {
   // Not known yet: no count and no "all clear" — the rows we DO know (the
   // unpublished week, the revisor set-up) still show, with a quiet line
   // saying the rest is being checked (or could not be).
@@ -643,7 +648,7 @@ function Needs({ t, needs, known, failed, navigate, onDismiss }) {
         </div>
       )}
       {needs.map((item) => {
-        const w = needWords(t, item);
+        const w = needWords(t, item, isAppointments);
         if (!w) return null;
         const Icon = w.Icon;
         return (

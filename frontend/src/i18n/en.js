@@ -11797,6 +11797,8 @@ export const en = {
     tdNeedRevisorAction: "Set up",
     tdNeedOneRequestTitle: "{name} is waiting for your answer",
     tdNeedOneRequestSub: "{time} today · {count} {word}",
+    tdNeedOneRequestSubAppt: "{time} today · {service}",
+    tdNeedOneRequestSubApptNoSvc: "{time} today",
     tdNeedAnswer: "Answer",
     tdNeedsTitle: "Needs you",
     tdAllClear: "All clear",

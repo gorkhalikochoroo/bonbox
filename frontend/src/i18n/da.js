@@ -11473,6 +11473,8 @@ export const da = {
     tdNeedRevisorAction: "Sæt op",
     tdNeedOneRequestTitle: "{name} venter på dit svar",
     tdNeedOneRequestSub: "{time} i dag · {count} {word}",
+    tdNeedOneRequestSubAppt: "{time} i dag · {service}",
+    tdNeedOneRequestSubApptNoSvc: "{time} i dag",
     tdNeedAnswer: "Svar",
     tdNeedsTitle: "Kræver dig",
     tdAllClear: "Alt klaret",

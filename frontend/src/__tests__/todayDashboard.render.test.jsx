@@ -19,7 +19,8 @@ vi.mock("../hooks/useLanguage", () => ({
     t: (k, vars) => (vars && typeof vars === "object" ? `${k}(${Object.entries(vars).map(([a, b]) => `${a}=${b}`).join(",")})` : k),
   }),
 }));
-vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1", business_type: "restaurant", currency: "DKK", role: "owner" } }) }));
+const who = vi.hoisted(() => ({ type: "restaurant" }));
+vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1", business_type: who.type, currency: "DKK", role: "owner" } }) }));
 vi.mock("../hooks/usePillars", () => ({ usePillars: () => ({ hiddenPillars: new Set() }) }));
 
 import TodayDashboard from "../components/today/TodayDashboard";
@@ -67,6 +68,7 @@ beforeEach(() => {
   get.mockReset();
   post.mockReset();
   try { localStorage.clear(); } catch { /* none */ }
+  who.type = "restaurant";
 });
 
 function Where() {
@@ -169,6 +171,17 @@ describe("I dag — mid-service", () => {
       day_state: "after_close",
     }));
     expect(screen.getByText(/^tdTrendHigher\(weekday=/)).toBeInTheDocument();
+  });
+});
+
+describe("I dag — a salon", () => {
+  it("a waiting request names the treatment, not '1 gæst'", async () => {
+    who.type = "salon";
+    const data = payload();
+    data.reservations = { ...data.reservations, items: [{ id: "r9", time: "18:30", name: "Louise", party: 1, tables: [], status: "requested", service: "Herreklip" }] };
+    mount(data);
+    await waitFor(() => expect(screen.getByText("tdNeedOneRequestSubAppt(time=18:30,service=Herreklip)")).toBeInTheDocument());
+    expect(screen.queryByText(/^tdNeedOneRequestSub\(/)).toBeNull();
   });
 });
 
