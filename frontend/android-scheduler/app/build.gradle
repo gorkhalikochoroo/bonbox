@@ -7,8 +7,10 @@ android {
         applicationId "dk.bonbox.scheduler"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // 2 / 1.1 (12 Nov 2026 push): 1 / 1.0 is the first Play build, still in review
+        // (BonBox-Vagtplan-android-1-v1.0.aab, 10 Nov). Play needs a higher code for each upload.
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
