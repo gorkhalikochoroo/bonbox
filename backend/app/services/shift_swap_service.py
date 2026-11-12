@@ -32,7 +32,11 @@ Multi-layer defense (each function pinned by tests):
        decide:   caller MUST be the owner of the request
 
   L3 — DOMAIN VALIDATION
-       • Both shifts must be in the future (date >= today)
+       • Neither shift may have STARTED (venue local time): start datetime
+         <= now, overnight shifts included, or the staffer is already clocked
+         in on it (ShiftSwapStarted -> 422 {"code": "shift_started"}). The
+         old rule compared only the date with the server's date, so a shift
+         that began at 09:00 could still be swapped or given away at 15:00.
        • from_staff != to_staff (no self-swap)
        • from_shift != to_shift (no swapping with itself)
        • Nobody ends up on two shifts at once — BOTH people are checked
@@ -63,16 +67,17 @@ Future expansion (Phase 2 v2 / 3):
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
-from datetime import date as date_cls
+from datetime import datetime, time as time_cls, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from app.models.shift_swap import ShiftSwapRequest
-from app.models.staff import Schedule, StaffMember
+from app.models.staff import HoursLogged, Schedule, StaffMember
 from app.utils.time import utc_now
 
 log = logging.getLogger(__name__)
@@ -100,6 +105,20 @@ class ShiftSwapOverlap(ShiftSwapError):
         self.who = who
 
 
+class ShiftSwapStarted(ShiftSwapError):
+    """The shift has already started in the venue's local time (overnight
+    shifts included), or its staffer is already clocked in on it. Its own
+    type so routers answer 422 {"code": "shift_started", "message": …}: the
+    portal and the owner app say it in the staffer's language, and an older
+    bundle shows the English `message` through errText. The message keeps the
+    word "past" the old refusal used."""
+
+    code = "shift_started"
+
+
+SHIFT_STARTED_MESSAGE = "That shift has already started or is in the past, so it can't be swapped or given away."
+
+
 class ShiftSwapStale(ShiftSwapError):
     """One of the two shifts moved between propose and accept, so the
     request was declined on the spot. Its own type so the portal can say so
@@ -121,6 +140,75 @@ def _abs_span(sched: Schedule) -> tuple[int, int]:
     s, e = _spans(sched)
     base = sched.date.toordinal() * 24 * 60
     return base + s, base + e
+
+
+# ── Has the shift started? (venue local time) ─────────────────────────────
+
+# The clock-in window can open at most 240 minutes before a shift
+# (routers/staff.set_clock_geofence clamps it). Used when the owner has no
+# window switched on: clock-in is then open any time.
+_MAX_EARLY_CLOCK_IN_MIN = 240
+
+
+def _venue_now(db: Session, owner_id: uuid.UUID) -> datetime:
+    """Now in the venue's timezone (the owner's User.timezone), naive — the
+    same wall clock Schedule.date + start_time are written in."""
+    from app.models.user import User
+    from app.services.tz_utils import now_local
+    owner = db.query(User).filter(User.id == owner_id).first()
+    return now_local(owner).replace(tzinfo=None)
+
+
+def _shift_start(sched: Schedule) -> Optional[datetime]:
+    try:
+        hh, mm = (int(x) for x in (sched.start_time or "").split(":")[:2])
+        return datetime.combine(sched.date, time_cls(hh, mm))
+    except (ValueError, TypeError):
+        return None
+
+
+def _early_clock_in_minutes(db: Session, owner_id: uuid.UUID) -> int:
+    from app.models.business_profile import BusinessProfile
+    try:
+        prof = db.query(BusinessProfile).filter(BusinessProfile.user_id == owner_id).first()
+        d = json.loads(prof.clock_settings_json) if prof and prof.clock_settings_json else {}
+        minutes = int(d.get("window_minutes") or 0)
+        if d.get("window_enabled") and minutes > 0:
+            return min(minutes, _MAX_EARLY_CLOCK_IN_MIN)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return _MAX_EARLY_CLOCK_IN_MIN
+
+
+def shift_has_started(db: Session, sched: Schedule, *, now: Optional[datetime] = None) -> bool:
+    """True when the shift's start (its date + start_time, venue local time)
+    is now or earlier — an overnight shift that began yesterday evening
+    counts, it began — or when its staffer is clocked in on it already (an
+    open clock punch while the shift is inside the clock-in window)."""
+    now = now or _venue_now(db, sched.user_id)
+    start = _shift_start(sched)
+    if start is None:                    # malformed time: fall back to the date
+        return sched.date < now.date()
+    if start <= now:
+        return True
+    if start - now <= timedelta(minutes=_early_clock_in_minutes(db, sched.user_id)):
+        open_punch = db.query(HoursLogged.id).filter(
+            HoursLogged.user_id == sched.user_id,
+            HoursLogged.staff_id == sched.staff_id,
+            HoursLogged.end_time.is_(None),
+            HoursLogged.entry_method == "clock",
+        ).first()
+        if open_punch is not None:
+            return True
+    return False
+
+
+def _refuse_started(db: Session, *scheds: Schedule) -> None:
+    if not scheds:
+        return
+    now = _venue_now(db, scheds[0].user_id)
+    if any(shift_has_started(db, s, now=now) for s in scheds):
+        raise ShiftSwapStarted(SHIFT_STARTED_MESSAGE)
 
 
 def _lock_staff(db: Session, *staff_ids: uuid.UUID) -> None:
@@ -281,11 +369,11 @@ def propose_swap(
         db, shift_id=to_shift_id, owner_id=owner_id, staff_id=to_staff_id,
     )
 
-    # L3: both shifts must be in the future. Past shifts can't be
-    # swapped (history is immutable for record-keeping).
-    today = date_cls.today()
-    if from_sched.date < today or to_sched.date < today:
-        raise ShiftSwapError("Can't swap a shift that's already in the past.")
+    # L3: neither shift may have started (venue local time, overnight
+    # included, or the staffer clocked in on it). Past shifts are history;
+    # a started one is being worked. The old date-only check let a shift
+    # that began at 09:00 be traded at 15:00 the same day.
+    _refuse_started(db, from_sched, to_sched)
 
     # L3: neither person may end up on two shifts at once. An accept executes
     # the trade on the spot (no owner step), so this is the only check
@@ -402,6 +490,26 @@ def respond_to_swap(
         )
 
     now = utc_now()
+
+    # A shift in the trade has started (or someone is clocked in on it): the
+    # trade can no longer happen, so the request ends as "expired" (its
+    # terminal state for "the shift came round") instead of hanging in both
+    # inboxes with Accept / Decline buttons that cannot work. Refused either
+    # way, so the staffer reads why.
+    started = [
+        sch for sch in (
+            db.query(Schedule).filter(Schedule.id == swap.from_shift_id).first(),
+            db.query(Schedule).filter(Schedule.id == swap.to_shift_id).first(),
+        ) if sch is not None
+    ]
+    try:
+        _refuse_started(db, *started)
+    except ShiftSwapStarted:
+        swap.status = "expired"
+        swap.responded_at = now
+        db.commit()
+        log.info("[shift_swap] respond swap=%s refused: a shift has started (expired)", swap_id)
+        raise
 
     if not accept:
         swap.status = "declined"
@@ -555,6 +663,8 @@ def decide_swap(
                 "One of the shifts has changed since this swap was accepted; "
                 "ask the staff to re-propose."
             )
+        # A started shift is never handed over (same rule as propose/accept).
+        _refuse_started(db, from_sched, to_sched)
         # L5: atomic flip. SQLAlchemy buffers these; the single commit
         # at the end is the atomic boundary.
         from_sched.staff_id = swap.to_staff_id
@@ -597,8 +707,11 @@ def list_for_staff(
         # just-executed swap shows its "Byttet/Done" confirmation to both
         # staff (the schedule tab already reflects the reassignment).
         # `accepted` is retained for the legacy owner-approval path.
+        # `expired` = it ended because a shift in it started (the swap
+        # guard): kept in view, like `done`, so both people read WHY it is
+        # gone instead of watching it vanish.
         q = q.filter(
-            ShiftSwapRequest.status.in_(("proposed", "accepted", "done"))
+            ShiftSwapRequest.status.in_(("proposed", "accepted", "done", "expired"))
         )
     return q.order_by(ShiftSwapRequest.created_at.desc()).all()
 
@@ -673,8 +786,9 @@ def offer_giveaway(
     sched = _shift_belongs_to(
         db, shift_id=from_shift_id, owner_id=owner_id, staff_id=from_staff_id,
     )
-    if sched.date < date_cls.today():
-        raise ShiftSwapError("Can't give away a shift that's already in the past.")
+    # Not once it has started (venue local time, overnight included, or the
+    # staffer is clocked in on it).
+    _refuse_started(db, sched)
 
     # Idempotency — one open offer per shift.
     existing = db.query(ShiftSwapRequest).filter(
@@ -708,21 +822,26 @@ def list_open_giveaways(
     owner_id: uuid.UUID,
     exclude_staff_id: Optional[uuid.UUID] = None,
 ) -> list[ShiftSwapRequest]:
-    """Open (unclaimed, future) give-away offers — colleagues' pool view."""
+    """Open (unclaimed, not yet started) give-away offers — colleagues' pool
+    view. A shift that has started (venue local time, overnight included, or
+    its staffer is clocked in on it) is left out: it can no longer be taken.
+    Every shift dated before today has started, so SQL narrows to today and
+    later; the start time (and an early clock-in) decides the rest."""
+    now = _venue_now(db, owner_id)
     q = (
-        db.query(ShiftSwapRequest)
+        db.query(ShiftSwapRequest, Schedule)
         .join(Schedule, Schedule.id == ShiftSwapRequest.from_shift_id)
         .filter(
             ShiftSwapRequest.user_id == owner_id,
             ShiftSwapRequest.to_shift_id.is_(None),
             ShiftSwapRequest.status == "proposed",
-            Schedule.date >= date_cls.today(),
+            Schedule.date >= now.date(),
         )
-        .order_by(Schedule.date)
+        .order_by(Schedule.date, Schedule.start_time)
     )
     if exclude_staff_id is not None:
         q = q.filter(ShiftSwapRequest.from_staff_id != exclude_staff_id)
-    return q.all()
+    return [swap for swap, sched in q.all() if not shift_has_started(db, sched, now=now)]
 
 
 def claim_giveaway(
@@ -782,8 +901,15 @@ def claim_giveaway(
         raise ShiftSwapError(
             "The shift has changed since it was offered; ask them to re-offer."
         )
-    if sched.date < date_cls.today():
-        raise ShiftSwapError("This shift is already in the past.")
+    # Not once it has started (venue local time, overnight included, or the
+    # offerer is clocked in on it): the offer ends as "expired" so it leaves
+    # the offerer's list too, and the claim is refused.
+    try:
+        _refuse_started(db, sched)
+    except ShiftSwapStarted:
+        swap.status = "expired"
+        db.commit()
+        raise
 
     # Guard 1 — overlap with the claimer's existing shifts that day.
     day_shifts = db.query(Schedule).filter(

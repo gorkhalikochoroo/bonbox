@@ -11519,4 +11519,9 @@ export const en = {
     schedGeoLookupDown: "The address lookup isn't answering right now. Try again in a few minutes, or paste a map link.",
     schedGeoOsmCredit: "Map data © OpenStreetMap contributors",
     pricingAddressUnverified: "Market comparison needs your address checked in Danmarks Adresseregister. Open Profile and pick your company again.",
+    // Swap guard (12 Nov 2026): a shift that has already started can't be swapped or given away.
+    portalSwapStatusExpired: "Shift started",
+    portalSwapShiftStarted: "That shift has already started, so it can't be swapped or given away any more.",
+    swapShiftStartedOwner: "That shift has already started, so the swap can't go through.",
+    swapDecideFailed: "Couldn't save your answer. Try again.",
 };

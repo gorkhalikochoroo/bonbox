@@ -11198,4 +11198,9 @@ export const da = {
     schedGeoLookupDown: "Adresseopslaget svarer ikke lige nu. Prøv igen om lidt, eller indsæt et kortlink.",
     schedGeoOsmCredit: "Kortdata © OpenStreetMap contributors",
     pricingAddressUnverified: "Markedssammenligning kræver, at din adresse er tjekket i Danmarks Adresseregister. Åbn Profil, og vælg din virksomhed igen.",
+    // Swap guard (12 Nov 2026): a shift that has already started can't be swapped or given away.
+    portalSwapStatusExpired: "Vagten er gået i gang",
+    portalSwapShiftStarted: "Vagten er allerede gået i gang, så den kan ikke længere byttes eller gives væk.",
+    swapShiftStartedOwner: "Vagten er allerede gået i gang, så byttet kan ikke gennemføres.",
+    swapDecideFailed: "Kunne ikke gemme dit svar. Prøv igen.",
 };

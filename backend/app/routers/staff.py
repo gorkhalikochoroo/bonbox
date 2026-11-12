@@ -8516,5 +8516,8 @@ def decide_swap_request(
             note=body.note,
         )
     except _ShiftSwapError as e:
+        if getattr(e, "code", None) == "shift_started":
+            # `code` for the owner app's own text; `message` for older builds.
+            raise HTTPException(status_code=422, detail={"code": "shift_started", "message": str(e)})
         raise HTTPException(status_code=422, detail=str(e))
     return _hydrate_swap_owner(swap, db)
