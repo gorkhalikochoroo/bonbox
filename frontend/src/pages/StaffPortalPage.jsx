@@ -37,6 +37,7 @@ import "../components/staff/vagtplan.css";
 import RollingDigits from "../components/staff/RollingDigits";
 import { fitDockLabels } from "../components/staff/dockLabelFit";
 import { usePresence, useLastValue, closingProps, motionAllowed } from "../components/staff/sheetMotion";
+import { useSheetDrag } from "../components/staff/sheetDrag";
 import { beatFor, useHeroBeat, useBeatWindow, BREAK_MS } from "../components/staff/clockBeat";
 import { installPressFeel } from "../components/staff/pressFeel";
 import { feel } from "../components/staff/feel"; // the haptic words (1.4); the clock's own lines stay on haptic
@@ -633,6 +634,10 @@ function HolidaySection({ token }) {
 function DocumentsSection({ token }) {
   const [openSheet, setOpenSheet] = useState(false);
   const docsSheet = usePresence(openSheet);
+  // Pull down to close (premium feel 1.5). This section is mounted before the
+  // sheet opens, so the drag is enabled by the sheet's own presence.
+  const docsRef = useRef(null);
+  useSheetDrag(docsRef, () => setOpenSheet(false), { enabled: docsSheet.mounted && !docsSheet.closing });
   const { t } = useLanguage();
   const [docs, setDocs] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -693,16 +698,18 @@ function DocumentsSection({ token }) {
       </button>
 
       {docsSheet.mounted && createPortal(
-        <div className="fixed inset-0 z-[60] m-0 flex items-end vp-scrim" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setOpenSheet(false)} {...closingProps(docsSheet.closing)}>
+        <div data-vp-overlay="" className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" {...closingProps(docsSheet.closing)}>
+          <div aria-hidden className="absolute inset-0 m-0 vp-scrim" style={{ background: SCRIM }} onClick={() => setOpenSheet(false)} />
           <div
+            ref={docsRef}
             role="dialog"
             aria-modal="true"
             aria-label={t("portalDocsSection")}
-            className="w-full bg-white vp-sheet"
-            style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+            className="relative w-full bg-white vp-sheet"
+            style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", boxShadow: "0 64px 0 0 #fff" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+            <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
             <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
               {t("portalDocsSection", "Contract & documents")}
             </div>
@@ -3930,6 +3937,10 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+  // Pull down to close (premium feel 1.5). Almost every row is a button, and
+  // a control never starts a drag: it starts from the grabber, the title and
+  // the gaps between the cards.
+  useSheetDrag(dialogRef, onClose, { enabled: !closing });
   const title = `${isToday(shift.date) ? t("portalToday") : fmtDate(shift.date, lang)} · ${shift.start_time}–${shift.end_time}`;
   const row = ({ icon, label, hint, onClick, href, testId, disabled, well = SOFT, ink = PINE, wrapHint = false }) => {
     const Icon = icon;
@@ -4003,13 +4014,14 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
     }),
   ].filter(Boolean);
   return createPortal(
-    <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" {...closingProps(closing)}>
+    <div data-vp-overlay="" className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" {...closingProps(closing)}>
+      {/* No blur behind a sheet (premium feel call D): it cost every frame on Android. */}
       <button
         type="button"
         aria-label={t("close", "Close")}
         onClick={onClose}
         className="absolute inset-0 m-0 vp-scrim"
-        style={{ background: "rgba(8,24,18,0.52)", backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}
+        style={{ background: SCRIM }}
       />
       <div
         role="dialog"
@@ -4022,10 +4034,12 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
         style={{
           maxHeight: "92dvh", background: CARD, color: INK, borderRadius: "28px 28px 0 0",
           padding: "8px 16px max(16px, env(safe-area-inset-bottom, 0px))",
-          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
+          // The first shadow is the sheet's own colour 64 px below it: pulled
+          // up on the rubber band, no gap opens under the sheet.
+          boxShadow: `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`,
         }}
       >
-        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: "#D9D3C5", marginBottom: 12 }} />
+        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 12 }} />
         <div className="flex items-start justify-between" style={{ gap: 12, padding: "0 4px" }}>
           <div className="min-w-0 flex flex-col" style={{ gap: 4 }}>
             <div className="tabular-nums" style={{ font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
@@ -4245,8 +4259,12 @@ function VpNote({ children, testId, icon: Icon }) {
     28 px top corners, the grabber, a Sora title, one muted paragraph and the
     answers side by side. The overlay keeps the shared sheet motion. */
 function VpQuestionSheet({ closing = false, title, body, onDismiss, dismissLabel, children, testId }) {
+  // Pull down to close (premium feel 1.5): the same answer as the scrim.
+  const sheetRef = useRef(null);
+  useSheetDrag(sheetRef, onDismiss, { enabled: !closing });
   return (
     <div
+      data-vp-overlay=""
       className="fixed inset-0 z-[60] m-0 flex flex-col justify-end"
       role="dialog"
       aria-modal="true"
@@ -4257,16 +4275,17 @@ function VpQuestionSheet({ closing = false, title, body, onDismiss, dismissLabel
       <button
         type="button"
         className="absolute inset-0 m-0 vp-scrim"
-        style={{ background: SCRIM, backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}
+        style={{ background: SCRIM }}
         onClick={onDismiss}
         aria-label={dismissLabel}
       />
       <div
+        ref={sheetRef}
         className="relative w-full max-w-lg mx-auto m-0 vp-sheet"
         style={{
           background: CARD, color: INK, borderRadius: "28px 28px 0 0",
           padding: "8px 20px max(20px, env(safe-area-inset-bottom, 0px))",
-          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
+          boxShadow: `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`,
         }}
       >
         <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 14 }} />
@@ -4378,18 +4397,25 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
   // on focus).
   const cap = EYEBROW;
 
+  // Pull down to close (premium feel 1.5); the date fields and buttons never
+  // start a drag.
+  const sheetRef = useRef(null);
+  useSheetDrag(sheetRef, onClose, { enabled: !closing });
+
   return (
-    <div className="fixed inset-0 z-50 m-0 flex items-end vp-scrim" style={{ background: SCRIM }} onClick={onClose} {...closingProps(closing)}>
+    <div data-vp-overlay="" className="fixed inset-0 z-50 m-0 flex flex-col justify-end" {...closingProps(closing)}>
+      <div aria-hidden className="absolute inset-0 m-0 vp-scrim" style={{ background: SCRIM }} onClick={onClose} />
       <div
+        ref={sheetRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("portalHoursCustomTitle")}
         data-testid="portal-period-sheet"
-        className="w-full max-w-lg mx-auto m-0 vp-sheet"
+        className="relative w-full max-w-lg mx-auto m-0 vp-sheet"
         style={{
           background: CARD, color: INK, borderRadius: "28px 28px 0 0",
           padding: "8px 16px calc(18px + env(safe-area-inset-bottom))",
-          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
+          boxShadow: `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`,
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -5580,7 +5606,7 @@ function GiveawaySellModal({ token, ownShifts, liveShiftId = null, onClose, onOf
   };
 
   return (
-    <div data-kb-block="" data-testid="swap-sell" className="flex flex-col vp-sheet" style={{ gap: 14, padding: 16, borderRadius: 24, ...CARD_BOX }}>
+    <div data-kb-block="" data-testid="swap-sell" className="flex flex-col vp-card-in" style={{ gap: 14, padding: 16, borderRadius: 24, ...CARD_BOX }}>
       <SwapFormHead icon={Send} title={t("portalGaSellCta", "Give away a shift")} onClose={onClose} closeLabel={t("close", "Close")} />
       <p style={{ margin: 0, font: "400 13px/1.45 var(--font-text)", color: MUTED }}>
         {t("portalGaSellHint", "Your shift goes on the board for colleagues. It stays yours until someone takes it — first come, first served.")}
@@ -5713,7 +5739,7 @@ function SwapProposeModal({ token, ownShifts, liveShiftId = null, onClose, onPro
   };
 
   return (
-    <div data-kb-block="" data-testid="swap-propose" className="flex flex-col vp-sheet" style={{ gap: 14, padding: 16, borderRadius: 24, ...CARD_BOX }}>
+    <div data-kb-block="" data-testid="swap-propose" className="flex flex-col vp-card-in" style={{ gap: 14, padding: 16, borderRadius: 24, ...CARD_BOX }}>
       <SwapFormHead icon={ArrowLeftRight} title={t("portalOfferSwap", "Offer to swap")} onClose={onClose} closeLabel={t("close", "Close")} />
 
       <label className="block min-w-0">
@@ -6146,22 +6172,35 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
     }
   };
 
+  // Pull down to close on a phone only (premium feel 1.5). Tailwind's sm:
+  // breakpoint, read the same way; a browser that cannot say gets the phone
+  // sheet (the layout without sm: is the phone one).
+  const narrow = !useMediaMatch("(min-width: 640px)");
+  const sheetRef = useRef(null);
+  useSheetDrag(sheetRef, onClose, { enabled: !closing && narrow });
+
   return (
-    <div className="fixed inset-0 z-40 m-0 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE} {...closingProps(closing)}>
+    <div data-vp-overlay="" className="fixed inset-0 z-40 m-0 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE} {...closingProps(closing)}>
       <div className="absolute inset-0 m-0 vp-scrim" style={{ background: SCRIM }} onClick={onClose} aria-hidden />
-      {/* The ⋯ sheet's material: card, 28 px top corners, the grabber. */}
+      {/* The ⋯ sheet's material: card, 28 px top corners, the grabber. On a
+          phone it is a sheet you can pull down; from 640 px (sm:) it is a
+          centred dialog: a dialog's motion, no floor shadow, no drag. */}
       <div
+        ref={sheetRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("staffChatNewGroup", "New group")}
         data-testid="portal-new-group"
+        data-sheet-dialog={narrow ? undefined : ""}
         className="relative w-full sm:max-w-sm m-0 vp-sheet"
         style={{
           background: CARD, color: INK,
           borderRadius: "28px 28px 0 0",
           paddingTop: 8,
           paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
-          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
+          boxShadow: narrow
+            ? `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`
+            : "0 -20px 40px -20px rgba(8,24,18,0.5)",
         }}
       >
         <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 10 }} />
@@ -6196,7 +6235,7 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
           </p>
         </div>
 
-        <div className="overflow-y-auto" style={{ maxHeight: "42vh", padding: "0 16px" }}>
+        <div className="overflow-y-auto overscroll-contain" style={{ maxHeight: "42vh", padding: "0 16px" }}>
           {colleagues === null ? (
             <div className="flex flex-col py-1" style={{ gap: 6 }} data-testid="portal-skeleton">
               {[1, 2, 3].map((i) => <div key={i} className="vp-shimmer" style={{ height: 52, borderRadius: 16, background: DIVIDER }} />)}
@@ -6839,6 +6878,9 @@ function ChatPhotoSourceSheet({ room, onTake, onChoose, onClose, closing = false
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+  // Pull down to close, like the × (premium feel 1.5): the answer is "no
+  // photo". Both rows are buttons, so it starts from the grabber and the title.
+  useSheetDrag(dialogRef, onClose, { enabled: !closing });
   const title = t("staffChatAddPhoto", "Add photo");
   const many = room > 1;
   const row = (Icon, label, hint, onClick, testId) => (
@@ -6859,13 +6901,13 @@ function ChatPhotoSourceSheet({ room, onTake, onChoose, onClose, closing = false
     </button>
   );
   return createPortal(
-    <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" {...closingProps(closing)}>
+    <div data-vp-overlay="" className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" {...closingProps(closing)}>
       <button
         type="button"
         aria-label={t("close", "Close")}
         onClick={onClose}
         className="absolute inset-0 m-0 vp-scrim"
-        style={{ background: SCRIM, backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}
+        style={{ background: SCRIM }}
       />
       <div
         role="dialog"
@@ -6878,7 +6920,7 @@ function ChatPhotoSourceSheet({ room, onTake, onChoose, onClose, closing = false
         style={{
           background: CARD, color: INK, borderRadius: "28px 28px 0 0",
           padding: "8px 16px max(16px, env(safe-area-inset-bottom, 0px))",
-          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
+          boxShadow: `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`,
         }}
       >
         <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 12 }} />
@@ -9159,6 +9201,14 @@ export default function StaffPortalPage() {
   // Email & phone editing
   const [showEmailEdit, setShowEmailEdit] = useState(false);
   const profileSheet = usePresence(showEmailEdit);
+  // Pull down to close (premium feel 1.5). The page is mounted before these
+  // three sheets open, so each drag is enabled by its sheet's own presence.
+  const photoSheetRef = useRef(null);
+  const deptSheetRef = useRef(null);
+  const profileSheetRef = useRef(null);
+  useSheetDrag(photoSheetRef, () => setPhotoMenu(false), { enabled: photoSheet.mounted && !photoSheet.closing });
+  useSheetDrag(deptSheetRef, () => setDeptOpen(false), { enabled: deptSheet.mounted && !deptSheet.closing });
+  useSheetDrag(profileSheetRef, () => setShowEmailEdit(false), { enabled: profileSheet.mounted && !profileSheet.closing });
   // The header gets its hairline and loses the date line once the page has
   // scrolled (canvas "Hjem – rullet"). The row keeps its height, so nothing
   // under the sticky header moves.
@@ -9500,8 +9550,12 @@ export default function StaffPortalPage() {
     let startY = null;
 
     const onStart = (e) => {
-      // Only arm at the very top, else this fights normal scrolling.
-      startY = el.scrollTop <= 0 ? e.touches[0].clientY : null;
+      // Only arm at the very top, else this fights normal scrolling. Never
+      // from inside a sheet: the Fravær, Timer and Beskeder sheets live in
+      // this scroller, and a pull down there closes the sheet (1.5), it does
+      // not also reload the page behind it.
+      const inSheet = !!e.target?.closest?.("[data-vp-overlay]");
+      startY = el.scrollTop <= 0 && !inSheet ? e.touches[0].clientY : null;
       pullY.current = 0;
     };
     const onMove = (e) => {
@@ -10070,16 +10124,18 @@ export default function StaffPortalPage() {
           </div>
         )}
         {photoSheet.mounted && createPortal(
-          <div className="fixed inset-0 z-[60] m-0 flex items-end vp-scrim" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)} {...closingProps(photoSheet.closing)}>
+          <div data-vp-overlay="" className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" {...closingProps(photoSheet.closing)}>
+            <div aria-hidden className="absolute inset-0 m-0 vp-scrim" style={{ background: SCRIM }} onClick={() => setPhotoMenu(false)} />
             <div
+              ref={photoSheetRef}
               role="dialog"
             aria-modal="true"
             aria-label={t("portalPhotoLabel")}
-            className="w-full bg-white vp-sheet"
-              style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+            className="relative w-full bg-white vp-sheet"
+              style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", boxShadow: "0 64px 0 0 #fff" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+              <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
               <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
                 {t("portalPhotoLabel", "Photo")}
               </div>
@@ -10122,16 +10178,18 @@ export default function StaffPortalPage() {
         )}
 
         {deptSheet.mounted && createPortal(
-          <div className="fixed inset-0 z-50 m-0 flex items-end vp-scrim" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)} {...closingProps(deptSheet.closing)}>
+          <div data-vp-overlay="" className="fixed inset-0 z-50 m-0 flex flex-col justify-end" {...closingProps(deptSheet.closing)}>
+            <div aria-hidden className="absolute inset-0 m-0 vp-scrim" style={{ background: SCRIM }} onClick={() => setDeptOpen(false)} />
             <div
+              ref={deptSheetRef}
               role="dialog"
             aria-modal="true"
             aria-label={t("portalDepartment")}
-            className="w-full bg-white vp-sheet"
-              style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+            className="relative w-full bg-white vp-sheet"
+              style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", boxShadow: "0 64px 0 0 #fff" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+              <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
               <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
                 {t("portalDepartment", "Department")}
               </div>
@@ -10172,18 +10230,27 @@ export default function StaffPortalPage() {
             behind it. As an overlay it has its own scroll + a tap-out backdrop
             and never disturbs the main scroll. */}
         {profileSheet.mounted && createPortal((
-          <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" role="dialog" aria-modal="true" style={KB_LIFT_STYLE} {...closingProps(profileSheet.closing)}>
+          <div data-vp-overlay="" className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" role="dialog" aria-modal="true" style={KB_LIFT_STYLE} {...closingProps(profileSheet.closing)}>
             <button
               type="button"
               aria-label={t("close", "Close")}
               onClick={() => setShowEmailEdit(false)}
-              className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px] vp-scrim"
+              className="absolute inset-0 m-0 vp-scrim"
+              style={{ background: SCRIM }}
             />
-            <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl shadow-soft-lg max-h-[90dvh] overflow-y-auto overscroll-contain vp-sheet">
+            <div
+              ref={profileSheetRef}
+              className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl max-h-[90dvh] overflow-y-auto overscroll-contain vp-sheet"
+              style={{ boxShadow: "0 64px 0 0 #fff, 0 -20px 40px -20px rgba(8,24,18,0.5)" }}
+            >
               {/* Opaque and above the sheet's content: at 95 % white the
                   scrolled text showed through, and the profile card (a
-                  positioned element) could paint over a header with no z. */}
-              <div className="sticky top-0 z-10 bg-white flex items-center justify-between px-4 pt-4 pb-2 border-b border-[#f1f5f9]">
+                  positioned element) could paint over a header with no z.
+                  It stays on screen while the sheet scrolls, so it is the
+                  sheet's handle: a pull down from here always moves the
+                  sheet (premium feel 1.5). The grabber sits in its top edge. */}
+              <div data-sheet-handle="" className="sticky top-0 z-10 bg-white flex items-center justify-between px-4 pt-6 pb-2 border-b border-[#f1f5f9]">
+                <span aria-hidden className="absolute" style={{ top: 8, left: 0, right: 0, margin: "0 auto", width: 36, height: 5, borderRadius: 3, background: GRAB }} />
                 <h2 className="text-base font-bold text-gray-900">{t("portalEditContact", "Edit profile")}</h2>
                 <button
                   type="button"

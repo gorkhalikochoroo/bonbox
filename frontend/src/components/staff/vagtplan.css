@@ -341,15 +341,26 @@ body.portal-shell { touch-action: manipulation; }
 @keyframes vp-screen-in { from { opacity: 0; transform: translateY(8px); } }
 
 /* ── Sheets and dialogs ────────────────────────────────────────────────── */
-/* In: a sheet rises 16 px, a dialog grows from .97, the scrim fades — 0.32s.
-   Out (data-closing on the overlay, set for 0.24s before it unmounts): the
-   same, reversed, a little faster. The overlay stops taking taps at once. */
+/* In: a sheet comes up from the screen edge, a dialog grows from .97, the
+   scrim fades — 0.32s. Out (data-closing on the overlay, set for 0.24s
+   before it unmounts): the same, reversed, a little faster. The overlay
+   stops taking taps at once. A sheet also follows the finger down and drops
+   away when thrown (components/staff/sheetDrag.js, premium feel 1.5). */
 .vp-scrim { animation: vp-fade-in var(--dur-base) var(--ease-out) backwards; }
 .vp-sheet { animation: vp-sheet-in var(--dur-base) var(--ease-out) backwards; }
 [data-closing] { pointer-events: none; }
 .vp-scrim[data-closing],
 [data-closing] .vp-scrim { animation: vp-fade-out var(--dur-exit) var(--ease-in) forwards; }
 [data-closing] .vp-sheet { animation: vp-sheet-out var(--dur-exit) var(--ease-in) forwards; }
+/* A sheet the finger threw out has already left: its exit must not play
+   again, and it stays below the edge until it unmounts. */
+[data-closing][data-dragged-out] .vp-sheet { animation: none; transform: translateY(100%); }
+[data-closing][data-dragged-out] .vp-scrim { animation: none; opacity: 0; }
+/* The new-group sheet is a centred dialog on wide screens. */
+[data-sheet-dialog].vp-sheet { animation-name: vp-dialog-in; }
+[data-closing] [data-sheet-dialog].vp-sheet { animation-name: vp-dialog-out; }
+/* Inline cards (the swap forms) keep the old short rise. */
+.vp-card-in { animation: vp-card-in var(--dur-base) var(--ease-out) backwards; }
 /* The portal's dialogs: the ONE shared confirm (hooks/useConfirm.jsx) keeps
    its own look; on the portal it grows in from .97 and back out. */
 body.portal-shell [data-bb-confirm] > [data-bb-confirm-scrim] { animation: vp-fade-in var(--dur-base) var(--ease-out) backwards; }
@@ -358,8 +369,11 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-scrim] { an
 body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { animation: vp-dialog-out var(--dur-exit) var(--ease-in) forwards; }
 @keyframes vp-fade-in { from { opacity: 0; } }
 @keyframes vp-fade-out { to { opacity: 0; } }
-@keyframes vp-sheet-in { from { opacity: 0; transform: translateY(16px); } }
-@keyframes vp-sheet-out { to { opacity: 0; transform: translateY(16px); } }
+/* A sheet is a solid object: it comes from the screen edge with no fade
+   (BeloBag's phone sheet). The scrim fades over the same time. */
+@keyframes vp-sheet-in { from { transform: translateY(100%); } }
+@keyframes vp-sheet-out { to { transform: translateY(100%); } }
+@keyframes vp-card-in { from { opacity: 0; transform: translateY(16px); } }
 @keyframes vp-dialog-in { from { opacity: 0; transform: scale(.97); } }
 @keyframes vp-dialog-out { to { opacity: 0; transform: scale(.97); } }
 
@@ -517,6 +531,11 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
   [data-closing] .vp-scrim,
   .vp-scrim[data-closing],
   [data-closing] .vp-sheet,
+  [data-closing][data-dragged-out] .vp-sheet,
+  [data-closing][data-dragged-out] .vp-scrim,
+  [data-sheet-dialog].vp-sheet,
+  [data-closing] [data-sheet-dialog].vp-sheet,
+  .vp-card-in,
   body.portal-shell [data-bb-confirm] > [data-bb-confirm-scrim],
   body.portal-shell [data-bb-confirm] > [data-bb-confirm-panel],
   body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-scrim],

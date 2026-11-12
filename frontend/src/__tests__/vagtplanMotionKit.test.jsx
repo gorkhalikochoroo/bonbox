@@ -603,6 +603,76 @@ describe("Premium feel 1.3: press everywhere", () => {
   });
 });
 
+// Premium feel, Release A Step 6 (1.5): sheets with weight. A sheet comes from
+// the screen edge with no fade, follows the finger down (sheetDrag.js, pinned
+// in sheetDrag.test.jsx; on the page in StaffPortalPage.sheetFeel.test.jsx),
+// and no scrim blurs (call D). The swap forms are inline cards, not sheets:
+// they keep the old short rise as vp-card-in.
+describe("Premium feel 1.5: sheets with weight", () => {
+  const start = CSS.indexOf("@media (prefers-reduced-motion: reduce)");
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const outside = strip(CSS.slice(0, start));
+  const body = strip(CSS.slice(start));
+  const PAGE = read("pages/StaffPortalPage.jsx");
+
+  it("vp-sheet-in / vp-sheet-out: translateY(100%), no opacity (a solid object); the inline cards keep the 16 px rise", () => {
+    expect(CSS).toContain("@keyframes vp-sheet-in { from { transform: translateY(100%); } }");
+    expect(CSS).toContain("@keyframes vp-sheet-out { to { transform: translateY(100%); } }");
+    for (const k of ["vp-sheet-in", "vp-sheet-out"]) {
+      expect(CSS.match(new RegExp(`@keyframes ${k} \\{[^\\n]*\\}`))[0]).not.toContain("opacity");
+    }
+    expect(outside).toContain(".vp-card-in { animation: vp-card-in var(--dur-base) var(--ease-out) backwards; }");
+    expect(CSS).toContain("@keyframes vp-card-in { from { opacity: 0; transform: translateY(16px); } }");
+    // The sheet and scrim rules keep their selectors; only the keyframes changed.
+    expect(outside).toContain(".vp-sheet { animation: vp-sheet-in var(--dur-base) var(--ease-out) backwards; }");
+    expect(outside).toContain("[data-closing] .vp-sheet { animation: vp-sheet-out var(--dur-exit) var(--ease-in) forwards; }");
+  });
+
+  it("a sheet the finger threw out stays below the edge (no second exit); the wide new-group sheet is a dialog", () => {
+    expect(outside).toContain("[data-closing][data-dragged-out] .vp-sheet { animation: none; transform: translateY(100%); }");
+    expect(outside).toContain("[data-closing][data-dragged-out] .vp-scrim { animation: none; opacity: 0; }");
+    expect(outside).toContain("[data-sheet-dialog].vp-sheet { animation-name: vp-dialog-in; }");
+    expect(outside).toContain("[data-closing] [data-sheet-dialog].vp-sheet { animation-name: vp-dialog-out; }");
+  });
+
+  it("vp-card-in and the dragged-out and sheet-dialog rules are in the reduce block with the SAME selector text", () => {
+    const off = body.match(/([^{}]*)\{\s*animation: none;\s*\}/g).join("\n");
+    for (const sel of [
+      ".vp-card-in",
+      "[data-closing][data-dragged-out] .vp-sheet",
+      "[data-closing][data-dragged-out] .vp-scrim",
+      "[data-sheet-dialog].vp-sheet",
+      "[data-closing] [data-sheet-dialog].vp-sheet",
+    ]) expect(off, sel).toContain(`${sel},`);
+    expect(CSS.match(/@media \(prefers-reduced-motion: reduce\)/g)).toHaveLength(1);
+  });
+
+  it("source pin: no backdropFilter, WebkitBackdropFilter or backdrop-blur in StaffPortalPage.jsx (call D)", () => {
+    expect(PAGE).not.toMatch(/backdropFilter|WebkitBackdropFilter|backdrop-blur/);
+  });
+
+  it("source pin: nine sheets, each on a data-vp-overlay root with its own drag; one scrim colour, one grabber", () => {
+    const sheets = PAGE.match(/[" ]vp-sheet"/g) || [];
+    expect(sheets).toHaveLength(9);
+    expect(PAGE.match(/data-vp-overlay=""/g)).toHaveLength(9);
+    expect(PAGE.match(/useSheetDrag\(/g)).toHaveLength(9);
+    // Mounted before they open: enabled by the sheet's own presence (spec 1.5d, review fix 11).
+    for (const s of ["docsSheet", "photoSheet", "deptSheet", "profileSheet"]) {
+      expect(PAGE).toContain(`enabled: ${s}.mounted && !${s}.closing`);
+    }
+    // The new-group sheet drags on a phone only.
+    expect(PAGE).toContain("useSheetDrag(sheetRef, onClose, { enabled: !closing && narrow });");
+    // No more navy scrims or slate 38 × 4 grabbers.
+    expect(PAGE).not.toMatch(/rgba\(8,14,22|#080e16|width: 38, height: 4/);
+    // The swap forms are inline cards: the short rise, not a sheet.
+    for (const id of ["swap-sell", "swap-propose"]) {
+      expect(PAGE).toContain(`data-testid="${id}" className="flex flex-col vp-card-in"`);
+    }
+    // The profile sheet's sticky header always grabs.
+    expect(PAGE).toContain('<div data-sheet-handle="" className="sticky top-0 z-10 bg-white');
+  });
+});
+
 describe("RollingDigits", () => {
   // The digits that roll in, with their direction.
   const rolled = (el) => [...el.querySelectorAll(".vp-roll-up, .vp-roll-down")]
