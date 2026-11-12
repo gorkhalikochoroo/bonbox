@@ -3,6 +3,11 @@
  * Its first render is the HTML's first screen exactly (scripts/landingFirstScreenV7.mjs; landingV7FirstScreen.test.jsx
  * compares them): the language menu's list joins once the page is mounted (`armed`), as do the hero's moving parts.
  *
+ * The logo (12 Nov 2026, founder: "put our original logo"): the kit's mark (BonBoxMark, the "Rullen" b) on the forest
+ * tile, paper b, ~0.8 of the 32 px tile, and the kit's wordmark (BonBoxWordmark) at ~0.6 of the tile, as the app and the
+ * old landing draw them. It replaced a typed "b" on an ink tile and the word typed in Sora. The first screen writes the
+ * same two SVGs, path for path (it reads them from those two files).
+ *
  * Language menu: one quiet button, a small menu on demand (the design's), Danish and English only. Arrow keys, Home / End,
  * Escape and Tab as a menu does; a tap outside or the window losing focus closes it. A pick calls onLang (the app's
  * language, hooks/useLanguage) and puts the focus back on the button. */
@@ -10,6 +15,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Chevron, Globe } from "./icons";
 import { PAGE_LANGS_V7, SECTION } from "./assets";
+import BonBoxMark from "../../BonBoxMark";
+import BonBoxWordmark from "../../BonBoxWordmark";
 
 const vib = () => { try { if (navigator.vibrate) navigator.vibrate(8); } catch { /* no vibration */ } };
 
@@ -89,7 +96,7 @@ export default function TopBar({ t, lang, onLang, armed, barRef }) {
   return (
     <header className="top" id="top" ref={barRef}>
       <div className="wrap">
-        <a className="brand" href="#top" aria-label="BonBox"><span className="mark" aria-hidden="true">b</span>BonBox</a>
+        <a className="brand" href="#top" aria-label="BonBox"><span className="mark" aria-hidden="true"><BonBoxMark size={26} /></span><BonBoxWordmark height={19} title="" /></a>
         <nav className="nav" aria-label={t("landingV7.nav.label")}>
           <a href={`#${SECTION.shifts}`}>{t("landingV7.nav.shifts")}</a>
           <a href={`#${SECTION.tables}`}>{t("landingV7.nav.tables")}</a>

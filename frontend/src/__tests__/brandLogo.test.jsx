@@ -139,7 +139,12 @@ describe("the retired notepad mark is gone from the source", () => {
   it("every file that places the mark puts it on the forest tile", () => {
     const users = files.filter((p) => /import BonBoxMark from/.test(read(p)));
     expect(users.length).toBeGreaterThanOrEqual(10);
-    const missing = users.filter((p) => !read(p).includes("bg-bb-forest"));
+    // The v7 landing's top bar styles its tile in its own sheet (landingV7.css .lp7 .mark: forest #093A26, paper b;
+    // landingV7FramesLogo.test.jsx), because its first screen is drawn from the HTML before the app's sheet arrives.
+    const landingSheet = read(join(SRC, "components/landing/v7/landingV7.css"));
+    const ownTile = (p) => p.endsWith(join("components", "landing", "v7", "TopBar.jsx"))
+      && /\.lp7 \.mark\{[^}]*background:#093A26;color:#F6F4EC/.test(landingSheet);
+    const missing = users.filter((p) => !read(p).includes("bg-bb-forest") && !ownTile(p));
     expect(missing).toEqual([]);
   });
 });

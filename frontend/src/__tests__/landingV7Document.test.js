@@ -227,7 +227,7 @@ function vercelServe(files, path0) {
   return null;
 }
 const OUTPUT = ["/landing.html", "/app.html", "/stand.html", "/assets/index-1.js", "/robots.txt", "/sitemap.xml",
-  "/manifest.json", "/sw.js", "/og-image-v7.png", "/static/landing-v7/sched-draft-700.webp", "/favicon.ico"];
+  "/manifest.json", "/sw.js", "/og-image-v8.png", "/static/landing-v7/sched-draft-700.webp", "/favicon.ico"];
 
 describe("vercel.json: the landing's document for \"/\" and \"/v2\", today's for everything else", () => {
   it("rewrites, in order: the API manifest, /stand, /stand/*, \"/\" and \"/v2\" → /landing.html, the catch-all → /app.html", () => {
@@ -256,7 +256,7 @@ describe("vercel.json: the landing's document for \"/\" and \"/v2\", today's for
     }
     expect(at("/stand")).toBe("/stand.html");
     expect(at("/stand/tok")).toBe("/stand.html");
-    for (const f of ["/robots.txt", "/sitemap.xml", "/manifest.json", "/sw.js", "/og-image-v7.png", "/assets/index-1.js",
+    for (const f of ["/robots.txt", "/sitemap.xml", "/manifest.json", "/sw.js", "/og-image-v8.png", "/assets/index-1.js",
       "/static/landing-v7/sched-draft-700.webp", "/favicon.ico", "/landing.html", "/app.html"]) expect(at(f)).toBe(f);
   });
 

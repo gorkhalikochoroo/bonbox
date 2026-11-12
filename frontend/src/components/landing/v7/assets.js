@@ -34,9 +34,14 @@ export const IMG = Object.freeze({
   bookPt: phone("book-pt"),
 });
 
+/* The hero's sizes follow its stage (landingV7.css, 12 Nov 2026): from 1100 px the iPad's screen is 0.815 x the stage and
+ * the phone's 0.2256 x. The stage is at most 1152 px (the live page's) up to a 1279 px window and on any window up to
+ * 1362 px tall, so the screens draw at most 939 / 260 px there (the 1100 / 320 px files at 1x, as live); on a taller window
+ * it grows with the height, (100vh - 642px) x 1.6, so the screens follow 1.304 x 100vh - 837px and 0.361 x 100vh - 232px
+ * (the column caps the stage at 1680 px, so on the tallest windows these say a little more than is drawn, never less). */
 export const SIZES = Object.freeze({
-  heroTablet: "(max-width: 719px) calc(100vw - 40px), (max-width: 1099px) calc(84vw - 40px), 968px",
-  heroPhone: "(max-width: 719px) 40vw, (max-width: 1099px) 22vw, 280px",
+  heroTablet: "(max-width: 719px) calc(100vw - 40px), (max-width: 1099px) calc(84vw - 40px), (max-width: 1279px) 940px, (max-height: 1362px) 940px, calc(130.4vh - 837px)",
+  heroPhone: "(max-width: 719px) 40vw, (max-width: 1099px) 22vw, (max-width: 1279px) 260px, (max-height: 1362px) 260px, calc(36.1vh - 232px)",
   wide: "(max-width: 1099px) calc(100vw - 48px), 1040px",
   duo: "(max-width: 719px) 42vw, 240px",
   trio: "(max-width: 719px) 30vw, 200px",

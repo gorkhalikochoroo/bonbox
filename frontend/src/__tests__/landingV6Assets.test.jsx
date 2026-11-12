@@ -185,11 +185,11 @@ describe("landing v6 — the social card", () => {
     const og = FIX.og["public/og-image-v4.png"];
     expect([buf.length, createHash("sha256").update(buf).digest("hex")]).toEqual([og.bytes, og.sha256]);
     const html = readFileSync(join(FRONTEND, "index.html"), "utf8");
-    // landing v7 (12 Nov 2026): index.html now shares the v7 card (og-image-v7.png); the v4 file stays, byte-equal, for
-    // anything that already links it
+    // landing v7 (12 Nov 2026): index.html now shares the v7 card (og-image-v8.png since the official tile went in); the
+    // v4 file stays, byte-equal, for anything that already links it
     expect([...html.matchAll(/<meta (?:property|name)="(?:og|twitter):image" content="([^"]+)"/g)].map((m) => m[1])).toEqual([
-      "https://www.bonbox.dk/og-image-v7.png",
-      "https://www.bonbox.dk/og-image-v7.png",
+      "https://www.bonbox.dk/og-image-v8.png",
+      "https://www.bonbox.dk/og-image-v8.png",
     ]);
     // the share card is not one of the page's pictures, in either language
     for (const v of Object.values(IMG)) expect([v.da.file, v.en.file]).not.toContain("og-image-v4.png");
