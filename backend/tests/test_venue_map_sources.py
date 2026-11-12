@@ -298,6 +298,52 @@ def test_the_official_schema_is_drawn_in_our_buckets():
     assert _near(rgb.getpixel((cx + 160 * k, cy - 25 * k)), PAPER_GROUND, 3)   # the rail tunnel: not drawn
 
 
+# Inside the Denmark box but not Denmark: the official tiles there hold only
+# `vand: hav` and `natur: udland` (probed 12 Nov 2026: Malmoe Stortorget,
+# Flensburg Suedermarkt, HTTP 200, ~130 bytes).
+MALMO = (55.6056, 12.9995)
+FLENSBURG = (54.7826, 9.4357)
+
+
+def _kds_outside(z, x, y):
+    whole = _box(-64, -64, 4160, 4160)
+    return _layer("vand", [(3, whole, {"type": "hav"})]) + _layer("natur", [(3, whole, {"type": "udland"})])
+
+
+@pytest.mark.parametrize("where", [MALMO, FLENSBURG])
+def test_a_pin_outside_denmark_inside_the_box_is_drawn_by_openstreetmap(where, token, kds, osm):
+    """Not a flat green card with "© Klimadatastyrelsen" cached for good:
+    OpenStreetMap draws it, and the official map's breaker is not tripped
+    (the server answered; the pin is just not Danish)."""
+    assert vm.map_sources(*where) == ("kds", "osm")
+    with pytest.raises(vm.VenueMapError) as e:
+        vm.render_png(*where, width=336, height=96, dpr=2, fetch=_kds_outside, source=vm.SOURCE_KDS)
+    assert e.value.kind == "outside"
+    kds.tiles = _kds_outside
+    for _ in range(vm._FAILS_TO_OPEN + 1):
+        assert vm.render_map(*where, 336, 96, 2)[1] == "osm"
+    assert kds.requests and not vm._BREAKERS["kds"].is_open() and vm._BREAKERS["kds"].fails == 0
+    kds.tiles = _recorded                            # a Danish venue still gets the official map
+    assert vm.render_map(*RAADHUS, 336, 96, 2)[1] == "kds"
+
+
+def test_foreign_land_on_a_border_card_is_plain_ground_not_park():
+    """A Danish venue by the border: Germany/Sweden ("udland") is drawn as
+    plain ground, never as park and never as sea."""
+    tx, ty, ex, ey = _centre(*FLENSBURG, vm.KDS_Z)
+
+    def fetch(z, x, y):
+        ox = ex + (tx - x) * 4096
+        whole = _box(-64, -64, 4160, 4160)
+        return (_layer("vand", [(3, whole, {"type": "hav"})])
+                + _layer("natur", [(3, _box(-64, -64, ox, 4160), {"type": "land"}),
+                                   (3, _box(ox, -64, 4160, 4160), {"type": "udland"})]))
+    rgb = _rgb(vm.render_png(*FLENSBURG, width=360, height=112, dpr=2, fetch=fetch, source=vm.SOURCE_KDS))
+    cx, cy, k = 360, 112, 2
+    assert _near(rgb.getpixel((cx - 120 * k, cy - 30 * k)), PAPER_GROUND, 3)   # Danish land
+    assert _near(rgb.getpixel((cx + 120 * k, cy - 30 * k)), PAPER_GROUND, 3)   # udland: ground, not park/sea
+
+
 # ── 2. which source ──────────────────────────────────────────────────────────
 def test_official_first_only_with_a_token_and_in_denmark(monkeypatch):
     assert vm.map_sources(*RAADHUS) == ("osm",)                 # no token: OpenStreetMap only

@@ -31,8 +31,9 @@ without costing"). One image is always drawn from ONE source, never a mix:
      OpenStreetMap data in the OpenMapTiles schema, z14 tiles. The tile URL is
      versioned and read from the TileJSON. It draws whenever the official
      source cannot: no token, a pin outside Denmark, HTTP 4xx/5xx, a timeout,
-     a tile that does not decode, or an empty tile. The staffer never sees
-     which.
+     a tile that does not decode, an empty tile, or tiles that hold only sea
+     and foreign land (a pin in Sweden or Germany inside the Denmark box).
+     The staffer never sees which.
 Credit is required and free: the short line baked into the image follows the
 source that drew it; the full one ("Kort: Klimadatastyrelsen, Skaermkort
 (CC BY 4.0) · OpenFreeMap · OpenMapTiles · © OpenStreetMap-bidragydere") is in
@@ -287,8 +288,10 @@ class VenueMapError(RuntimeError):
     """The map could not be drawn (no tiles, bad tile, provider down).
 
     `kind`: "transient" (timeout, 5xx, 429, other 4xx), "gone" (the token was
-    refused), "bad" (a tile that does not decode), "empty" (no map data) or
-    "skipped" (no token / breaker open). The message never carries a URL
+    refused), "bad" (a tile that does not decode), "empty" (no map data),
+    "outside" (the official tiles hold only sea and foreign land: the pin is
+    outside Denmark, the server is fine) or "skipped" (no token / breaker
+    open). The message never carries a URL
     with a token or an address."""
 
     def __init__(self, msg: str = "", kind: str = "transient"):
@@ -614,8 +617,8 @@ def _credit_font(px: int):
 # tile and the land on top), "park", "water", "square", "building", and lines
 # as (road class, parts) / "stream" parts.
 def _empty_shapes() -> dict:
-    return {"sea": [], "land": [], "park": [], "water": [], "square": [], "building": [],
-            "lines": [], "stream": []}
+    return {"sea": [], "land": [], "foreign": [], "park": [], "water": [], "square": [],
+            "building": [], "lines": [], "stream": []}
 
 
 def _collect_osm(layers: dict, proj, out: dict) -> None:
@@ -651,8 +654,11 @@ _KDS_ROADS = {
     "sekundærvej": "secondary", "tertiærvej": "minor", "anden vej": "service",
     "sti": "path",
 }
-# `natur` that is bare ground, not green ("land" is the land itself).
-_KDS_NOT_GREEN = {"land", "sand", "strand", "klit", "sten", "grus", "ler"}
+# `natur` that is bare ground, not green ("land" is the land itself;
+# "udland" is Sweden / Germany, drawn as plain ground, never as park).
+_KDS_NOT_GREEN = {"land", "udland", "sand", "strand", "klit", "sten", "grus", "ler"}
+# Buckets that are NOT Danish map data: a card with only these is "outside".
+_KDS_NOT_DK = ("sea", "foreign")
 
 
 def _kds_type(props: dict, key: str = "type") -> str:
@@ -679,6 +685,8 @@ def _collect_kds(layers: dict, proj, out: dict) -> None:
             kind = _kds_type(props)
             if kind == "land":
                 out["land"].extend(proj(parts, ext))
+            elif kind == "udland":
+                out["foreign"].extend(proj(parts, ext))
             elif kind not in _KDS_NOT_GREEN:
                 out["park"].extend(proj(parts, ext))
     if "bebygget" in layers:
@@ -761,6 +769,10 @@ def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = MAP
         raise VenueMapError(f"tile failed: {type(e).__name__}", "bad") from None
     if kds and not _shape_count(shapes):
         raise VenueMapError("official map: empty tiles", "empty")
+    if kds and not any(v for b, v in shapes.items() if b not in _KDS_NOT_DK):
+        # Only sea and "udland" (Malmoe, Flensburg ...): a blank green card
+        # otherwise, cached for good. OpenStreetMap draws it instead.
+        raise VenueMapError("official map: outside Denmark", "outside")
 
     img = Image.new("RGB", (W, H), st["ground"])
     d = ImageDraw.Draw(img)
@@ -773,6 +785,7 @@ def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = MAP
     for bucket, fill, under in (
         ("sea", st["water"], st["ground"]),
         ("land", st["ground"], st["water"]),
+        ("foreign", st["ground"], st["water"]),
         ("park", st["park"], st["ground"]),
         ("water", st["water"], st["ground"]),
         ("square", st["square"], st["ground"]),
@@ -903,6 +916,8 @@ def render_map(lat: float, lng: float, width: int = DEFAULT_W, height: int = MAP
             last = e
             if e.kind == "skipped":
                 brk.release_probe()
+            elif e.kind == "outside":
+                brk.success()        # the server answered; the pin is just not Danish
             elif brk.failure(gone=e.kind == "gone"):
                 _alert_token_refused()
             if src != order[-1]:
