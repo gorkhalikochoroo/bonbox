@@ -55,14 +55,14 @@ describe("native shell config: the iOS webview runs edge to edge in BOTH apps", 
     expect(cfg.plugins.Keyboard.resize).toBe("body");
   });
 
-  it("the staff build that carries this is 1.7 (25) or later, the same in Debug and Release (ci_pre_xcodebuild.sh floors on it), iPhone + iPad", () => {
+  it("the staff build that carries this is 1.7 (25) or later (now 1.8 (26)), the same in Debug and Release (ci_pre_xcodebuild.sh floors on it), iPhone + iPad", () => {
     const pbx = read("ios-scheduler/App/App.xcodeproj/project.pbxproj");
     const builds = [...pbx.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map((m) => Number(m[1]));
     expect(builds.length).toBe(2);
     expect(builds[0]).toBe(builds[1]);
     expect(builds[0]).toBeGreaterThanOrEqual(25);   // live: 1.6 (24)
     const versions = [...pbx.matchAll(/MARKETING_VERSION = ([\d.]+);/g)].map((m) => m[1]);
-    expect(versions).toEqual(["1.7", "1.7"]);
+    expect(versions).toEqual(["1.8", "1.8"]);   // 1.8 (26): the seconds sweep; 1.7 (25) is in review
     // Universal since 1.6 — the App Store refuses an update that drops iPad.
     expect([...pbx.matchAll(/TARGETED_DEVICE_FAMILY = "([\d,]+)";/g)].map((m) => m[1])).toEqual(["1,2", "1,2"]);
   });
