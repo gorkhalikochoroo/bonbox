@@ -19,7 +19,7 @@
 // rendering layer changed.
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Undo2, Pencil, Trash, AlertCircle, Receipt } from "lucide-react";
+import { Undo2, Pencil, Trash, AlertCircle, ReceiptText as Receipt } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";

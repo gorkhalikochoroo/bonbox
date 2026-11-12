@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Receipt, CircleCheck, AlertTriangle, Scale } from "lucide-react";
+import { ReceiptText as Receipt, CircleCheck, AlertTriangle, Scale } from "lucide-react";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { localIso } from "../utils/dateFormat";

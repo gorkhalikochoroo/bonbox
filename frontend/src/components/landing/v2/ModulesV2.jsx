@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  Receipt,
+  ReceiptText as Receipt,
   Calendar,
   Users,
   Timer,

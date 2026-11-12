@@ -43,7 +43,7 @@
  * renders with a placeholder so the user can at least see the metadata.
  */
 import { useEffect } from "react";
-import { Receipt } from "lucide-react";
+import { ReceiptText as Receipt } from "lucide-react";
 import { useLanguage } from "../hooks/useLanguage";
 import { safeImageUrl } from "../utils/safeUrl";
 

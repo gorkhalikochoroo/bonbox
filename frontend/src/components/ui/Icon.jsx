@@ -26,7 +26,7 @@
  */
 import {
   // Core
-  Home, ShoppingBag, Receipt, CalendarDays, CalendarCheck,
+  Home, ShoppingBag, ReceiptText, CalendarDays, CalendarCheck,
   // Money
   Wallet, BookOpen, LineChart, Target, Landmark, CreditCard,
   BookText, FileText, Users, Car,
@@ -125,7 +125,7 @@ import {
 const ICONS = {
   HelpCircle,
   // Core
-  Home, ShoppingBag, Receipt, CalendarDays, CalendarCheck,
+  Home, ShoppingBag, Receipt: ReceiptText, CalendarDays, CalendarCheck,
   // Money group
   Wallet, BookOpen, LineChart, Target, Landmark, CreditCard,
   BookText, FileText, Users, Car,

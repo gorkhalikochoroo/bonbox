@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  CalendarX, LockOpen, Receipt, Inbox, Scale, Landmark, Gift, CircleCheck,
+  CalendarX, LockOpen, ReceiptText as Receipt, Inbox, Scale, Landmark, Gift, CircleCheck,
   ChevronLeft, ChevronRight, Download, FileText, Send, FileWarning, ArrowLeftRight, History,
 } from "lucide-react";
 import api from "../services/api";

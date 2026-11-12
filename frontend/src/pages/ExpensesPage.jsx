@@ -70,7 +70,7 @@ import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
 import { SkeletonPulse } from "../components/BonBoxPolishKit";
-import { Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight, Layers, CircleCheck } from "lucide-react";
+import { Camera, Pencil, Trash2, ChevronDown, ChevronUp, ReceiptText as Receipt, ChevronRight, Layers, CircleCheck } from "lucide-react";
 
 const QUICK_AMOUNTS = [100, 500, 1000];
 

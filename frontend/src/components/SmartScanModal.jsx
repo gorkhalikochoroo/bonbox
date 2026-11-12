@@ -33,7 +33,7 @@
 import { useEffect, useRef, useState } from "react";
 import { holdScanPhoto } from "../utils/pendingScanPhoto";
 import { useNavigate } from "react-router-dom";
-import { ScanLine, Camera, Receipt, FileText, Moon } from "lucide-react";
+import { ScanLine, Camera, ReceiptText as Receipt, FileText, Moon } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import {
   Camera as CapCamera, CameraResultType, CameraSource,
