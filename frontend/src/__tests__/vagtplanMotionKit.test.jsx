@@ -60,7 +60,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal only", () => {
+describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal (and the reservations surface) only", () => {
   const files = walk(SRC);
   const importers = (pkg) => files
     .filter((f) => read(path.relative(SRC, f)).includes(pkg))
@@ -68,8 +68,13 @@ describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal only", 
     .sort();
 
   it("only the portal entry (the page + its vagtplan.css) references them; main.jsx does not", () => {
-    expect(importers("@fontsource/sora")).toEqual(["components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
-    expect(importers("@fontsource/dm-sans")).toEqual(["components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+    // Reservations v2 (12 Nov 2026): the owner reservations page and the host
+    // stand wear the same Orvexlo type, through their own scoped stylesheet
+    // (components/reservations/rv2.css, imported by ReservationsPage only —
+    // a lazy chunk, never main.jsx or the landing).
+    expect(importers("@fontsource/sora")).toEqual(["components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+    expect(importers("@fontsource/dm-sans")).toEqual(["components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+    expect(importers("reservations/rv2.css")).toEqual(["pages/ReservationsPage.jsx"]);
     expect(read("main.jsx")).not.toMatch(/sora|dm-sans/i);
     // The stylesheet itself is imported by the portal page and nowhere else.
     expect(importers("staff/vagtplan.css")).toEqual(["pages/StaffPortalPage.jsx"]);

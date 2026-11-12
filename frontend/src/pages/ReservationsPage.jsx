@@ -78,6 +78,7 @@ import {
   CalendarOff,
   WifiOff,
   Unplug,
+  Search,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -118,6 +119,13 @@ import FloorPlan from "../components/FloorPlan";
 // deriveFloorState + fmtTime live in utils/floorState so they can be tested;
 // one definition each, imported here.
 import { deriveFloorState, fmtTime } from "../utils/floorState";
+// Reservations v2 (canvas 11 Nov 2026): the "I dag" numbers, the live row
+// words, who on the waitlist a table seats now, and the week's day strip.
+import { liveStatus, needsAction, peakSeats, firstWaiting, waitlistFits, weekStrip, addDays } from "../utils/tonight";
+import TonightStrip from "../components/reservations/TonightStrip";
+import WeekStrip from "../components/reservations/WeekStrip";
+import { useMediaQuery } from "../hooks/useMediaQuery";
+import "../components/reservations/rv2.css";
 import {
   WALK_IN_SIZES, walkInOptions, closeMsFor, coverCounts, stayMinutes, bySeatedTime, comboRules, seatingNow,
   tablesOf, sameTables, stampIso, bookedWithinSitting,
@@ -356,6 +364,9 @@ export default function ReservationsPage() {
   // The side column's second card ("Kommende") needs the book's own data and
   // actions, so the book portals it into this slot instead of lifting state.
   const [railSlot, setRailSlot] = useState(null);
+  // Reservations v2: the week's day strip sits beside the tabs (canvas); the
+  // book portals it here, as it does the side column's "Kommende".
+  const [weekSlot, setWeekSlot] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -595,15 +606,16 @@ export default function ReservationsPage() {
     // below that the single column is still the right shape.
     <div
       className={
+        // rv2: the v2 kit's tokens and type (components/reservations/rv2.css).
         isHostStand
-          ? "space-y-4"
+          ? "rv2 space-y-4"
           // The page's one piece of atmosphere (Manoj, 1 Oct 2026:
           // "background … nice"): a soft light of the brand green behind the
           // header, fading out before the content — painted as this box's own
           // background. (An absolutely placed layer needed `isolate`, and that
           // stacking context trapped the sheets under the phone's bottom bar.)
           // Rides the brand token, so dark mode gets its own lighter green.
-          : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-4 sm:space-y-6 " +
+          : "rv2 p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-4 sm:space-y-6 " +
             "bg-no-repeat bg-[radial-gradient(65%_24rem_at_50%_0%,rgb(var(--brand-green-accent)/0.14),transparent_70%)] " +
             "dark:bg-[radial-gradient(65%_24rem_at_50%_0%,rgb(var(--brand-green-accent)/0.08),transparent_70%)]" +
             // Phone: the same light, shortened so it fades out at the tabs
@@ -621,6 +633,7 @@ export default function ReservationsPage() {
         <PageTitle t={t} isProvider={apptWords} websiteHref="/reservations?tab=settings&show=website" />
       )}
       {!__STAND_BUILD__ && !isHostStand && (
+      <div className="lg:flex lg:items-center lg:justify-between lg:gap-4">
       <TabPills
         tabs={[
           // Salon (provider) reads "Aftaler" (the appointment book) instead of
@@ -670,6 +683,8 @@ export default function ReservationsPage() {
         // tabs belong to the title (they are the page's sections).
         className="max-sm:-mt-2"
       />
+      {tab === "book" && <div ref={setWeekSlot} className="hidden lg:flex shrink-0 empty:hidden" />}
+      </div>
       )}
 
       {/* R9: adding the first table (or behandler) switched online booking
@@ -708,6 +723,7 @@ export default function ReservationsPage() {
               onDayChange={setBookDay}
               railSlot={isHostStand ? null : railSlot}
               onRoomRead={isStandDevice ? roomRead : null}
+              weekSlot={isHostStand ? null : weekSlot}
             />
           </div>
         </div>
@@ -3987,7 +4003,7 @@ function cockpitWhenUnknown(known, items) {
 // The room's own asks after a failed read of the tables (fix round 5).
 const ROOM_RETRY_MS = [5000, 15000, 30000];
 
-function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayChange, railSlot = null, onRoomRead = null }) {
+function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayChange, railSlot = null, onRoomRead = null, weekSlot = null }) {
   const { lang } = useLanguage();
   const confirm = useConfirm();
   // Host-stand pop-out chrome lives in THIS component's return (the top bar +
@@ -6361,10 +6377,102 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => selectUpcoming(reservations, { day, today: todayIso }),
     [reservations, day, todayIso],
   );
+  // ── Reservations v2: "I dag" (utils/tonight.js) ─────────────────────
+  // A table venue's day being served gets the canvas's six numbers; another
+  // day, a salon, a shop and a workshop keep the cockpit strip as it was.
+  const tonightOn = isViewingToday && tableFloor && !isProvider && !apptWords;
+  const needs = useMemo(() => needsAction(reservations, nowTs, isViewingToday), [reservations, nowTs, isViewingToday]);
+  const peak = useMemo(
+    () => ({ ...peakSeats(reservations, { groupThreshold: publicPage?.groupThreshold }), seats: totalCapacity }),
+    [reservations, publicPage?.groupThreshold, totalCapacity],
+  );
+  // The Venteliste's own rows, reported up by WaitlistSection (it owns the
+  // fetch): who waited longest, and which of them a table seats right now.
+  const [waitlistEntries, setWaitlistEntries] = useState([]);
+  const wlFirst = useMemo(() => firstWaiting(waitlistEntries), [waitlistEntries]);
+  const wlFits = useMemo(() => {
+    if (!isViewingToday || !tableFloor || isProvider || !rulesLoaded) return new Map();
+    return waitlistFits({
+      entries: waitlistEntries,
+      reservations,
+      resources: assignableTables,
+      nowMs: nowTs,
+      sittingFor: (n) => sittingMinutes(n, bookingRules),
+      combine: joinNow,
+    });
+  }, [isViewingToday, tableFloor, isProvider, rulesLoaded, waitlistEntries, reservations, assignableTables, nowTs, bookingRules, joinNow]);
+  // The week's day strip (owner page, laptop and iPad): seven days beside the
+  // tabs, covers from /reservations/month-load — the same counts the month
+  // rail and the day's own strip use. The door screen never changes day.
+  const wideOwner = useMediaQuery("(min-width: 1024px)");
+  // The list with the live room beside it (canvas): the owner page from
+  // 1280, the door screen (no app sidebar) from 1100 — an iPad in landscape.
+  const sideWide = useMediaQuery(standalone ? "(min-width: 1100px)" : "(min-width: 1280px)");
+  const weekOn = !__STAND_BUILD__ && !standalone && !!weekSlot && wideOwner;
+  const [weekStart, setWeekStart] = useState(() => day);
+  useEffect(() => {
+    // Follow the book when the day is moved elsewhere (stepper, rail, link).
+    if (day < weekStart || day > addDays(weekStart, 6)) setWeekStart(day);
+  }, [day]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [monthLoads, setMonthLoads] = useState({});
+  useEffect(() => {
+    if (!weekOn) return undefined;
+    const months = [...new Set([weekStart.slice(0, 7), addDays(weekStart, 6).slice(0, 7)])];
+    let alive = true;
+    Promise.all(
+      months.map((m) =>
+        api
+          .get("/reservations/month-load", { params: { month: m } })
+          .then((r) => [m, r.data])
+          .catch(() => [m, null]),
+      ),
+    ).then((rows) => {
+      if (!alive) return;
+      setMonthLoads((prev) => {
+        const next = { ...prev };
+        for (const [m, d] of rows) {
+          // A month that did not answer is unknown — its days lose their bars.
+          if (!d || !Array.isArray(d.days)) {
+            delete next[m];
+            continue;
+          }
+          const map = {};
+          for (const x of d.days) map[x.date] = x;
+          next[m] = map;
+        }
+        return next;
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [weekOn, weekStart, bookTick]);
+  const weekDays = useMemo(() => {
+    if (!weekOn) return null;
+    return weekStrip({
+      start: weekStart,
+      loads: Object.assign({}, ...Object.values(monthLoads)),
+      knownMonths: Object.keys(monthLoads),
+      openHours,
+      today: todayIso,
+      selected: day,
+    });
+  }, [weekOn, weekStart, monthLoads, openHours, todayIso, day]);
   // Click a status tile → jump to the list, filtered to that status.
   const focusStatus = (status) => {
     pickView("liste");
     setStatusFilter(status);
+  };
+  // The stand's "Find gæst": the list, and its search field focused — the
+  // visible one (the phone's own field, or the filter bar's from sm up).
+  const focusGuestSearch = () => {
+    pickView("liste");
+    setTimeout(() => {
+      const el = ["rsvp-search-phone", "fb-search"]
+        .map((id) => document.getElementById(id))
+        .find((x) => x && x.offsetParent !== null);
+      (el || document.getElementById("fb-search"))?.focus();
+    }, 60);
   };
   // Click the waitlist tile → jump to the Venteliste (it renders below the
   // whole booking list). Every other cockpit tile navigates; this one was the
@@ -6625,7 +6733,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               </div>
             </div>
           )
-          : <StatusPill status={r.status} label={labels[r.status] || r.status} />;
+          : (() => {
+            // Reservations v2: the live word under the pill — minutes at the
+            // table (from seated_at, never guessed) or "in 10 min".
+            const live = liveStatus(r, nowTs, isViewingToday);
+            const word =
+              live.kind === "seated" && live.min != null
+                ? <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400 tabular-nums whitespace-nowrap" data-live="seated">{t("rsvpLiveAtTable", "{n} min at the table", { n: live.min })}</div>
+                : live.kind === "soon"
+                  ? <div className="mt-1 text-[11px] font-medium text-[var(--rv-brass-ink)] tabular-nums whitespace-nowrap" data-live="soon">{live.min === 0 ? t("rsvpLiveDueNow", "Due now") : t("rsvpLiveSoon", "In {n} min", { n: live.min })}</div>
+                  : null;
+            return word ? (
+              <div className="leading-tight">
+                <StatusPill status={r.status} label={labels[r.status] || r.status} />
+                {word}
+              </div>
+            ) : <StatusPill status={r.status} label={labels[r.status] || r.status} />;
+          })();
       },
     },
     {
@@ -6671,8 +6795,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // flips go icon-only so "Sæt til bords" stays whole — at 1280 the three
       // worded pills pushed the actions off-screen.
       // Only once they were due — see ReservationDrawer.
+      // A LATE party (5+ min past its time) carries the word — the decision
+      // the host has to make right now (canvas v2: "20 min forsinket ·
+      // Udeblevet"); before that it stays a quiet icon.
       if (!r.starts_at || new Date(r.starts_at).getTime() <= nowTs) out.push({
-        id: "no_show", label: t("rsvpNoShowAction", "No-show"), text: false, icon: <Ban className="w-4 h-4" />, variant: "danger", disabled: busy,
+        id: "no_show", label: t("rsvpNoShowAction", "No-show"), text: !!lateMinutes(r, nowTs, isViewingToday), icon: <Ban className="w-4 h-4" />, variant: "danger", disabled: busy,
         onClick: guardedSet({
           title: t("rsvpNoShowConfirmTitle", "Mark as no-show?"),
           message: t("rsvpNoShowConfirmBody", "Records that {name} didn't arrive.", { name: who }),
@@ -6852,6 +6979,22 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               : r.status === "confirmed"
               ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-sky-500 dark:bg-sky-400" role="img" aria-label={labels.confirmed || "confirmed"} />
               : <span className="shrink-0"><StatusInline status={r.status} label={labels[r.status] || r.status} /></span>}
+            {/* Reservations v2: the live word — "in 10 min" for the next
+                party, minutes at the table for a seated one. */}
+            {!overMin && !lateMin && (() => {
+              const live = liveStatus(r, nowTs, isViewingToday);
+              if (live.kind === "soon") {
+                return (
+                  <span className="shrink-0 whitespace-nowrap font-medium text-[var(--rv-brass-ink)]" data-live="soon">
+                    {live.min === 0 ? t("rsvpLiveDueNow", "Due now") : t("rsvpLiveSoon", "In {n} min", { n: live.min })}
+                  </span>
+                );
+              }
+              if (live.kind === "seated" && live.min != null) {
+                return <span className="shrink-0 whitespace-nowrap" data-live="seated">{t("rsvpLiveMin", "{n} min", { n: live.min })}</span>;
+              }
+              return null;
+            })()}
             {/* A finished party: seated → left with the time at the table.
                 Only from the two recorded stamps — a row finished before they
                 were kept shows no time, not a guess. */}
@@ -7066,11 +7209,281 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     );
   }
 
+  // The list and its Venteliste, as one piece: drawn alone, or beside the
+  // live room from 1280 (sideFloorOn, below).
+  const sideFloorOn =
+    sideWide &&
+    view === "liste" &&
+    tableFloor &&
+    !isProvider &&
+    !apptWords &&
+    !bookUnavailable &&
+    !roomUnknown &&
+    resourcesLoaded &&
+    assignableTables.length > 0;
+  const listBlock = (
+    <>
+      {/* ── Liste (the polished data-table) ── */}
+      {view === "liste" && !bookUnavailable && (
+        <>
+          {/* Phone: the search sits in the open, with Filter beside it — it
+              was behind the Filter chip, and the other-day results landed
+              under three dropdowns, below the fold. */}
+          <div className="sm:hidden flex items-center gap-2">
+            <FilterBar.Search
+              id="rsvp-search-phone"
+              value={q}
+              onChange={setQ}
+              placeholder={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
+              aria-label={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
+              className="min-w-0"
+            />
+            <button
+              type="button"
+              onClick={() => setMobileFiltersOpen((v) => !v)}
+              aria-expanded={mobileFiltersOpen || selectsOn}
+              className="shrink-0 inline-flex items-center gap-1.5 h-10 min-h-0! px-3 rounded-lg border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] text-[13px] font-medium text-gray-600 dark:text-gray-300"
+            >
+              <SlidersHorizontal className="w-4 h-4" aria-hidden />
+              {t("rsvpFilterChip", "Filter")}
+              {selectsOn && (
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-gray-100" aria-hidden />
+              )}
+            </button>
+          </div>
+          <div className={mobileFiltersOpen || selectsOn ? "" : "hidden sm:block"}>
+          <FilterBar>
+            <FilterBar.Search
+              value={q}
+              onChange={setQ}
+              placeholder={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
+              className="max-sm:hidden"
+            />
+            <FilterBar.Select
+              label={t("rsvpFilterStatus", "Status")}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: "all", label: t("rsvpFilterAll", "All") },
+                ...["requested", "confirmed", "seated", "completed", "no_show", "cancelled"].map(
+                  (s) => ({ value: s, label: labels[s] }),
+                ),
+              ]}
+            />
+            {zones.length > 0 && (
+              <FilterBar.Select
+                label={t("rsvpFilterZone", "Zone")}
+                value={zoneFilter}
+                onChange={setZoneFilter}
+                options={[
+                  { value: "all", label: t("rsvpFilterAll", "All") },
+                  ...zones.map((z) => ({ value: z, label: z })),
+                ]}
+              />
+            )}
+            {noteTypes.length > 0 && (
+              <FilterBar.Select
+                label={t("rsvpFilterNoteType", "Note type")}
+                value={noteTypeFilter}
+                onChange={setNoteTypeFilter}
+                options={[
+                  { value: "all", label: t("rsvpFilterAll", "All") },
+                  ...noteTypes.map((n) => ({ value: n, label: noteIntentLabel(n, t) || n })),
+                ]}
+              />
+            )}
+            {filtersOn && <FilterBar.Reset onClick={resetFilters} label={t("reset", "Reset")} />}
+          </FilterBar>
+          </div>
+
+          {otherDayHits.length > 0 && (
+            <section
+              aria-label={t("rsvpSearchOtherDays", "On other days")}
+              className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))]"
+            >
+              <h3 className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {t("rsvpSearchOtherDays", "On other days")}
+              </h3>
+              <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                {otherDayHits.map((h) => (
+                  <li key={h.id}>
+                    <button
+                      type="button"
+                      onClick={() => openOtherDay(h)}
+                      className={"w-full min-h-[44px] px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 " +
+                        (h.status === "cancelled" || h.status === "no_show" ? "opacity-60" : "")}
+                    >
+                      <span className="min-w-[8.5rem] shrink-0 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 tabular-nums">
+                        {shortDayLabel(h.day, t, lang)} · {hm(String(h.starts_at).slice(11, 16))}
+                      </span>
+                      <span className="flex-1 min-w-0 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {guestText(h.guest_name) || t("rsvpGuest", "Guest")}
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-sm tabular-nums text-gray-700 dark:text-gray-300 shrink-0">
+                        <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />{h.party_size}
+                      </span>
+                      {/* The book's own status colour, not a grey word. */}
+                      <span className="hidden sm:inline-flex text-[12px] shrink-0"><StatusInline status={h.status} label={labels[h.status] || h.status} /></span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {searchPending && (
+            <p className="text-[12px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-1.5" role="status">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+              {t("rsvpSearchingOtherDays", "Searching other days…")}
+            </p>
+          )}
+          {searchLive && found.failed && (
+            <p className="text-[12px] text-gray-500 dark:text-gray-400">
+              {t("rsvpSearchOtherDaysFailed", "Couldn't search other days just now — this day's list is still right.")}
+            </p>
+          )}
+
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            rowKey="id"
+            loading={loading}
+            rowActions={rowActions}
+            onRowClick={openDrawer}
+            // A cancelled or no-show row reads as history, as it already does
+            // on the phone list — at full ink it looked like a live table.
+            rowClassName={(r) => (r.status === "cancelled" || r.status === "no_show" ? "opacity-60" : "")}
+
+            // Compact rows up to lg: at 768 (the host stand's tablet) the table
+            // was 884px in 718px, with Udeblevet/Aflys off screen.
+            // Compact rows below 1360: at 1024–1279 the table was 25–48px
+            // wider than its card ("Afslut" cut in half), and at 1280 a late
+            // party's extra no-show button pushed every ✕ past the edge.
+            mobileBreakpoint="wide"
+            mobileRow={compactRow}
+            empty={
+              // Nothing today, but found on other days (listed above): a
+              // line pointing there, not a big "Nothing matches" card.
+              filtersOn && otherDayHits.length > 0 ? (
+                <p className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                  {t("rsvpNoMatchTodayOtherDays", "Nothing on this day — see the other days above.")}
+                </p>
+              ) :
+              /* Three honest empty states, not one: filtered-to-nothing, a
+                 quiet day, and a venue that has no tables yet — the last used
+                 to wear the second one's copy and promise bookings that could
+                 never arrive. The phone route is named because it genuinely
+                 still works with no floor plan (the 409 room_full path saves
+                 the booking unassigned), so this is never a dead end. */
+              <Empty
+                icon={CalendarCheck}
+                title={
+                  // Filtered to nothing is not "no reservations yet" — it said
+                  // so over a day with three bookings.
+                  filtersOn
+                    ? t("rsvpNoMatchTitle", "Nothing matches")
+                    : cancelledCount > 0 && !showCancelled
+                      ? t("rsvpOnlyCancelledTitle", "No active bookings")
+                    : noTablesYet
+                      ? t("rsvpBookNoTablesTitle", "No tables set up yet")
+                      : apptWords
+                        ? t("rsvpBookEmptyProvider", "No appointments for {date} yet.", { date: fmtDkDate(day) })
+                        : t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })
+                }
+                body={
+                  filtersOn
+                    ? liveCount > 0
+                      ? t("rsvpNoMatchBody", "{n} bookings on this day — clear the search or filters to see them.", { n: liveCount })
+                      : t("rsvpNoMatchNoneBody", "No active bookings on this day.")
+                    : cancelledCount > 0 && !showCancelled
+                      ? t("rsvpOnlyCancelledBody", "{n} cancelled — shown under the list.", { n: cancelledCount })
+                    : noTablesYet
+                      ? t(
+                          "rsvpBookNoTablesBody",
+                          "Guests can't book online until there's a table to seat them at. You can still take one over the phone with New booking.",
+                        )
+                      : apptWords
+                        // No table plan and no behandler (a shop, a workshop):
+                        // the page has nothing to offer online, so the book
+                        // fills from "Book en tid" — say that, not "as
+                        // customers book".
+                        ? (!isProvider && !tableFloor
+                          ? t("rsvpBookEmptyBodyManual", "Book a customer's time with “Book an appointment” — it shows here.")
+                          : t("rsvpBookEmptyBodyProvider", "Appointments appear here as customers book."))
+                        : t("rsvpBookEmptyBody", "Bookings will appear here as they come in.")
+                }
+                cta={
+                  noTablesYet && !filtersOn ? (
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      iconLeft={<Armchair className="w-4 h-4" />}
+                      onClick={() => navigate("/reservations?tab=floor")}
+                    >
+                      {t("rsvpBookNoTablesCta", "Set up your tables")}
+                    </Button>
+                  ) : null
+                }
+              />
+            }
+          />
+
+          {statusFilter === "all" && !q.trim() && cancelledCount > 0 && (
+            <button type="button" onClick={() => setShowCancelled((v) => !v)}
+              className="mt-2 w-full min-h-[44px] rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 hover:bg-gray-50 dark:hover:text-gray-100 dark:hover:bg-gray-800/60">
+              {showCancelled
+                ? t("rsvpHideCancelled", "Hide cancelled")
+                : t("rsvpShowCancelled", "Show {n} cancelled", { n: cancelledCount })}
+            </button>
+          )}
+
+        </>
+      )}
+
+      {/* Venteliste — parties we couldn't seat. A cancel/no-show above hands us
+          the fitting matches (spotMatches) to highlight. The id is the scroll
+          target for the cockpit's waitlist cell.
+
+          Mounted in EVERY view, hidden outside Liste: this section owns the
+          waitlist fetch, and the cockpit's "På venteliste" count and the side
+          column's waitlist line both read the count it reports. Mounted only
+          inside Liste, both said 0 in Plan and Tidslinje after a fresh load —
+          with a party actually waiting. */}
+      <div
+        id="rsvp-venteliste"
+        // R11 (B11): not drawn until the book's first answer — it sat in the
+        // viewport under the list's skeleton and was pushed down 615 px when
+        // the rows came (desktop CLS 0.218, 20 Oct). Still mounted, so its
+        // count reaches the cockpit as before.
+        className={"scroll-mt-4" + (view === "liste" && (data || loadError) ? "" : " hidden")}
+        data-venteliste-shown={view === "liste" && (data || loadError) ? "" : undefined}
+      >
+        <WaitlistSection
+          day={day}
+          spotMatches={spotMatches}
+          quietSpot={nudgeFloats}
+          refreshTick={bookTick}
+          onCountChange={setWaitlistCount}
+          onConverted={() => fetchBook(day)}
+          openHours={openHours}
+          bookingRules={bookingRules}
+          tableLabelFor={(r) => resolveTableLabel(r, labelById)}
+          // Appointment words (salon, shop, repair trade); with no table plan
+          // the waitlist books the time as it is, never "find a table".
+          isProvider={apptWords}
+          assignTables={tableFloor || isProvider}
+          addRequest={wlAddRequest}
+          onEntries={setWaitlistEntries}
+          fitFor={wlFits.size ? (e) => wlFits.get(e.id) || null : null}
+        />
+      </div>
+
+    </>
+  );
   return (
     <div
       className={
         standalone
-          ? "min-h-screen bg-gray-50 dark:bg-gray-950 px-4 sm:px-6 lg:px-8 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-4 max-sm:space-y-3"
+          ? "rv2 min-h-screen bg-[var(--rv-ivory)] dark:bg-gray-950 px-4 sm:px-6 lg:px-8 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-4 max-sm:space-y-3"
           : "space-y-4 max-sm:space-y-3"
       }
     >
@@ -7079,6 +7492,18 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           only beside the floor PLAN: there the host sees the room but not the
           queue. Beside Liste or Tidslinje it repeated what the page already
           shows. A day that is over has nothing coming, so no list at all. */}
+      {weekDays &&
+        createPortal(
+          <WeekStrip
+            t={t}
+            lang={lang}
+            days={weekDays}
+            onPick={setDay}
+            onPrev={() => setWeekStart((w) => addDays(w, -7))}
+            onNext={() => setWeekStart((w) => addDays(w, 7))}
+          />,
+          weekSlot,
+        )}
       {!__STAND_BUILD__ && railSlot && !loading && view === "plan" && day >= todayIso &&
         createPortal(
           <UpcomingRail
@@ -7209,6 +7634,48 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               owner door sits behind the overflow. Reversed from how this used
               to be: the gear was one tap and the sound was invisible. */}
           <div className="flex items-center gap-1 shrink-0">
+            {/* Reservations v2 (canvas Host.dc.html): find a guest in one tap,
+                who is waiting, and the time — read at arm's length. "Live"
+                only while this screen's last read of the book answered; when
+                it did not, the offline line by the refresh says how old the
+                book is instead. */}
+            {showStandNow && (
+              <>
+                <button
+                  type="button"
+                  onClick={focusGuestSearch}
+                  data-stand-find=""
+                  className="rv2-press inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-[13px] font-semibold text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  <Search className="w-4 h-4" aria-hidden />
+                  <span className="max-lg:sr-only">{t("rsvpStandFindGuest", "Find guest")}</span>
+                </button>
+                {typeof waitlistCount === "number" && waitlistCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={focusWaitlist}
+                    data-stand-waiting=""
+                    className="rv2-press inline-flex items-center gap-1 h-10 px-2.5 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 whitespace-nowrap"
+                  >
+                    <span className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{waitlistCount}</span>
+                    {t("rsvpStandWaiting", "waiting")}
+                  </button>
+                )}
+                {!!data && !bookOffline && (
+                  <span className="max-md:hidden inline-flex items-center gap-1.5 px-1.5 text-[12px] font-semibold text-[var(--rv-sage)]" data-stand-live="">
+                    <span className="rv2-live-dot w-1.5 h-1.5 rounded-full bg-[var(--rv-sage)]" aria-hidden="true" />
+                    {t("rsvpTnLive", "Live")}
+                  </span>
+                )}
+                <time
+                  className="max-md:hidden rv2-num px-1.5 text-[15px] font-semibold text-gray-900 dark:text-gray-100"
+                  data-stand-clock=""
+                  dateTime={new Date(nowTs).toISOString()}
+                >
+                  {fmtTime(new Date(nowTs).toISOString())}
+                </time>
+              </>
+            )}
             <StandSoundChip t={t} />
             <StandMenu
               t={t}
@@ -7682,6 +8149,41 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {!__STAND_BUILD__ && isProvider && !standalone && !salonNeedsSetup && (
         <SalonDayCapacity t={t} lang={lang} day={day} />
       )}
+      {tonightOn ? (
+        <TonightStrip
+          t={t}
+          known={!!data}
+          covers={summary.covers}
+          bookings={coverBookings}
+          seatedGuests={seatedGuests}
+          seatedTables={seatedTables.tables}
+          totalTables={assignableTables.length}
+          next={nextArrival ? {
+            time: fmtTime(nextArrival.starts_at),
+            helper: nextArrivalHelper,
+            late: !!lateMinutes(nextArrival, nowTs, isViewingToday),
+          } : null}
+          needs={{
+            total: needs.total,
+            requested: needs.requested,
+            late: needs.late.map((x) => ({ name: (guestText(x.r.guest_name) || "").trim(), min: x.min, r: x.r })),
+          }}
+          peak={peak}
+          // A waitlist that could not be read is "—", never "no one waiting".
+          waitlist={typeof waitlistCount === "number" ? {
+            count: waitlistCount,
+            first: wlFirst ? { name: (guestText(wlFirst.guest_name) || "").trim(), party: wlFirst.party_size } : null,
+          } : null}
+          live={!!data && !bookOffline}
+          onSeated={() => focusStatus("seated")}
+          onNext={nextArrival ? () => openDrawer(nextArrival) : undefined}
+          // A late party opens itself (Seat or Udeblevet are there); requests
+          // only → the list of requests.
+          onNeeds={() => (needs.late[0] ? openDrawer(needs.late[0].r) : focusStatus("requested"))}
+          onWaitlist={focusWaitlist}
+          selected={view === "liste" && statusFilter === "seated" ? "seated" : view === "liste" && statusFilter === "requested" ? "needs" : null}
+        />
+      ) : (
       <StatStrip
         shortBelow="xl"
         items={cockpitWhenUnknown(!!data, [
@@ -7801,6 +8303,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           },
         ])}
       />
+      )}
 
       {/* R11 (B10): a table may have opened and someone waiting fits it —
           said where the host is looking, never under the last row: a card
@@ -7886,257 +8389,43 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         </div>
       )}
 
-      {/* ── Liste (the polished data-table) ── */}
-      {view === "liste" && !bookUnavailable && (
-        <>
-          {/* Phone: the search sits in the open, with Filter beside it — it
-              was behind the Filter chip, and the other-day results landed
-              under three dropdowns, below the fold. */}
-          <div className="sm:hidden flex items-center gap-2">
-            <FilterBar.Search
-              id="rsvp-search-phone"
-              value={q}
-              onChange={setQ}
-              placeholder={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
-              aria-label={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
-              className="min-w-0"
-            />
-            <button
-              type="button"
-              onClick={() => setMobileFiltersOpen((v) => !v)}
-              aria-expanded={mobileFiltersOpen || selectsOn}
-              className="shrink-0 inline-flex items-center gap-1.5 h-10 min-h-0! px-3 rounded-lg border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] text-[13px] font-medium text-gray-600 dark:text-gray-300"
-            >
-              <SlidersHorizontal className="w-4 h-4" aria-hidden />
-              {t("rsvpFilterChip", "Filter")}
-              {selectsOn && (
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-gray-100" aria-hidden />
+      {/* Reservations v2: from 1280 (the door screen from 1100) the list and
+          the live room side by side, as the canvas draws them — the host
+          reads the night and the room at once. Below that, exactly as
+          before: the list, with the room one lens away. */}
+      {sideFloorOn ? (
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(340px,420px)] 2xl:grid-cols-[minmax(0,1fr)_480px] gap-5 items-start" data-rv2-split="">
+          <div className="min-w-0 space-y-4">{listBlock}</div>
+          <aside
+            aria-label={t("rsvpSideFloorAria", "Floor plan, live")}
+            className="sticky top-4 rounded-[14px] border border-[var(--rv-hair)] bg-[var(--rv-card)] p-3"
+            data-rv2-side-floor=""
+          >
+            <div className="flex items-center gap-2 px-1 pb-2">
+              <h2 className="text-[15px] font-semibold text-[var(--rv-ink)]">{t("rsvpSideFloorTitle", "Floor plan")}</h2>
+              {!bookOffline && (
+                <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--rv-sage)]">
+                  <span className="rv2-live-dot w-1.5 h-1.5 rounded-full bg-[var(--rv-sage)]" aria-hidden="true" />
+                  {t("rsvpTnLive", "Live")}
+                </span>
               )}
-            </button>
-          </div>
-          <div className={mobileFiltersOpen || selectsOn ? "" : "hidden sm:block"}>
-          <FilterBar>
-            <FilterBar.Search
-              value={q}
-              onChange={setQ}
-              placeholder={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
-              className="max-sm:hidden"
+            </div>
+            <FloorView
+              reservations={reservations}
+              resources={resources}
+              t={t}
+              businessType={businessType}
+              onSelect={openDrawer}
+              onSeatNow={setSeatTarget}
+              onResourcesChanged={fetchResources}
+              // Arranging the room is the Floor tab's (and the Plan lens's)
+              // job; beside the list the room is for reading and seating.
+              canArrange={false}
+              fixtures={fixtures}
             />
-            <FilterBar.Select
-              label={t("rsvpFilterStatus", "Status")}
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { value: "all", label: t("rsvpFilterAll", "All") },
-                ...["requested", "confirmed", "seated", "completed", "no_show", "cancelled"].map(
-                  (s) => ({ value: s, label: labels[s] }),
-                ),
-              ]}
-            />
-            {zones.length > 0 && (
-              <FilterBar.Select
-                label={t("rsvpFilterZone", "Zone")}
-                value={zoneFilter}
-                onChange={setZoneFilter}
-                options={[
-                  { value: "all", label: t("rsvpFilterAll", "All") },
-                  ...zones.map((z) => ({ value: z, label: z })),
-                ]}
-              />
-            )}
-            {noteTypes.length > 0 && (
-              <FilterBar.Select
-                label={t("rsvpFilterNoteType", "Note type")}
-                value={noteTypeFilter}
-                onChange={setNoteTypeFilter}
-                options={[
-                  { value: "all", label: t("rsvpFilterAll", "All") },
-                  ...noteTypes.map((n) => ({ value: n, label: noteIntentLabel(n, t) || n })),
-                ]}
-              />
-            )}
-            {filtersOn && <FilterBar.Reset onClick={resetFilters} label={t("reset", "Reset")} />}
-          </FilterBar>
-          </div>
-
-          {otherDayHits.length > 0 && (
-            <section
-              aria-label={t("rsvpSearchOtherDays", "On other days")}
-              className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))]"
-            >
-              <h3 className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {t("rsvpSearchOtherDays", "On other days")}
-              </h3>
-              <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-                {otherDayHits.map((h) => (
-                  <li key={h.id}>
-                    <button
-                      type="button"
-                      onClick={() => openOtherDay(h)}
-                      className={"w-full min-h-[44px] px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 " +
-                        (h.status === "cancelled" || h.status === "no_show" ? "opacity-60" : "")}
-                    >
-                      <span className="min-w-[8.5rem] shrink-0 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 tabular-nums">
-                        {shortDayLabel(h.day, t, lang)} · {hm(String(h.starts_at).slice(11, 16))}
-                      </span>
-                      <span className="flex-1 min-w-0 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {guestText(h.guest_name) || t("rsvpGuest", "Guest")}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-sm tabular-nums text-gray-700 dark:text-gray-300 shrink-0">
-                        <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />{h.party_size}
-                      </span>
-                      {/* The book's own status colour, not a grey word. */}
-                      <span className="hidden sm:inline-flex text-[12px] shrink-0"><StatusInline status={h.status} label={labels[h.status] || h.status} /></span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {searchPending && (
-            <p className="text-[12px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-1.5" role="status">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
-              {t("rsvpSearchingOtherDays", "Searching other days…")}
-            </p>
-          )}
-          {searchLive && found.failed && (
-            <p className="text-[12px] text-gray-500 dark:text-gray-400">
-              {t("rsvpSearchOtherDaysFailed", "Couldn't search other days just now — this day's list is still right.")}
-            </p>
-          )}
-
-          <DataTable
-            columns={columns}
-            rows={filtered}
-            rowKey="id"
-            loading={loading}
-            rowActions={rowActions}
-            onRowClick={openDrawer}
-            // A cancelled or no-show row reads as history, as it already does
-            // on the phone list — at full ink it looked like a live table.
-            rowClassName={(r) => (r.status === "cancelled" || r.status === "no_show" ? "opacity-60" : "")}
-
-            // Compact rows up to lg: at 768 (the host stand's tablet) the table
-            // was 884px in 718px, with Udeblevet/Aflys off screen.
-            // Compact rows below 1360: at 1024–1279 the table was 25–48px
-            // wider than its card ("Afslut" cut in half), and at 1280 a late
-            // party's extra no-show button pushed every ✕ past the edge.
-            mobileBreakpoint="wide"
-            mobileRow={compactRow}
-            empty={
-              // Nothing today, but found on other days (listed above): a
-              // line pointing there, not a big "Nothing matches" card.
-              filtersOn && otherDayHits.length > 0 ? (
-                <p className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                  {t("rsvpNoMatchTodayOtherDays", "Nothing on this day — see the other days above.")}
-                </p>
-              ) :
-              /* Three honest empty states, not one: filtered-to-nothing, a
-                 quiet day, and a venue that has no tables yet — the last used
-                 to wear the second one's copy and promise bookings that could
-                 never arrive. The phone route is named because it genuinely
-                 still works with no floor plan (the 409 room_full path saves
-                 the booking unassigned), so this is never a dead end. */
-              <Empty
-                icon={CalendarCheck}
-                title={
-                  // Filtered to nothing is not "no reservations yet" — it said
-                  // so over a day with three bookings.
-                  filtersOn
-                    ? t("rsvpNoMatchTitle", "Nothing matches")
-                    : cancelledCount > 0 && !showCancelled
-                      ? t("rsvpOnlyCancelledTitle", "No active bookings")
-                    : noTablesYet
-                      ? t("rsvpBookNoTablesTitle", "No tables set up yet")
-                      : apptWords
-                        ? t("rsvpBookEmptyProvider", "No appointments for {date} yet.", { date: fmtDkDate(day) })
-                        : t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })
-                }
-                body={
-                  filtersOn
-                    ? liveCount > 0
-                      ? t("rsvpNoMatchBody", "{n} bookings on this day — clear the search or filters to see them.", { n: liveCount })
-                      : t("rsvpNoMatchNoneBody", "No active bookings on this day.")
-                    : cancelledCount > 0 && !showCancelled
-                      ? t("rsvpOnlyCancelledBody", "{n} cancelled — shown under the list.", { n: cancelledCount })
-                    : noTablesYet
-                      ? t(
-                          "rsvpBookNoTablesBody",
-                          "Guests can't book online until there's a table to seat them at. You can still take one over the phone with New booking.",
-                        )
-                      : apptWords
-                        // No table plan and no behandler (a shop, a workshop):
-                        // the page has nothing to offer online, so the book
-                        // fills from "Book en tid" — say that, not "as
-                        // customers book".
-                        ? (!isProvider && !tableFloor
-                          ? t("rsvpBookEmptyBodyManual", "Book a customer's time with “Book an appointment” — it shows here.")
-                          : t("rsvpBookEmptyBodyProvider", "Appointments appear here as customers book."))
-                        : t("rsvpBookEmptyBody", "Bookings will appear here as they come in.")
-                }
-                cta={
-                  noTablesYet && !filtersOn ? (
-                    <Button
-                      variant="primary"
-                      size="lg"
-                      iconLeft={<Armchair className="w-4 h-4" />}
-                      onClick={() => navigate("/reservations?tab=floor")}
-                    >
-                      {t("rsvpBookNoTablesCta", "Set up your tables")}
-                    </Button>
-                  ) : null
-                }
-              />
-            }
-          />
-
-          {statusFilter === "all" && !q.trim() && cancelledCount > 0 && (
-            <button type="button" onClick={() => setShowCancelled((v) => !v)}
-              className="mt-2 w-full min-h-[44px] rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 hover:bg-gray-50 dark:hover:text-gray-100 dark:hover:bg-gray-800/60">
-              {showCancelled
-                ? t("rsvpHideCancelled", "Hide cancelled")
-                : t("rsvpShowCancelled", "Show {n} cancelled", { n: cancelledCount })}
-            </button>
-          )}
-
-        </>
-      )}
-
-      {/* Venteliste — parties we couldn't seat. A cancel/no-show above hands us
-          the fitting matches (spotMatches) to highlight. The id is the scroll
-          target for the cockpit's waitlist cell.
-
-          Mounted in EVERY view, hidden outside Liste: this section owns the
-          waitlist fetch, and the cockpit's "På venteliste" count and the side
-          column's waitlist line both read the count it reports. Mounted only
-          inside Liste, both said 0 in Plan and Tidslinje after a fresh load —
-          with a party actually waiting. */}
-      <div
-        id="rsvp-venteliste"
-        // R11 (B11): not drawn until the book's first answer — it sat in the
-        // viewport under the list's skeleton and was pushed down 615 px when
-        // the rows came (desktop CLS 0.218, 20 Oct). Still mounted, so its
-        // count reaches the cockpit as before.
-        className={"scroll-mt-4" + (view === "liste" && (data || loadError) ? "" : " hidden")}
-        data-venteliste-shown={view === "liste" && (data || loadError) ? "" : undefined}
-      >
-        <WaitlistSection
-          day={day}
-          spotMatches={spotMatches}
-          quietSpot={nudgeFloats}
-          refreshTick={bookTick}
-          onCountChange={setWaitlistCount}
-          onConverted={() => fetchBook(day)}
-          openHours={openHours}
-          bookingRules={bookingRules}
-          tableLabelFor={(r) => resolveTableLabel(r, labelById)}
-          // Appointment words (salon, shop, repair trade); with no table plan
-          // the waitlist books the time as it is, never "find a table".
-          isProvider={apptWords}
-          assignTables={tableFloor || isProvider}
-          addRequest={wlAddRequest}
-        />
-      </div>
+          </aside>
+        </div>
+      ) : listBlock}
 
       {/* ── Plan (visual floor) ── */}
       {/* A party seated with no table can't be drawn on the floor — it read

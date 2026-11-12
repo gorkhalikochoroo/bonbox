@@ -513,7 +513,14 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // "couldn't load the tables" box (+1 role, +2 button with their onClick:
     // "Try again" and "Add to waitlist"), with the existing words (no new
     // t() keys). Was { onClick: 75, role: 35, button: 53 }.
-    "pages/ReservationsPage.jsx": { onClick: 77, onChange: 53, onSubmit: 10, ariaLabel: 59, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 36, title: 24, id: 22, testid: 23, Button: 24, button: 55, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 708 },
+    // Reservations v2 (12 Nov 2026) ADDED, nothing removed: the stand header's
+    // Find gæst and "N venter" (+2 button, +2 onClick), the side room's
+    // aside (+1 aria-label), and 9 t() keys (the row's live words
+    // rsvpLiveAtTable/DueNow/Soon/Min, rsvpSideFloorAria/Title, rsvpTnLive,
+    // rsvpStandFindGuest, rsvpStandWaiting). The "I dag" strip and the week
+    // strip live in their own files (TonightStrip.jsx, WeekStrip.jsx). Was
+    // { onClick: 77, ariaLabel: 59, button: 55, tKeys: 708 }.
+    "pages/ReservationsPage.jsx": { onClick: 79, onChange: 53, onSubmit: 10, ariaLabel: 60, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 36, title: 24, id: 22, testid: 23, Button: 24, button: 57, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 717 },
     "components/reservations/EditBookingSheet.jsx": { onClick: 7, onChange: 7, onSubmit: 1, ariaLabel: 2, ariaPressed: 1, role: 3, id: 7, Button: 5, button: 2, disabled: 2, tKeys: 30 },
     "hooks/useSheetFocus.js": { role: 2, tKeys: 0 },
     "utils/snapStart.js": { tKeys: 4 },

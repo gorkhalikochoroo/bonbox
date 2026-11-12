@@ -81,6 +81,7 @@ const inputCls =
  * value would read as a rendering bug; a 0 would read as a fact.
  */
 const UNKNOWN_COUNT = "—";
+const NO_ROWS = [];
 
 // Next round hour today (local) as an HH:MM default for the Book time picker.
 // Outside service hours (before 11, after 21) it offers the evening: 08:00
@@ -111,6 +112,11 @@ export default function WaitlistSection({
   // The page's floating freed-table nudge says the same right now: the
   // "a spot may have opened" line keeps quiet while it floats (fix round 5).
   quietSpot = false,
+  // Reservations v2: the rows, reported up (the page's "Venteliste" number
+  // names who waited longest), and — the day being served — which table
+  // seats a party NOW for their whole sitting: (entry) → { label } | null.
+  onEntries = null,
+  fitFor = null,
 }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -188,6 +194,14 @@ export default function WaitlistSection({
     if (q.failed) onCountChange(UNKNOWN_COUNT, { failed: true });
     else onCountChange(activeCount);
   }, [onCountChange, day, q.loading, q.failed, activeCount]);
+
+  // The rows, up to the page — only an answer: a failed read reports nothing.
+  // (q.data is stable between reads; `entries` is a new [] on every render
+  // when the answer has no rows, which would loop.)
+  useEffect(() => {
+    if (!onEntries || q.loading || q.failed) return;
+    onEntries(q.data?.waitlist || NO_ROWS);
+  }, [onEntries, q.loading, q.failed, q.data]);
 
   // Parent surfaced matches from a just-freed table → highlight + a calm banner.
   useEffect(() => {
@@ -640,6 +654,19 @@ export default function WaitlistSection({
                         {heldWhy(e.held_reason, t)}
                       </p>
                     )}
+                    {/* Reservations v2: a table seats them now, for their whole
+                        sitting (the drop-in row's rule). Said, never held —
+                        Giv besked's own confirm says the table isn't reserved. */}
+                    {(() => {
+                      const fit = fitFor ? fitFor(e) : null;
+                      if (!fit?.label) return null;
+                      return (
+                        <p className="mt-0.5 inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-700 dark:text-emerald-400" data-wl-fit="">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 shrink-0" aria-hidden="true" />
+                          {t("rsvpWlFitNow", "Free now and fits: {table}", { table: fit.label })}
+                        </p>
+                      );
+                    })()}
                     {e.note && (
                       <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">{guestText(e.note)}</p>
                     )}
