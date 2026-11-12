@@ -4765,7 +4765,8 @@ def resolve_venue_location(
     db: Session = Depends(get_db),          # committed before the outbound call
     user: User = Depends(get_current_user),
 ):
-    """Turn a Danish address or a pasted map link into venue coordinates.
+    """Turn an address (Danish, or in the venue's own country) or a pasted
+    map link into venue coordinates.
 
     Exists because the geofence could previously only be anchored by standing
     inside the venue and tapping "use my current location". That is the most
@@ -4796,6 +4797,11 @@ def resolve_venue_location(
       query_kind ("address" | "name" | "map_link", added 12 Nov 2026): what
           the owner typed, so the panel's advice and caveat fit it. Old
           builds ignore it.
+      country (ISO code, added 12 Nov 2026, 200 and 404): where the typed
+          line was looked up — the venue's country from the business
+          profile. "DK" (also for unset): the register, then OpenStreetMap
+          in Denmark, exactly as before. Any other: OpenStreetMap in that
+          country only, same guards. Old builds ignore it.
       424 {"error": "lookup_unavailable"} — the lookup is down. NOT 503:
           services/api.js replays a POST that gets 503 up to 4 times (one
           lookup would become five, with a minute-long spinner, on old and new
@@ -4809,18 +4815,22 @@ def resolve_venue_location(
         raise HTTPException(status_code=422, detail={"error": "too_short"})
 
     user_key = str(user.id)
+    # The venue's country picks the lookup (a Portuguese café is searched in
+    # Portugal, never in Denmark — and a Danish venue never abroad).
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    country = venue_locate.venue_country(profile.country if profile else None)
     # The session opened by get_current_user holds a pooled connection; give
     # it back before the outbound calls (up to 10 s).
     db.commit()
-    outcome, found, reason = venue_locate.resolve_outcome(q, user_key=user_key)
-    kind = venue_locate.query_kind(q)
+    outcome, found, reason = venue_locate.resolve_outcome(q, user_key=user_key, country=country)
+    kind = venue_locate.query_kind(q, country)
     if outcome == Outcome.UNAVAILABLE:
         raise HTTPException(status_code=424, detail={"error": "lookup_unavailable"})
     if outcome != Outcome.FOUND or not found:
         raise HTTPException(status_code=404, detail={
-            "error": "not_found", "reason": reason, "query_kind": kind,
+            "error": "not_found", "reason": reason, "query_kind": kind, "country": country,
         })
-    found = {**found, "query_kind": kind}
+    found = {**found, "query_kind": kind, "country": country}
 
     import logging  # module-local, matching this file's existing pattern
     logging.getLogger(__name__).info(

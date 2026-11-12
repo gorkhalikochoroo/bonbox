@@ -94,6 +94,7 @@ def _changed(target, field: str) -> bool:
 
 def _profile_address_changed(mapper, connection, target):  # noqa: ARG001
     if not any(_changed(target, f) for f in _PROFILE_ADDRESS_FIELDS):
+        _profile_country_changed(target)
         return
     # A write that sets a new pin in the same flush owns it (none does today).
     if any(_changed_any(target, f) for f in ("venue_lat", "venue_lng")):
@@ -111,6 +112,29 @@ def _profile_address_changed(mapper, connection, target):  # noqa: ARG001
             VenueMap.__table__.c.branch_id.is_(None),
         )
     )
+
+
+def _profile_country_changed(target) -> None:
+    """The venue's country picks where the address is looked up (Denmark:
+    the register; Portugal: OpenStreetMap in Portugal). A remembered failed
+    lookup ("none") from the old country must not wait LOOKUP_RETRY: clear
+    only that marker, so the next pin check asks in the new country. A pin
+    — looked up, confirmed or pasted — is never touched here."""
+    from sqlalchemy import inspect as _inspect
+
+    from app.services import venue_map as _vm
+
+    if getattr(target, "venue_geo_source", None) != _vm.GEO_NONE:
+        return
+    hist = _inspect(target).attrs["country"].history
+    if not hist.has_changes():
+        return
+    old = (hist.deleted or [None])[0]
+    new = (hist.added or [None])[0]
+    if _vm.lookup_country(old) == _vm.lookup_country(new):
+        return
+    target.venue_geo_source = None
+    target.venue_geo_at = None
 
 
 def _branch_address_changed(mapper, connection, target):  # noqa: ARG001

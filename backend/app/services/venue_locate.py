@@ -28,6 +28,12 @@ THREE INPUTS, NONE NEEDING A PAID KEY
    house-number guard, countrycodes=dk, at most one call per second, an
    identifying User-Agent, and a kill switch (GEO_OSM_ENABLED).
 
+A VENUE OUTSIDE DENMARK (12 Nov 2026; Portugal first): the venue's country
+(business_profiles.country) picks the lookup. Denmark or unset: 1-3 above,
+unchanged. Another country: no register (it is Danish), only Nominatim with
+countrycodes=<that country> and the same guards in that country's postcode
+format (address_lookup.osm_find_in). Map links work anywhere, as before.
+
 DELIBERATELY NOT THE GOOGLE GEOCODING API. It needs a billing-enabled key, and
 its terms restrict retaining geocoded coordinates beyond ~30 days with narrow
 exceptions — a permanent geofence anchor is exactly the long-term storage that
@@ -53,7 +59,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from app.services import address_lookup
-from app.services.address_lookup import GeoResult, Outcome
+from app.services.address_lookup import GeoResult, Outcome, venue_country  # noqa: F401 — re-exported
 
 logger = logging.getLogger(__name__)
 
@@ -224,13 +230,16 @@ def from_place_name(query: str) -> dict | None:
     return _as_dict(geo) if outcome == Outcome.FOUND and geo else None
 
 
-def resolve_outcome(query: str, *, user_key: str | None = None) -> tuple[Outcome, dict | None, str | None]:
+def resolve_outcome(query: str, *, user_key: str | None = None,
+                    country: str | None = None) -> tuple[Outcome, dict | None, str | None]:
     """Map link, Danish address, or — failing the register — a venue name.
 
     (FOUND, dict, None) | (NOT_FOUND, None, reason) | (UNAVAILABLE, None, None).
     reason is None, "street_only", "postcode_mismatch" or "need_postcode".
     Order is deliberate: the address register is authoritative and exact, the
     name search is best-effort; a fuzzy match must never beat an exact one.
+    `country` is the venue's: unset or Denmark is the chain above; another
+    country is looked up only there (no register, see the module docstring).
     """
     q = (query or "").strip()
     if not q:
@@ -238,23 +247,24 @@ def resolve_outcome(query: str, *, user_key: str | None = None) -> tuple[Outcome
     if q.lower().startswith(("http://", "https://")):
         found = from_map_link(q)
         return (Outcome.FOUND, found, None) if found else (Outcome.NOT_FOUND, None, None)
-    outcome, geo, reason = address_lookup.geocode(q, user_key=user_key)
+    outcome, geo, reason = address_lookup.geocode(q, user_key=user_key, country=country)
     if outcome == Outcome.FOUND and geo:
         return Outcome.FOUND, _as_dict(geo), None
     return outcome if outcome != Outcome.FOUND else Outcome.NOT_FOUND, None, reason
 
 
-def query_kind(query: str) -> str:
+def query_kind(query: str, country: str | None = None) -> str:
     """"map_link", "address" (a typed street address) or "name" (a venue
     name). Added to the /resolve answers (200 and 404) so the panel's advice
     matches what the owner typed: "check the street, number and postcode"
     for an address; "not every venue is on the map" only for a name; and an
     OpenStreetMap hit for a typed address says it came from OpenStreetMap,
-    not "found by name". Old builds ignore the field."""
+    not "found by name". Old builds ignore the field. Read in the venue's
+    country's address format."""
     q = (query or "").strip()
     if q.lower().startswith(("http://", "https://")):
         return "map_link"
-    return "address" if address_lookup.looks_like_street_address(q) else "name"
+    return "address" if address_lookup.looks_like_street_address(q, country) else "name"
 
 
 def resolve(query: str) -> dict | None:

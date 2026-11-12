@@ -25,6 +25,8 @@ import httpx
 _DIR = Path(__file__).resolve().parent / "geo_fixtures"
 KDS = json.loads((_DIR / "kds.json").read_text(encoding="utf-8"))["cases"]
 OSM = json.loads((_DIR / "osm.json").read_text(encoding="utf-8"))["cases"]
+# 12 Nov 2026, the venue-country lookup: each case names its host.
+FOREIGN = json.loads((_DIR / "foreign.json").read_text(encoding="utf-8"))["cases"]
 
 TEST_TOKEN = "test-token-not-real-0000"
 
@@ -38,6 +40,8 @@ for _name, _c in KDS.items():
     _INDEX.setdefault(_key("adressevaelger.dk", _c["path"], _c["params"]), _c)
 for _name, _c in OSM.items():
     _INDEX.setdefault(_key("nominatim.openstreetmap.org", _c["path"], _c["params"]), _c)
+for _name, _c in FOREIGN.items():
+    _INDEX.setdefault(_key(_c["host"], _c["path"], _c["params"]), _c)
 
 
 def kds(name: str) -> dict:
@@ -46,6 +50,10 @@ def kds(name: str) -> dict:
 
 def osm(name: str) -> dict:
     return OSM[name]
+
+
+def foreign(name: str) -> dict:
+    return FOREIGN[name]
 
 
 def reply(case: dict) -> httpx.Response:
