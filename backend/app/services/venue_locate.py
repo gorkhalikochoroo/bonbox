@@ -244,6 +244,19 @@ def resolve_outcome(query: str, *, user_key: str | None = None) -> tuple[Outcome
     return outcome if outcome != Outcome.FOUND else Outcome.NOT_FOUND, None, reason
 
 
+def query_kind(query: str) -> str:
+    """"map_link", "address" (a typed street address) or "name" (a venue
+    name). Added to the /resolve answers (200 and 404) so the panel's advice
+    matches what the owner typed: "check the street, number and postcode"
+    for an address; "not every venue is on the map" only for a name; and an
+    OpenStreetMap hit for a typed address says it came from OpenStreetMap,
+    not "found by name". Old builds ignore the field."""
+    q = (query or "").strip()
+    if q.lower().startswith(("http://", "https://")):
+        return "map_link"
+    return "address" if address_lookup.looks_like_street_address(q) else "name"
+
+
 def resolve(query: str) -> dict | None:
     """The old dict|None shape (a thin wrapper over resolve_outcome)."""
     return resolve_outcome(query)[1]

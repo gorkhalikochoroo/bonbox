@@ -90,13 +90,19 @@ class Settings(BaseSettings):
     GOOGLE_PLACES_API_KEY: str = ""  # Google Places API (nearby competitor discovery)
     # Danmarks Adresseregister via Klimadatastyrelsen's Adressevælger /
     # Adressevask (services/address_lookup.py; DAWA closed 1 Oct 2026). Every
-    # call carries a token. Today KDS publishes one shared token; it is still
-    # treated as a secret (Render env only, never in git, a bundle or a log),
-    # so the registered token KDS will require is only a value change.
-    # Empty = "not configured": the address check answers "couldn't check
-    # right now" and venue pins fall back to OpenStreetMap — safe before the
-    # value is set.
+    # call carries a token. Unset or empty = KDS's shared PUBLIC token
+    # (address_lookup.KDS_PUBLIC_TOKEN): KDS publishes it on
+    # https://confluence.kds.dk/display/ADV/Brugerstyring and asks every user
+    # to send it until user management starts (end 2026 / early 2027), so it
+    # is not a secret. The per-user token KDS issues after that IS a secret:
+    # set it here from the environment only (Render), never in code, a bundle
+    # or a log. Switching tokens is a value change, no code change.
     ADDRESS_REGISTER_TOKEN: str = ""
+    # Kill switch for the register lookups. Off = the address check answers
+    # "couldn't check right now" and venue pins fall back to OpenStreetMap.
+    # Tests switch it off (tests/conftest.py) so no test reaches the
+    # internet; ops can set it false in Render if KDS asks us to stop.
+    ADDRESS_REGISTER_ENABLED: bool = True
     # OpenStreetMap Nominatim as the venue-pin backup. OSMF's usage policy
     # requires that we can stop at their request without an app update: set
     # false in Render.

@@ -4739,13 +4739,16 @@ def resolve_venue_location(
     is still not a reason to fetch an arbitrary URL from our network.
 
     Answers:
-      200 the candidate {lat, lng, label, source, provider[, dawa_id]};
-          source "place_name" for an OpenStreetMap hit, so old builds keep
-          their "check it's yours" caveat.
+      200 the candidate {lat, lng, label, source, provider[, dawa_id],
+          query_kind}; source "place_name" for an OpenStreetMap hit, so old
+          builds keep their "check it's yours" caveat.
       404 {"error": "not_found", "reason": null | "street_only" |
-          "postcode_mismatch" | "need_postcode"} — a street-only,
-          wrong-postcode or ambiguous pin is refused, never offered: a wrong
-          anchor can lock staff out of clock-in.
+          "postcode_mismatch" | "need_postcode", "query_kind"} — a
+          street-only, wrong-postcode or ambiguous pin is refused, never
+          offered: a wrong anchor can lock staff out of clock-in.
+      query_kind ("address" | "name" | "map_link", added 12 Nov 2026): what
+          the owner typed, so the panel's advice and caveat fit it. Old
+          builds ignore it.
       424 {"error": "lookup_unavailable"} — the lookup is down. NOT 503:
           services/api.js replays a POST that gets 503 up to 4 times (one
           lookup would become five, with a minute-long spinner, on old and new
@@ -4763,10 +4766,14 @@ def resolve_venue_location(
     # it back before the outbound calls (up to 10 s).
     db.commit()
     outcome, found, reason = venue_locate.resolve_outcome(q, user_key=user_key)
+    kind = venue_locate.query_kind(q)
     if outcome == Outcome.UNAVAILABLE:
         raise HTTPException(status_code=424, detail={"error": "lookup_unavailable"})
     if outcome != Outcome.FOUND or not found:
-        raise HTTPException(status_code=404, detail={"error": "not_found", "reason": reason})
+        raise HTTPException(status_code=404, detail={
+            "error": "not_found", "reason": reason, "query_kind": kind,
+        })
+    found = {**found, "query_kind": kind}
 
     import logging  # module-local, matching this file's existing pattern
     logging.getLogger(__name__).info(

@@ -56,9 +56,10 @@ services:
         sync: false
       - key: GOOGLE_PLACES_API_KEY
         sync: false
-      # Danmarks Adresseregister (KDS Adressevælger/Adressevask) token; empty
-      # = "couldn't check" + OpenStreetMap pins. Value from KDS's Brugerstyring
-      # page, pasted in Render only.
+      # Danmarks Adresseregister (KDS Adressevælger/Adressevask) token. Unset
+      # or empty = KDS's shared public token (a code default; KDS publishes it
+      # on its Brugerstyring page until user management starts). BonBox's own
+      # per-user token, when KDS issues one, is pasted in Render only.
       - key: ADDRESS_REGISTER_TOKEN
         sync: false
       # OpenStreetMap Nominatim backup for venue pins; unset = on (code

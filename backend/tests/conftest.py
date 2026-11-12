@@ -33,23 +33,26 @@ import sys
 
 import pytest
 
-# Address lookups (services/address_lookup.py) fail CLOSED in tests: no
-# register token and OpenStreetMap off, so a test without a stub gets
-# "couldn't check" (UNAVAILABLE) instead of calling the internet. Many PUT
-# /business tests change addresses; they take this no-network path. Set
-# before any test module imports app.config. The opt-in live contract test
-# (test_address_lookup_live.py) gets the real token through the
+# Address lookups (services/address_lookup.py) fail CLOSED in tests: the
+# register switched off (an empty token now means KDS's public token, so an
+# empty token alone no longer keeps tests offline) and OpenStreetMap off, so a
+# test without a stub gets "couldn't check" (UNAVAILABLE) instead of calling
+# the internet. Many PUT /business tests change addresses; they take this
+# no-network path. Set before any test module imports app.config. The opt-in
+# live contract test (test_address_lookup_live.py) gets the token through the
 # `live_geo_token` fixture below, never through the environment.
+# None = the live test is off; "" = on, with the code's public-token default.
 _LIVE_GEO_TOKEN = (
     os.environ.get("ADDRESS_REGISTER_TOKEN", "")
-    if os.environ.get("BONBOX_LIVE_GEO") == "1" else ""
+    if os.environ.get("BONBOX_LIVE_GEO") == "1" else None
 )
 os.environ["ADDRESS_REGISTER_TOKEN"] = ""
+os.environ["ADDRESS_REGISTER_ENABLED"] = "false"
 os.environ["GEO_OSM_ENABLED"] = "false"
 
 
 @pytest.fixture
-def live_geo_token() -> str:
+def live_geo_token() -> str | None:
     return _LIVE_GEO_TOKEN
 
 

@@ -1,8 +1,9 @@
 """LIVE contract test against KDS Adressevælger/Adressevask (plan 3.7 / 3.8).
 
-SKIPPED unless BONBOX_LIVE_GEO=1 and the register token is in the
-environment when pytest starts (conftest takes it into the `live_geo_token`
-fixture and blanks the environment for every other test). Load the token
+SKIPPED unless BONBOX_LIVE_GEO=1 when pytest starts. A register token in
+the environment is used if there is one (conftest takes it into the
+`live_geo_token` fixture and blanks the environment for every other test);
+without one the code's default, KDS's public token, is used. Load a token
 only inside the command, never print it:
 
     set -a; . ~/.bonbox/test-keys.env; set +a
@@ -66,9 +67,10 @@ def _metres(lat1, lng1, lat2, lng2) -> float:
 
 
 def test_live_register_contract(live_geo_token, monkeypatch):
-    if not live_geo_token:
-        pytest.skip("no register token in the environment")
+    if live_geo_token is None:
+        pytest.skip("live register test is off (BONBOX_LIVE_GEO=1 turns it on)")
     monkeypatch.setattr(settings, "ADDRESS_REGISTER_TOKEN", live_geo_token)
+    monkeypatch.setattr(settings, "ADDRESS_REGISTER_ENABLED", True)
     monkeypatch.setattr(settings, "GEO_OSM_ENABLED", False)
     al.reset_state()
     al.set_transport(None)

@@ -55,9 +55,10 @@ def clock(monkeypatch):
 
 @pytest.fixture
 def geo(monkeypatch, clock):
-    """Token set, OSM on, the replay transport installed, a fake clock (so
+    """Token set, register on, OSM on, the replay transport installed, a fake clock (so
     the 1.1 s Nominatim spacing never sleeps for real)."""
     monkeypatch.setattr(settings, "ADDRESS_REGISTER_TOKEN", TEST_TOKEN)
+    monkeypatch.setattr(settings, "ADDRESS_REGISTER_ENABLED", True)
     monkeypatch.setattr(settings, "GEO_OSM_ENABLED", True)
     al.reset_state()
 
@@ -532,12 +533,42 @@ def test_a_200_that_is_not_the_expected_json_is_unavailable(geo):
     assert al.register_address("00000000-0000-0000-0000-000000000001", al.Deadline(5))[0] == Outcome.UNAVAILABLE
 
 
-def test_an_empty_token_is_unavailable_with_no_network_call(geo, monkeypatch):
+def test_the_register_switched_off_is_unavailable_with_no_network_call(geo, monkeypatch):
+    """Was "an empty token is unavailable with no network call". Since 12 Nov
+    2026 an empty token means KDS's public token (below), so the no-network
+    "couldn't check" path is the kill switch ADDRESS_REGISTER_ENABLED=false."""
     t = geo()
-    monkeypatch.setattr(settings, "ADDRESS_REGISTER_TOKEN", "")
+    monkeypatch.setattr(settings, "ADDRESS_REGISTER_ENABLED", False)
     assert al.wash("Rådhuspladsen 1", "1550", "København V") == (Outcome.UNAVAILABLE, None)
     assert t.calls == []
     assert not al._BREAKERS["dar"].is_open()
+
+
+def test_the_public_kds_token_is_the_code_default():
+    """KDS publishes "adressevaelger123" on confluence.kds.dk/display/ADV/
+    Brugerstyring and asks every user to send it until user management
+    starts. Pinned so a refactor cannot silently drop or change it."""
+    assert al.KDS_PUBLIC_TOKEN == "adressevaelger123"
+
+
+@pytest.mark.parametrize("unset", ["", "   ", None])
+def test_an_unset_or_empty_token_sends_the_public_kds_token(geo, monkeypatch, unset):
+    geo()
+    monkeypatch.setattr(settings, "ADDRESS_REGISTER_TOKEN", unset)
+    t = GeoReplay(expect_token=al.KDS_PUBLIC_TOKEN)      # asserts the token sent
+    al.set_transport(t.mock)
+    out, res = al.wash("Rådhuspladsen 1", "1550", "København V")
+    assert out == Outcome.FOUND and res.category == "A"
+    assert t.calls and all(t.token_positions)
+
+
+def test_a_token_from_the_environment_overrides_the_public_one(geo, monkeypatch):
+    geo()
+    monkeypatch.setattr(settings, "ADDRESS_REGISTER_TOKEN", "  bonbox-own-token-0001  ")
+    t = GeoReplay(expect_token="bonbox-own-token-0001")
+    al.set_transport(t.mock)
+    assert al.wash("Rådhuspladsen 1", "1550", "København V")[0] == Outcome.FOUND
+    assert t.calls
 
 
 def test_the_token_is_always_the_last_parameter(geo):
@@ -901,6 +932,36 @@ def test_the_token_and_the_address_never_appear_in_any_log(geo, caplog, monkeypa
     for secret in (TEST_TOKEN, "Rådhuspladsen", "Søndergade", "Algade", "Vestergade",
                    "R%C3%A5dhuspladsen", "1550", "adressevaelger.dk/", "abc)"):
         assert secret not in text, secret
+
+
+def test_the_public_default_token_never_appears_in_logs_errors_or_alerts(geo, caplog, monkeypatch):
+    """T1 (12 Nov): the default token is public, but it still never goes into
+    a log line, an error or an ops alert — the same rule as a real token, so
+    swapping in BonBox's own token later needs no new guard. Covers httpx's
+    URL-carrying exception and KDS's "Ugyldigt token (<token>)" 400 echo."""
+    import app.services.ops_alert as ops_alert
+    alerts = []
+    monkeypatch.setattr(ops_alert, "send_ops_alert", lambda *a, **k: alerts.append(a))
+    caplog.set_level(logging.DEBUG)
+    geo()
+    monkeypatch.setattr(settings, "ADDRESS_REGISTER_TOKEN", "")
+
+    def boom(request):
+        raise httpx.ConnectError(f"cannot reach {request.url}")   # httpx puts the URL in errors
+
+    echo = f"Ugyldigt token ({al.KDS_PUBLIC_TOKEN})".encode("utf-8")
+    al.set_transport(GeoReplay({(REG, "/vask/"): boom}, expect_token=al.KDS_PUBLIC_TOKEN).mock)
+    assert al.wash("Rådhuspladsen 1", "1550", "København V") == (Outcome.UNAVAILABLE, None)
+    al.reset_state()
+    al.set_transport(GeoReplay({(REG, "/vask/"): lambda req: httpx.Response(400, content=echo)},
+                               expect_token=al.KDS_PUBLIC_TOKEN).mock)
+    assert al.wash("Vestergade 77", "1456", "København K") == (Outcome.UNAVAILABLE, None)
+    assert al._BREAKERS["dar"].is_open()          # read as a token error: the alarm
+    assert alerts
+    blob = caplog.text + json.dumps([list(map(str, a)) for a in alerts])
+    assert caplog.records
+    for secret in (al.KDS_PUBLIC_TOKEN, "token=", "adressevaelger.dk/", "Rådhuspladsen", "Vestergade"):
+        assert secret not in blob, secret
 
 
 def test_only_venue_locate_and_dawa_verify_import_address_lookup():

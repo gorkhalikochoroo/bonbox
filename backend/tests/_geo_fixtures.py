@@ -103,7 +103,7 @@ import pytest  # noqa: E402
 
 @pytest.fixture
 def geo_on(monkeypatch):
-    """Token set, OpenStreetMap on, the replay transport installed and the
+    """Token set, register on, OpenStreetMap on, the replay transport installed and the
     Nominatim spacing sleep skipped. Call it to install a GeoReplay:
 
         t = geo_on()                       # recordings only
@@ -113,6 +113,7 @@ def geo_on(monkeypatch):
     from app.services import address_lookup as al
 
     monkeypatch.setattr(settings, "ADDRESS_REGISTER_TOKEN", TEST_TOKEN)
+    monkeypatch.setattr(settings, "ADDRESS_REGISTER_ENABLED", True)
     monkeypatch.setattr(settings, "GEO_OSM_ENABLED", True)
     monkeypatch.setattr(al, "_sleep", lambda s: None)
     al.reset_state()

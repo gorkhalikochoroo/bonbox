@@ -5,7 +5,9 @@ WHY THIS FILE EXISTS
 Denmark's free address API (DAWA) shut down on 1 Oct 2026. Its successor
 from the same agency is Klimadatastyrelsen's (KDS) Adressevælger +
 Adressevask on adressevaelger.dk: free, official, same DAR UUIDs. It answers
-in EPSG:25832 (UTM 32N), not WGS84, and every call carries a token.
+in EPSG:25832 (UTM 32N), not WGS84, and every call carries a token: KDS's
+shared public token by default (KDS_PUBLIC_TOKEN), or BonBox's own from the
+environment once KDS issues one.
 
 Two jobs, two rules (plan DAWA-REPLACEMENT-PLAN.md 3.1, decisions 2-4):
 
@@ -176,8 +178,24 @@ def set_transport(transport: httpx.BaseTransport | None) -> None:
     _transport = transport
 
 
+# KDS's ONE shared public token. KDS publishes it on its "Brugerstyring" page
+# (https://confluence.kds.dk/display/ADV/Brugerstyring) and asks every user
+# of Adressevælger/Adressevask to send it until user management starts (end
+# 2026 / early 2027). It is not a secret, so it is the code default when
+# ADDRESS_REGISTER_TOKEN is unset or empty (approved 12 Nov 2026). The real
+# per-user token KDS issues after that IS a secret: it comes from the
+# environment only (Render), never from code, a bundle or a log.
+KDS_PUBLIC_TOKEN = "adressevaelger123"
+
+
 def _token() -> str:
-    return (getattr(settings, "ADDRESS_REGISTER_TOKEN", "") or "").strip()
+    return (getattr(settings, "ADDRESS_REGISTER_TOKEN", "") or "").strip() or KDS_PUBLIC_TOKEN
+
+
+def _register_enabled() -> bool:
+    """Kill switch (ADDRESS_REGISTER_ENABLED). Tests switch it off so no test
+    reaches the internet now that the token has a default."""
+    return bool(getattr(settings, "ADDRESS_REGISTER_ENABLED", True))
 
 
 def _osm_enabled() -> bool:
@@ -282,8 +300,9 @@ def _alert_gone(provider: str, status: int | None) -> None:
                 f"HTTP status: {status}",
                 "Lookups are paused for 1 hour, then retried.",
                 (
-                    "If KDS has started registration: put the new token in Render "
-                    "env ADDRESS_REGISTER_TOKEN (no code change)."
+                    "If KDS has started registration: put BonBox's own token in Render "
+                    "env ADDRESS_REGISTER_TOKEN (no code change; until then the code "
+                    "sends KDS's public token)."
                     if provider == "dar" else
                     "OpenStreetMap may have blocked us: set GEO_OSM_ENABLED=false in Render "
                     "if they asked us to stop."
@@ -367,11 +386,10 @@ def _get(host: str, path: str, params: dict[str, Any], deadline: Deadline) -> tu
 
     query = [(k, v) for k, v in params.items() if v is not None]
     if provider == "dar":
-        token = _token()
-        if not token:
-            logger.info("geo provider=dar kind=%s outcome=unavailable reason=not_configured", kind)
+        if not _register_enabled():
+            logger.info("geo provider=dar kind=%s outcome=unavailable reason=switched_off", kind)
             return Outcome.UNAVAILABLE, None
-        query.append(("token", token))          # always the last parameter
+        query.append(("token", _token()))       # always the last parameter
 
     if deadline.remaining() < 0.2:
         return Outcome.UNAVAILABLE, None
@@ -711,6 +729,21 @@ def parse_street_number(text: str | None) -> ParsedAddress:
     if sm:
         return ParsedAddress(_clean(sm.group("street")), _norm_nr(sm.group("nr")), postcode, town)
     return ParsedAddress(first, None, postcode, town)
+
+
+def looks_like_street_address(text: str | None) -> bool:
+    """True when a typed line reads as a street address, by the same tests
+    geocode() uses to ask the register and to apply the house-number guards:
+    a street and a house number (or an interval), or a digit before the
+    postcode ("Vestergade 1 baghus"). A venue name, with or without a
+    postcode ("Café Luna, 8000 Aarhus C"), is False. Lets the UI tell "we
+    couldn't find that address" apart from "that venue isn't on the map"."""
+    t = _clean(text)
+    parsed = parse_street_number(t)
+    if parsed.street and (parsed.number or parsed.interval):
+        return True
+    pre = _POSTCODE_TAIL.match(t)
+    return bool(re.search(r"\d", pre.group("rest") if pre else t))
 
 
 def _interval_first(text: str | None) -> str | None:
@@ -1252,5 +1285,6 @@ __all__ = [
     "wash", "geocode", "osm_find", "register_wash", "register_address",
     "register_building", "register_find_building", "register_search_text",
     "utm32_to_wgs84", "wgs84_to_utm32", "same_address", "parse_street_number",
+    "looks_like_street_address", "KDS_PUBLIC_TOKEN",
     "set_transport", "reset_state", "clear_cache",
 ]

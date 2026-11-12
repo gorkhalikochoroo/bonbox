@@ -47,7 +47,7 @@ from app.main import app, _db_ready
 from app.models.business_profile import BusinessProfile
 from app.models.user import User
 from app.routers import staff as staff_router
-from app.services import venue_locate
+from app.services import address_lookup, venue_locate
 from app.services.auth import get_current_user, hash_password
 from tests._geo_fixtures import geo_on, kds, osm, reply  # noqa: F401 — fixture
 
@@ -259,6 +259,56 @@ def test_an_osm_hit_for_a_typed_address_keeps_source_place_name(geo_on):
     assert got["source"] == "place_name" and got["provider"] == "osm"
 
 
+@pytest.mark.parametrize("query,kind", [
+    ("Rådhuspladsen 1, 1550 København V", "address"),
+    ("Algade 1, 9000 Aalborg", "address"),
+    ("Rentemestervej 8", "address"),
+    ("Vestergade 1 st tv, 8000 Aarhus C", "address"),
+    ("Vestergade 1 baghus", "address"),            # a digit, no parsed number
+    ("Nørregade 3-5, 1165 København K", "address"),  # an interval
+    ("Silberbauer Bistro", "name"),
+    ("Tivoli, København", "name"),
+    ("Café Luna, 8000 Aarhus C", "name"),           # a postcode alone is not an address
+    ("https://maps.google.com/?q=55.6761,12.5683", "map_link"),
+])
+def test_query_kind_tells_a_typed_address_from_a_venue_name(query, kind):
+    """The panel's advice must fit what the owner typed (review P4/P7): an
+    address gets "check the street, number and postcode"; only a NAME gets
+    "not every venue is on the map". Same parser the lookup itself uses."""
+    assert venue_locate.query_kind(query) == kind
+
+
+def test_resolve_answers_carry_query_kind_for_the_caveat(db, client, geo_on):
+    """200: an OpenStreetMap hit for a typed ADDRESS says query_kind
+    "address", so the panel says "found on OpenStreetMap — check the pin",
+    not "found by name". A name lookup says "name". Old keys unchanged."""
+    owner = _owner(db)
+    _as(owner)
+    try:
+        geo_on({(REG, "/vask/"): lambda req: httpx.Response(503, content=b""),
+                (REG, "/husnumre/soeg"): lambda req: httpx.Response(503, content=b"")})
+        r = client.post("/api/staff/clock-geofence/resolve",
+                        json={"query": "Rådhuspladsen 1, 1550 København V"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["source"] == "place_name" and body["provider"] == "osm"
+        assert body["query_kind"] == "address"
+
+        geo_on()
+        r = client.post("/api/staff/clock-geofence/resolve", json={"query": "Tivoli, København"})
+        assert r.status_code == 200, r.text
+        assert r.json()["source"] == "place_name" and r.json()["query_kind"] == "name"
+
+        address_lookup.reset_state()      # the OSM answer above is cached
+        geo_on()
+        r = client.post("/api/staff/clock-geofence/resolve",
+                        json={"query": "Rådhuspladsen 1, 1550 København V"})
+        assert r.status_code == 200, r.text
+        assert r.json()["source"] == "address" and r.json()["query_kind"] == "address"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
 def test_short_link_failures_never_log_the_link(monkeypatch, caplog):
     import logging
     caplog.set_level(logging.DEBUG)
@@ -390,14 +440,17 @@ def test_resolve_refuses_vague_pins_with_a_reason(db, client, geo_on, query, ove
     try:
         r = client.post("/api/staff/clock-geofence/resolve", json={"query": query})
         assert r.status_code == 404, r.text
-        assert r.json()["detail"] == {"error": "not_found", "reason": reason}
+        # query_kind added 12 Nov 2026 (old builds ignore it): every query
+        # here is a typed street address, so the panel gives address advice.
+        assert r.json()["detail"] == {"error": "not_found", "reason": reason, "query_kind": "address"}
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
 
 def test_resolve_says_424_when_the_lookup_is_down_never_503(db, client):
-    """No token and OpenStreetMap off (the test default) = the lookup cannot
-    answer. 424, not 503: api.js replays a POST that gets 503 up to 4 times."""
+    """The register switched off and OpenStreetMap off (the test default) =
+    the lookup cannot answer. 424, not 503: api.js replays a POST that gets
+    503 up to 4 times."""
     owner = _owner(db)
     _as(owner)
     try:
@@ -416,7 +469,8 @@ def test_resolve_with_no_match_is_a_plain_404(db, client, geo_on):
     try:
         r = client.post("/api/staff/clock-geofence/resolve", json={"query": "Silberbauer Bistro"})
         assert r.status_code == 404
-        assert r.json()["detail"] == {"error": "not_found", "reason": None}
+        # A venue NAME: the only case where "not every venue is on the map" is true.
+        assert r.json()["detail"] == {"error": "not_found", "reason": None, "query_kind": "name"}
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
