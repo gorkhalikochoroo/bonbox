@@ -363,11 +363,15 @@ def _reservations_block(db: Session, user: User, day: date, hours: Optional[dict
         if best["covers"] > 0:
             peak = {"time": best["t"], "covers": best["covers"], "full": bool(seats and best["covers"] >= seats)}
 
+    # "På venteliste: N" — every party still on the day's Venteliste: waiting,
+    # or told a table may have opened (notified). The same rule as the
+    # reservations page's count (GET /reservations/waitlist active_count), so
+    # I dag never shows fewer than the list it links to.
     waitlist = (
         db.query(func.count(ReservationWaitlistEntry.id)).filter(
             ReservationWaitlistEntry.user_id == user.id,
             ReservationWaitlistEntry.waitlist_date == day,
-            ReservationWaitlistEntry.status == "waiting",
+            ReservationWaitlistEntry.status.in_(("waiting", "notified")),
         ).scalar()
     ) or 0
 

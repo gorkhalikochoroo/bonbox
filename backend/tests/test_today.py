@@ -311,6 +311,34 @@ def test_bookings_covers_requested_and_tenant_scope(client, db):
     assert "Other tenant" not in names
 
 
+def test_waitlist_count_matches_the_reservations_page(client, db):
+    """I dag's "På venteliste: N" counts the parties the Venteliste lists —
+    waiting AND notified (GET /reservations/waitlist active_count) — never
+    the converted / expired / cancelled ones, another day or another tenant."""
+    from app.models.reservation_waitlist import ReservationWaitlistEntry
+
+    a = _owner(db, "-w1")
+    b = _owner(db, "-w2")
+    day = _today(a)
+    entry = lambda u, status, d=day: ReservationWaitlistEntry(
+        user_id=u.id, guest_name=f"{status}-{d}", party_size=2, waitlist_date=d, status=status)
+    db.add_all([
+        entry(a, "waiting"),
+        entry(a, "notified"),
+        entry(a, "converted"),
+        entry(a, "expired"),
+        entry(a, "cancelled"),
+        entry(a, "waiting", day + timedelta(days=1)),
+        entry(b, "waiting"),
+    ])
+    db.commit()
+    _as(a)
+    assert client.get("/api/today").json()["reservations"]["waitlist"] == 2
+    listed = client.get("/api/reservations/waitlist", params={"day": day.isoformat()})
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["active_count"] == 2
+
+
 def test_badges_part_counts_only_actionable(client, db):
     u = _owner(db, "-c")
     day = _today(u)
