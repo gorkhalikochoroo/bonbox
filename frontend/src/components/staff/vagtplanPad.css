@@ -117,7 +117,10 @@ body.portal-shell :is([data-testid="portal-hero"], [data-testid="portal-live-shi
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
     --vp-split-gap: 20px;
   }
-  .vp-split > * {
+  /* Not the fixed overlays some tabs render inline (the ⋯ sheet, the period
+     sheet, the Fravær questions): a margin on an inset-0 overlay would leave
+     an undimmed strip under it. */
+  .vp-split > :not([data-vp-overlay]) {
     grid-column: 1;
     min-width: 0;
     margin-top: 0 !important;
