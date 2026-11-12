@@ -7,7 +7,7 @@
  *     dock tab) it fades out in place (data-hidden) and slides on from there.
  *   • Every tab is its icon AND its name, in Danish and in English; the
  *     active one carries aria-current="page"; a count stays on Beskeder.
- *   • The first paint plays nothing; a real switch rises the new screen in
+ *   • The first paint plays nothing; a real switch fades the new screen in
  *     and pops the active name.
  *   • Sheets: with motion allowed the ⋯ sheet stays mounted with
  *     data-closing for its exit, then goes; under prefers-reduced-motion it
@@ -88,6 +88,9 @@ async function mount(lang = "da") {
 }
 
 const dock = () => screen.getByTestId("portal-tabbar-v3");
+/** Rings on the screen that are not a button's own busy label. */
+const loadingRings = () => [...screen.getByTestId("portal-content").querySelectorAll(".vp-ring")]
+  .filter((r) => !r.closest("button > .vp-busy"));
 const indicator = () => screen.getByTestId("portal-dock-indicator");
 const activeTab = () => within(dock()).getAllByRole("button").filter((b) => b.getAttribute("aria-current") === "page");
 
@@ -219,12 +222,18 @@ describe("The dock: every tab is its icon and its name", () => {
 });
 
 describe("Screen + name motion only on a real switch", () => {
-  it("the first paint plays nothing; a switch rises the new screen and pops the active name", async () => {
+  // Edited on purpose (premium-feel 1.6b): the 8 px rise became a fade — the
+  // tab's screen only appears under the pill (vp-tab-in, opacity only); the
+  // vp-screen-in keyframe stays for the clock beat. Still nothing on the
+  // first paint.
+  it("the first paint plays nothing; a switch fades the new screen in and pops the active name", async () => {
     await mount("da");
+    expect(screen.getByTestId("portal-content").className).not.toContain("vp-tab-in");
     expect(screen.getByTestId("portal-content").className).not.toContain("vp-screen-in");
     expect(dock().querySelectorAll(".vp-label-in")).toHaveLength(0);
     fireEvent.click(screen.getByTestId("portal-tab-hours"));
-    expect(screen.getByTestId("portal-content").className).toContain("vp-screen-in");
+    expect(screen.getByTestId("portal-content").className).toContain("vp-tab-in");
+    expect(screen.getByTestId("portal-content").className).not.toContain("vp-screen-in");
     const popped = dock().querySelectorAll(".vp-label-in");
     expect(popped).toHaveLength(1);
     expect(popped[0].textContent).toBe("Timer");
@@ -314,6 +323,10 @@ describe("Loading is shimmer", () => {
     const blocks = await screen.findAllByTestId("portal-skeleton");
     expect(blocks.every((b) => b.className.includes("vp-shimmer"))).toBe(true);
     expect(document.querySelector(".animate-pulse, .animate-spin")).toBeNull();
+    // Premium feel 1.7: the ring is for a button that waits, never for
+    // loading — no .vp-ring on a content-loading screen (a button's own
+    // hidden busy ring is the only place one may sit).
+    expect(loadingRings()).toEqual([]);
   });
 
   for (const [what, tab, slow] of [
@@ -340,6 +353,9 @@ describe("Loading is shimmer", () => {
       // No plain "Indlæser…" line left on screen.
       expect(screen.getAllByText("Indlæser…").every((n) => n.className === "sr-only")).toBe(true);
       expect(document.querySelector(".animate-pulse, .animate-spin")).toBeNull();
+      // Premium feel 1.7: the ring is for a button that waits, never for
+      // loading (a button's own hidden busy ring is the only place one sits).
+      expect(loadingRings()).toEqual([]);
     });
   }
 });

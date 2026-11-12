@@ -673,6 +673,36 @@ describe("Premium feel 1.5: sheets with weight", () => {
   });
 });
 
+// Premium feel, Release A Step 7 (1.6): a tab change. The pill is the one thing
+// that moves; the page only fades in under it (opacity only, so no fixed child
+// of the content is re-anchored). The rise keyframe stays for the clock beat.
+describe("Premium feel 1.6: tab change feel", () => {
+  const start = CSS.indexOf("@media (prefers-reduced-motion: reduce)");
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const outside = strip(CSS.slice(0, start));
+  const body = strip(CSS.slice(start));
+  const PAGE = read("pages/StaffPortalPage.jsx");
+
+  it(".vp-tab-in is a 200 ms fade (opacity only); vp-screen-in keeps its keyframe for the clock beat", () => {
+    expect(outside).toContain(".vp-tab-in { animation: vp-fade-in 200ms var(--ease-out) backwards; }");
+    expect(CSS).toContain("@keyframes vp-fade-in { from { opacity: 0; } }");
+    expect(CSS).toContain("@keyframes vp-screen-in { from { opacity: 0; transform: translateY(8px); } }");
+  });
+
+  it(".vp-tab-in is in the reduce block (animation: none), still exactly one block", () => {
+    const off = body.match(/([^{}]*)\{\s*animation: none;\s*\}/g).join("\n");
+    expect(off).toContain(".vp-tab-in,");
+    expect(CSS.match(/@media \(prefers-reduced-motion: reduce\)/g)).toHaveLength(1);
+  });
+
+  it("source pin: portal-content fades with vp-tab-in after a real switch; the dock taps go through selectTab", () => {
+    expect(PAGE).toContain('${nav.moved ? " vp-tab-in" : ""}');
+    expect(PAGE).not.toContain('${nav.moved ? " vp-screen-in" : ""}');
+    expect(PAGE).toContain("onClick={() => selectTab(item.key)}");
+    expect(PAGE).toContain("startTabTransition(() => setTab(key));");
+  });
+});
+
 describe("RollingDigits", () => {
   // The digits that roll in, with their direction.
   const rolled = (el) => [...el.querySelectorAll(".vp-roll-up, .vp-roll-down")]

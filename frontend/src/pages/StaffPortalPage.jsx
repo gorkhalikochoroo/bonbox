@@ -3,7 +3,7 @@
  * Mobile-first, dark theme, no login required.
  * Route: /s/:token
  */
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useTransition } from "react";
 
 import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
@@ -41,7 +41,7 @@ import { useSheetDrag } from "../components/staff/sheetDrag";
 import { beatFor, useHeroBeat, useBeatWindow, BREAK_MS } from "../components/staff/clockBeat";
 import { installPressFeel } from "../components/staff/pressFeel";
 import { feel } from "../components/staff/feel"; // the haptic words (1.4); the clock's own lines stay on haptic
-import { forgetAll } from "../components/staff/tabMemory";
+import { forgetAll, recall, remember } from "../components/staff/tabMemory";
 import BusyLabel from "../components/staff/BusyLabel";
 import { parseServerTime } from "../utils/serverTime";
 import { routeUrl, placeSearchUrl, isAndroidDevice } from "../utils/routeUrl";
@@ -5112,8 +5112,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
  */
 function SwapTab({ token, ownShifts, onChanged, onInbox }) {
   const { t, lang } = useLanguage();
-  const [inbox, setInbox] = useState(null);
-  const [pool, setPool] = useState([]); // colleagues' open give-aways
+  // From memory on a return (both answers, premium feel 1.6d); the fetch
+  // still runs. A row painted from memory can be stale (answered elsewhere):
+  // a tap on it gets today's server answer.
+  const [inbox, setInbox] = useState(() => recall(token, "swaps")?.inbox ?? null);
+  const [pool, setPool] = useState(() => recall(token, "swaps")?.pool ?? []); // colleagues' open give-aways
   const [showPropose, setShowPropose] = useState(false);
   const [showSell, setShowSell] = useState(false);
   const [claimBusy, setClaimBusy] = useState(null);
@@ -5142,6 +5145,12 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
     ]);
     setInbox(inboxRes.status === "fulfilled" ? (inboxRes.value.data || []) : []);
     setPool(poolRes.status === "fulfilled" ? (poolRes.value.data || []) : []);
+    // Memory keeps the last GOOD answer of each.
+    const was = recall(token, "swaps") || {};
+    remember(token, "swaps", {
+      inbox: inboxRes.status === "fulfilled" ? (inboxRes.value.data || []) : was.inbox,
+      pool: poolRes.status === "fulfilled" ? (poolRes.value.data || []) : was.pool,
+    });
     // The dock's Byt badge reads the same answer (a failed read leaves the
     // badge as it was rather than zeroing it).
     if (inboxRes.status === "fulfilled") onInbox?.(inboxRes.value.data || []);
@@ -5855,17 +5864,23 @@ function writeAlertsSeen(token, iso) {
 
 function AlertsTab({ token, onNavigate }) {
   const { t, lang } = useLanguage();
-  const [notifications, setNotifications] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // From memory on a return: no skeleton, the list at once, refreshed behind
+  // (premium feel 1.6d).
+  const [notifications, setNotifications] = useState(() => recall(token, "alerts") ?? null);
+  const [loading, setLoading] = useState(() => recall(token, "alerts") === undefined);
   // Captured at mount: marking read must not make rows vanish under the finger
   // while the staffer is still reading them.
   const [seenAt] = useState(() => readAlertsSeen(token));
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
+    if (recall(token, "alerts") === undefined) setLoading(true);
     portalApi.get(`/portal/${token}/notifications`)
-      .then((res) => setNotifications(res.data.notifications || []))
+      .then((res) => {
+        const list = res.data.notifications || [];
+        remember(token, "alerts", list);
+        setNotifications(list);
+      })
       .catch(() => setNotifications([]))
       .finally(() => setLoading(false));
   }, [token]);
@@ -6322,7 +6337,10 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
     what people actually remember — "the one about Friday", not a name. */
 function ThreadListView({ token, onOpen, onRead }) {
   const { t } = useLanguage();
-  const [threads, setThreads] = useState(null);
+  // A return paints the last list at once; the load below still runs and
+  // refreshes behind it. Only server answers are remembered (premium feel
+  // 1.6d, components/staff/tabMemory.js).
+  const [threads, setThreads] = useState(() => recall(token, "threads") ?? null);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const groupSheet = usePresence(creating);
@@ -6331,7 +6349,9 @@ function ThreadListView({ token, onOpen, onRead }) {
     portalApi
       .get(`/portal/${token}/chat/threads`)
       .then((res) => {
-        setThreads(res.data.threads || []);
+        const list = res.data.threads || [];
+        remember(token, "threads", list);
+        setThreads(list);
         onRead?.();
       })
       .catch(() => setThreads((prev) => prev || []));
@@ -6430,7 +6450,9 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
   const [meta, setMeta] = useState(thread);
-  const [messages, setMessages] = useState(null);
+  // From memory on a return (the server's last list, never a pending or
+  // failed bubble); the load still runs (premium feel 1.6d).
+  const [messages, setMessages] = useState(() => recall(token, `thread:${thread.thread_id}`) ?? null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
@@ -6497,6 +6519,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         .then((res) => {
           setMeta((prev) => ({ ...prev, ...res.data }));
           setMessages(res.data.messages || []);
+          remember(token, `thread:${threadId}`, res.data.messages || []);
           if (markRead) onRead?.();
         })
         .catch(() => setMessages((prev) => prev || []));
@@ -7187,7 +7210,8 @@ function DateField({ label, value, onChange, min, max, testId }) {
 
 function AbsenceSection({ token, onChanged }) {
   const { t, lang } = useLanguage();
-  const [rows, setRows] = useState(null);
+  // From memory on a return (its load answer; premium feel 1.6d).
+  const [rows, setRows] = useState(() => recall(token, "absenceList") ?? null);
   const [adding, setAdding] = useState(false);
   // The form opens at the bottom of a long tab, under the bottom nav — bring
   // it into view so Ferie/Andet, the dates AND Send are on screen.
@@ -7215,9 +7239,11 @@ function AbsenceSection({ token, onChanged }) {
       // `declined` flag (a new status value would read as "Afventer" in
       // installed apps that bundle older code). Fold it in here so grouping
       // and the chip see "declined" → "Afvist".
-      setRows((res.data?.absence || []).map((a) => (
+      const list = (res.data?.absence || []).map((a) => (
         a.status === "cancelled" && a.declined ? { ...a, status: "declined" } : a
-      )));
+      ));
+      remember(token, "absenceList", list);
+      setRows(list);
     } catch {
       // Keep whatever was last loaded and say the refresh failed. Clearing to
       // [] rendered "no absence registered" to a staffer who HAS booked
@@ -7849,8 +7875,10 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
 
 function AvailabilityTab({ token, shifts, onNavigate }) {
   const { t, lang } = useLanguage();
-  const [avail, setAvail] = useState(null);     // null = loading
-  const [absence, setAbsence] = useState([]);
+  // From memory on a return (loadAvail's / loadAbsence's answers, never a
+  // tmp- row; premium feel 1.6d); both loads still run.
+  const [avail, setAvail] = useState(() => recall(token, "avail") ?? null);     // null = loading
+  const [absence, setAbsence] = useState(() => recall(token, "absence") ?? []);
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
@@ -7876,12 +7904,26 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   const [err, setErr] = useState("");
 
   const loadAvail = async () => {
-    try { const r = await portalApi.get(`/portal/${token}/availability`); setAvail(r.data?.availability || []); }
-    catch { setAvail([]); }
+    try {
+      const r = await portalApi.get(`/portal/${token}/availability`);
+      const rows = r.data?.availability || [];
+      remember(token, "avail", rows);
+      setAvail(rows);
+    } catch { setAvail([]); }
   };
   const loadAbsence = async () => {
-    try { const r = await portalApi.get(`/portal/${token}/absence`); setAbsence(r.data?.absence || []); }
-    catch { setAbsence([]); }
+    try {
+      const r = await portalApi.get(`/portal/${token}/absence`);
+      const rows = r.data?.absence || [];
+      remember(token, "absence", rows);
+      setAbsence(rows);
+    } catch { setAbsence([]); }
+  };
+  // A delete the server confirmed (no reload follows it) leaves memory too,
+  // so a return never paints a mark that is gone.
+  const forgetMark = (id) => {
+    const rows = recall(token, "avail");
+    if (rows) remember(token, "avail", rows.filter((r) => r.id !== id));
   };
   useEffect(() => { loadAvail(); loadAbsence(); }, [token]);
 
@@ -7936,7 +7978,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
       feel.tick();
       withSaving(iso, true);
       setAvail((rows) => (rows || []).filter((r) => r.id !== meta.oneOff.id));
-      try { await portalApi.delete(`/portal/${token}/availability/${meta.oneOff.id}`); }
+      try { await portalApi.delete(`/portal/${token}/availability/${meta.oneOff.id}`); forgetMark(meta.oneOff.id); }
       catch { feel.fail(); setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
       finally { withSaving(iso, false); }
       return;
@@ -7993,12 +8035,12 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
     setConfirmWeekday(null);
     if (!id) return;
     setAvail((rows) => (rows || []).filter((r) => r.id !== id));
-    try { await portalApi.delete(`/portal/${token}/availability/${id}`); }
+    try { await portalApi.delete(`/portal/${token}/availability/${id}`); forgetMark(id); }
     catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
   };
   const removeOneOff = async (id) => {
     setAvail((rows) => (rows || []).filter((r) => r.id !== id));
-    try { await portalApi.delete(`/portal/${token}/availability/${id}`); }
+    try { await portalApi.delete(`/portal/${token}/availability/${id}`); forgetMark(id); }
     catch { await loadAvail(); }
   };
   // No PATCH: edit an all-day mark to timed = DELETE the old row, POST a new one.
@@ -9066,6 +9108,37 @@ export default function StaffPortalPage() {
   const dockIdx = DOCK_TABS.findIndex((x) => x.key === tab);
   const [nav, setNav] = useState(() => ({ tab, idx: Math.max(0, dockIdx), moved: false }));
   if (nav.tab !== tab) setNav({ tab, idx: dockIdx >= 0 ? dockIdx : nav.idx, moved: true });
+  // Pill first, page second (premium feel 1.6a). A dock tap moves the pill in
+  // the tap's own frame; the new screen mounts in a transition right after,
+  // so a slow phone never makes the pill wait for a 1,400-line screen to
+  // render. The pill is a CSS transform transition on a will-change layer, so
+  // it keeps running on the compositor while the new screen commits.
+  // `pillKey` is the tab the pill already shows while its screen is on the
+  // way. It clears once that screen is there, or once the transition is over
+  // some other way (BACK chose another tab meanwhile), so the pill can never
+  // stay on a tab that is not shown.
+  const [pillKey, setPillKey] = useState(null);
+  const [tabPending, startTabTransition] = useTransition();
+  if (pillKey && (pillKey === tab || !tabPending)) setPillKey(null);   // caught up ("adjust while rendering")
+  const shownKey = pillKey || tab;
+  const shownIdx = DOCK_TABS.findIndex((x) => x.key === shownKey);
+  // Each tab keeps its own scroll (1.6c). The shell's onScroll writes it under
+  // the committed tab; this puts it back before the tab paints. A first visit
+  // has no memory and starts at the top. Tab content that paints at once (the
+  // page's own state, or tabMemory) is what makes the restore land.
+  const shellRef = useRef(null);
+  const scrollMem = useRef({});
+  useLayoutEffect(() => {
+    if (shellRef.current) shellRef.current.scrollTop = scrollMem.current[tab] ?? 0;
+  }, [tab]);
+  const scrollTabToTop = () => {
+    shellRef.current?.scrollTo?.({ top: 0, behavior: motionAllowed() ? "smooth" : "auto" });
+  };
+  const selectTab = (key) => {
+    if (key === shownKey) { scrollTabToTop(); return; }   // tapping the tab you are on
+    setPillKey(key);
+    startTabTransition(() => setTab(key));
+  };
   // Android BACK (key, edge swipe, 3-button bar): close the top layer, else
   // back to Vagtplan, else the app goes to the background — never nothing.
   // Android shell only; see utils/androidBack.js.
@@ -9936,12 +10009,16 @@ export default function StaffPortalPage() {
     // chat composer stay position:fixed (viewport-pinned) — .scrollable has no
     // transform, so it doesn't trap them.
     <div
+      ref={shellRef}
       className="full-height scrollable text-gray-900 pb-24"
       /* pb-24 clears the tab bar; while the cookie banner sits on it, the
          scroller pads by the banner too (--bb-consent-h, CookieConsent.jsx). */
       onScroll={(e) => {
         const scrolled = e.currentTarget.scrollTop > 4;
         if (scrolled !== headerScrolled) setHeaderScrolled(scrolled);
+        // Under the committed tab (this handler is re-made each render, so
+        // also while a tab's transition is pending). 1.6c.
+        scrollMem.current[tab] = e.currentTarget.scrollTop;
       }}
       style={{
         // The canvas's ivory ground, on every tab.
@@ -10556,9 +10633,10 @@ export default function StaffPortalPage() {
 
       {/* Content — the canvas's 16 px gutters (12 on a 360 px phone and
           under); the home starts 8 under the header. */}
-      {/* Keyed by tab: a switch mounts the new screen with a short rise +
-          fade (vagtplan.css .vp-screen-in; transform + opacity, no layout). */}
-      <div key={tab} data-testid="portal-content" className={`max-w-lg mx-auto px-3 min-[361px]:px-4 ${tab === "schedule" ? "pt-2 pb-4" : "py-4"}${nav.moved ? " vp-screen-in" : ""}`}>
+      {/* Keyed by tab: a switch mounts the new screen, which only fades in
+          under the pill (vagtplan.css .vp-tab-in, premium feel 1.6b). Tabs
+          are siblings, not layers, and opacity re-anchors no fixed child. */}
+      <div key={tab} data-testid="portal-content" className={`max-w-lg mx-auto px-3 min-[361px]:px-4 ${tab === "schedule" ? "pt-2 pb-4" : "py-4"}${nav.moved ? " vp-tab-in" : ""}`}>
         {tab === "schedule" && (
           <ScheduleTab
             shifts={visibleShifts}
@@ -10647,21 +10725,22 @@ export default function StaffPortalPage() {
             data-testid="portal-dock-indicator"
             // On Alerts (the header bell, not a dock tab) the pill fades out
             // where it was, and slides on from there when a tab is chosen.
-            {...(dockIdx < 0 ? { "data-hidden": "" } : {})}
-            style={{ "--i": nav.idx }}
+            // It follows the tap at once (shownKey, 1.6a).
+            {...(shownIdx < 0 ? { "data-hidden": "" } : {})}
+            style={{ "--i": shownIdx >= 0 ? shownIdx : nav.idx }}
           >
             <span className="vp-dock-pill" />
           </span>
         </span>
         {DOCK_TABS.map((item) => {
-          const active = tab === item.key;
+          const active = shownKey === item.key;
           const label = item.v3LabelKey ? t(item.v3LabelKey, item.v3LabelFallback) : t(item.labelKey, item.labelFallback);
           const Icon = item.V3Icon || item.Icon;
           return (
             <button
               key={item.key}
               type="button"
-              onClick={() => setTab(item.key)}
+              onClick={() => selectTab(item.key)}
               aria-current={active ? "page" : undefined}
               data-testid={`portal-tab-${item.key}`}
               className="vp-dock-item focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
@@ -10701,9 +10780,9 @@ export default function StaffPortalPage() {
               </span>
               <span
                 // Re-mounts when the tab becomes active, so the name pops in
-                // (not on the page's first paint).
+                // (not on the page's first paint) — with the pill, at the tap.
                 key={active ? "on" : "off"}
-                className={`vp-dock-label${active && nav.moved ? " vp-label-in" : ""}`}
+                className={`vp-dock-label${active && (nav.moved || !!pillKey) ? " vp-label-in" : ""}`}
                 style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
               >
                 {label}

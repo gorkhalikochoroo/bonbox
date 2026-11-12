@@ -334,11 +334,15 @@ html:not([data-modality="touch"]) .vp-tint:active { background-color: var(--pres
 body.portal-shell { touch-action: manipulation; }
 
 /* ── Screens (tab content) ─────────────────────────────────────────────── */
-/* A short rise + fade when the tab changes. `backwards`, never `both`: once
-   it ends no transform is left on the content, so nothing fixed inside it is
-   re-anchored and no sticky descendant sits under a transform. */
+/* A short rise + fade (the clock beat's parts use its keyframe). `backwards`,
+   never `both`: once it ends no transform is left on the content, so nothing
+   fixed inside it is re-anchored and no sticky descendant sits under a
+   transform. */
 .vp-screen-in { animation: vp-screen-in var(--dur-nav-back) var(--ease-nav) backwards; }
 @keyframes vp-screen-in { from { opacity: 0; transform: translateY(8px); } }
+/* A tab change: the page just appears under the pill (tabs are siblings, not
+   layers). Opacity only, so no fixed child of the content is re-anchored. */
+.vp-tab-in { animation: vp-fade-in 200ms var(--ease-out) backwards; }
 
 /* ── Sheets and dialogs ────────────────────────────────────────────────── */
 /* In: a sheet comes up from the screen edge, a dialog grows from .97, the
@@ -526,6 +530,7 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
   html[data-modality="touch"] .vp-dock-item:active:not([data-pressed]) { opacity: 1; }
   .vp-label-in,
   .vp-screen-in,
+  .vp-tab-in,
   .vp-scrim,
   .vp-sheet,
   [data-closing] .vp-scrim,
