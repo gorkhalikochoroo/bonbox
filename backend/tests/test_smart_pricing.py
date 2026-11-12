@@ -729,3 +729,89 @@ def test_unverified_profile_yields_no_comparison(db):
     # And the reason is the gate, not "not enough data" (which would
     # leak the fact that the cohort exists).
     assert result["reason"] == "needs_setup"
+
+
+# ─── setup_hint: an unverified address says so (DAWA replacement, 12 Nov) ──
+#
+# Since DAWA closed (1 Oct 2026) a new owner could not get a register id, and
+# saw "Add your postal code and cuisine in Profile…" with both already set: a
+# dead-end CTA. `reason` stays "needs_setup" (old builds show "Couldn't load
+# right now" for any reason they do not know); the new `setup_hint` field
+# says why.
+
+def _unverify(db, user, *, keep_stamp=False):
+    from app.models.business_profile import BusinessProfile
+    p = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    p.dawa_address_id = None
+    if not keep_stamp:
+        p.cvr_verified_at = None
+    db.commit()
+
+
+def test_needs_setup_carries_the_address_hint_when_postcode_and_cuisine_are_set(db):
+    me = _mk_user(db, email="hint@x.dk", postal="2200", cuisine="cafe")
+    _unverify(db, me, keep_stamp=True)
+    _mk_item(db, user=me, name="Cappuccino", sell_price=45)
+    one = get_market_comparison(db, me, item_name="Cappuccino")
+    assert one["reason"] == "needs_setup" and one["available"] is False
+    assert one["setup_hint"] == "address_unverified"
+    batch = get_all_market_comparisons(db, me)
+    assert batch["needs_setup"] is True
+    assert batch["message_key"] == "smartPricingNeedsSetup"
+    assert batch["setup_hint"] == "address_unverified"
+
+
+def test_a_missing_cvr_stamp_gets_the_same_hint(db):
+    """Was: id AND stamp missing -> "address_unverified". Since review P1
+    (approved 12 Nov 2026) the hint says exactly what is missing, so both
+    missing is its own value; "address_unverified" means the address only."""
+    me = _mk_user(db, email="hint2@x.dk", postal="2200", cuisine="cafe")
+    _unverify(db, me)
+    assert get_all_market_comparisons(db, me)["setup_hint"] == "address_and_company_unverified"
+    assert get_market_comparison(db, me, item_name="Cappuccino")["setup_hint"] == "address_and_company_unverified"
+
+
+def test_only_the_cvr_stamp_missing_says_company_not_address(db):
+    """P1: the owner typed their company by hand; the server's wash verified
+    the address and set the id. Profile says the address is checked, so
+    Pricing must not say the address still needs checking."""
+    from app.models.business_profile import BusinessProfile
+    me = _mk_user(db, email="hint3@x.dk", postal="2200", cuisine="cafe")
+    p = db.query(BusinessProfile).filter(BusinessProfile.user_id == me.id).first()
+    p.cvr_verified_at = None
+    db.commit()
+    one = get_market_comparison(db, me, item_name="Cappuccino")
+    assert one["reason"] == "needs_setup"            # old builds read only this
+    assert one["setup_hint"] == "company_unverified"
+    assert get_all_market_comparisons(db, me)["setup_hint"] == "company_unverified"
+
+
+@pytest.mark.parametrize("country", ["UK", "NP", "se"])
+def test_no_register_hint_outside_denmark(db, country):
+    """R3: a non-DK address is never sent to Danmarks Adresseregister, so a
+    hint pointing there would be a dead end."""
+    from app.models.business_profile import BusinessProfile
+    me = _mk_user(db, email=f"hint-{country}@x.dk", postal="2200", cuisine="cafe")
+    _unverify(db, me)
+    p = db.query(BusinessProfile).filter(BusinessProfile.user_id == me.id).first()
+    p.country = country
+    db.commit()
+    out = get_market_comparison(db, me, item_name="Cappuccino")
+    assert out["reason"] == "needs_setup" and "setup_hint" not in out
+    assert "setup_hint" not in get_all_market_comparisons(db, me)
+
+
+def test_no_hint_when_the_postcode_or_cuisine_is_really_missing(db):
+    no_postal = _mk_user(db, email="np@x.dk", postal=None, cuisine="cafe")
+    _unverify(db, no_postal)
+    assert "setup_hint" not in get_market_comparison(db, no_postal, item_name="Cappuccino")
+    assert "setup_hint" not in get_all_market_comparisons(db, no_postal)
+    no_cuisine = _mk_user(db, email="nc@x.dk", postal="2200", cuisine=None)
+    _unverify(db, no_cuisine)
+    assert "setup_hint" not in get_all_market_comparisons(db, no_cuisine)
+
+
+def test_a_verified_owner_gets_no_hint(db):
+    users = _seed_cohort(db, n=MIN_COHORT_SIZE + 1, name="Cappuccino")
+    out = get_market_comparison(db, users[0], item_name="Cappuccino")
+    assert "setup_hint" not in out

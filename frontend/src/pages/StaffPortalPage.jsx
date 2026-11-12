@@ -5250,7 +5250,7 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
       const st = err?.response?.status;
       if (st === 409 || st === 422) feel.warn();   // refused (taken, overlaps you)
       else feel.fail();                            // network, server
-      setClaimErr(portalErrText(err, t, t("portalGaClaimFailed", "Couldn't take the shift. Try again."), lang));
+      setClaimErr(swapErrText(err, t, t("portalGaClaimFailed", "Couldn't take the shift. Try again."), lang));
       fetchInbox(); // it may have just been taken — refresh the pool
     } finally {
       setClaimBusy(null);
@@ -5407,6 +5407,11 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
     an unknown one as errText always showed it). */
 function swapErrText(err, t, fallback, lang) {
   const d = err?.response?.data?.detail;
+  // The server refuses a shift that has already started (venue time,
+  // overnight included, or clocked in on it) — 422 {code: "shift_started"}.
+  if (d && d.code === "shift_started") {
+    return t("portalSwapShiftStarted", "That shift has already started, so it can't be swapped or given away any more.");
+  }
   if (err?.response?.status === 409 && d && d.code === "swap_overlap") {
     return d.who === "colleague"
       ? t("portalSwapClashColleague", "Your colleague already works at that time — this swap would put them on two shifts at once.")
@@ -5459,14 +5464,18 @@ function SwapRow({ swap, token, onChanged }) {
       const overlap = err?.response?.status === 409 && d?.code === "swap_overlap";
       // The server declined it itself: a shift moved since it was offered.
       const stale = d?.code === "swap_stale";
-      if (overlap || stale) feel.warn(); else feel.fail();
+      // A shift in the trade has started: the request ended ("expired").
+      const started = d?.code === "shift_started";
+      if (overlap || stale || started) feel.warn(); else feel.fail();
       setRowErr({
         text: overlap
           ? swapErrText(err, t, "", lang)
           : stale
             ? t("portalSwapStale", "The shifts have changed since this swap was offered — ask your colleague to offer it again.")
-            : t("portalSwapRespondFailed", "Couldn't answer the swap. Try again."),
-        sticky: stale,
+            : started
+              ? t("portalSwapShiftStarted", "That shift has already started, so it can't be swapped or given away any more.")
+              : t("portalSwapRespondFailed", "Couldn't answer the swap. Try again."),
+        sticky: stale || started,
       });
       // Anything but the overlap refusal may have changed the row on the
       // server — the request was declined (stale), or an automatic retry hit
@@ -5521,7 +5530,9 @@ function SwapRow({ swap, token, onChanged }) {
           ? t("portalSwapStatusWithdrawn", "Withdrawn")
           : swap.status === "accepted"
             ? t("portalSwapStatusAccepted", "Agreed")
-            : swap.status;
+            : swap.status === "expired"
+              ? t("portalSwapStatusExpired", "Shift started")
+              : swap.status;
 
   // One side of the trade: the day in words, the time in Sora (the home's
   // shift-row tile). Labelled from the VIEWER's side ("Du giver / Du får"):
@@ -5700,7 +5711,7 @@ function GiveawaySellModal({ token, ownShifts, liveShiftId = null, onClose, onOf
       feel.soft();
       onOffered?.();
     } catch (err) {
-      setError(portalErrText(err, t, t("portalGaOfferFailed", "Couldn't post the shift. Try again."), lang));
+      setError(swapErrText(err, t, t("portalGaOfferFailed", "Couldn't post the shift. Try again."), lang));
     } finally {
       setSubmitting(false);
     }

@@ -18,11 +18,15 @@ WHAT THESE PIN
    panel, so a crafted value must be normalised away, the label must be
    length-capped, and a later partial save (radius only) must not leave "set
    from address" sitting under coordinates that were since re-anchored by GPS.
-3. Fail-soft. DAWA being unreachable must leave the owner on the stand-at-the-
-   venue path, never break the panel.
+3. Fail-soft. The address register being unreachable must leave the owner on
+   the stand-at-the-venue path, never break the panel — and say "the lookup is
+   down" (424), not "not found" (404).
 
 Network is stubbed throughout — a test suite that depends on a live public API
-fails on a train.
+fails on a train. Since DAWA closed (1 Oct 2026) the address tests run on REAL
+replies from KDS Adressevælger and Nominatim, recorded on 11 Nov 2026 for
+public addresses (tests/_geo_fixtures.py), instead of the hand-written DAWA
+stubs they used before (12 Nov 2026, DAWA replacement plan 3.7).
 
 Run:
   cd backend && python3 -m pytest tests/test_venue_locate.py -x -q
@@ -43,13 +47,18 @@ from app.main import app, _db_ready
 from app.models.business_profile import BusinessProfile
 from app.models.user import User
 from app.routers import staff as staff_router
-from app.services import venue_locate
+from app.services import address_lookup, venue_locate
 from app.services.auth import get_current_user, hash_password
+from tests._geo_fixtures import geo_on, kds, osm, reply  # noqa: F401 — fixture
 
 _db_ready.set()
 
 # Vestergade 1, 1456 København K — verified against the live register.
 DK_LAT, DK_LNG = 55.678015, 12.571357
+# Rådhuspladsen 1, 1550 København V — the register's access point (recorded
+# 11 Nov 2026, EPSG:25832 724434.93 / 6175755.61), equal to OSM's house node.
+CPH_LAT, CPH_LNG = 55.675628, 12.569578
+REG, OSM = "adressevaelger.dk", "nominatim.openstreetmap.org"
 
 
 # ── pure parsing: map links ───────────────────────────────────────────────
@@ -121,175 +130,100 @@ def test_null_island_is_not_a_venue():
     assert venue_locate.from_map_link("https://maps.google.com/?q=0,0") is None
 
 
-# ── DAWA address lookup ───────────────────────────────────────────────────
-def _stub_dawa(monkeypatch, payload, status=200):
-    class _Resp:
-        status_code = status
-        def json(self): return payload
-
-    class _Client:
-        def __init__(self, *a, **k): pass
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def get(self, *a, **k): return _Resp()
-
-    monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
-
-
-def test_address_resolves_to_the_surveyed_access_point(monkeypatch):
-    _stub_dawa(monkeypatch, [{
-        "id": "0a3f50a1-9ab1-32b8-e044-0003ba298018",
-        "vejnavn": "Vestergade", "husnr": "1", "etage": None,
-        "postnr": "1456", "postnrnavn": "København K",
-        "x": DK_LNG, "y": DK_LAT,       # x = longitude, y = latitude
-    }])
-    got = venue_locate.from_address("Vestergade 1, 1456")
-    assert got["lat"] == pytest.approx(DK_LAT, abs=1e-5)
-    assert got["lng"] == pytest.approx(DK_LNG, abs=1e-5)
+# ── address lookup: the register, then OpenStreetMap ─────────────────────
+def test_address_resolves_to_the_surveyed_access_point(geo_on):
+    t = geo_on()
+    got = venue_locate.from_address("Rådhuspladsen 1, 1550 København V")
+    assert got["lat"] == pytest.approx(CPH_LAT, abs=2e-6)
+    assert got["lng"] == pytest.approx(CPH_LNG, abs=2e-6)
     assert got["source"] == "address"
-    assert got["label"] == "Vestergade 1, 1456 København K"
-    assert got["dawa_id"]
+    assert got["provider"] == "dar"
+    assert got["label"] == "Rådhuspladsen 1, 1550 København V"
+    assert got["dawa_id"] == "70865c44-d570-44e7-a6f5-6f7c90add725"   # the DAR id
+    assert t.unmatched == []
 
 
-def test_the_floor_is_left_out_of_a_venue_label(monkeypatch):
-    """DAWA returns the etage for a postal address, so "Vestergade 1" comes
-    back as "Vestergade 1, 1." and rendered as "Vestergade 1, 1., 1456 …" —
-    which reads like a typo on the panel. It is also meaningless for a venue:
-    the geofence anchor is the building access point, identical on every
-    floor. Caught on the live page, not in review."""
-    _stub_dawa(monkeypatch, [{
-        "vejnavn": "Vestergade", "husnr": "1", "etage": "1",
-        "postnr": "1456", "postnrnavn": "København K",
-        "x": DK_LNG, "y": DK_LAT,
-    }])
-    label = venue_locate.from_address("Vestergade 1")["label"]
-    assert label == "Vestergade 1, 1456 København K"
+def test_the_floor_is_left_out_of_a_venue_label(geo_on):
+    """The register returns the floor for a postal address, so "Rentemestervej
+    8, 1." would render as "Rentemestervej 8, 1., 2400 …" — which reads like a
+    typo on the panel. It is also meaningless for a venue: the geofence anchor
+    is the building access point, identical on every floor. Caught on the live
+    page, not in review."""
+    geo_on()
+    label = venue_locate.from_address("Rentemestervej 8, 1., 2400 København NV")["label"]
+    assert label == "Rentemestervej 8, 2400 København NV"
     assert ", 1.," not in label
 
 
-def _stub_nominatim(monkeypatch, payload, status=200):
-    class _Resp:
-        status_code = status
-        def json(self): return payload
-
-    class _Client:
-        def __init__(self, *a, **k): pass
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def get(self, url, **k):
-            # DAWA is asked first and must miss for the name path to run.
-            if "dataforsyningen" in str(url):
-                class _Empty:
-                    status_code = 200
-                    def json(self): return []
-                return _Empty()
-            return _Resp()
-
-    monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
-
-
-def test_a_venue_name_falls_back_to_the_public_map(monkeypatch):
-    """Owners type "Silberbauer Bistro", not a street address — it is the name
-    they think in. Before this it failed with no explanation of why."""
-    _stub_nominatim(monkeypatch, [{
-        "lat": "55.683903", "lon": "12.587567",
-        "display_name": "Rosé Rosé Bistro København, Store Kongensgade, "
-                        "Frederiksstaden, København, 1264, Danmark",
-    }])
-    got = venue_locate.resolve("Rosé Rosé Bistro")
+def test_a_venue_name_falls_back_to_the_public_map(geo_on):
+    """Owners type "Tivoli", not a street address — it is the name they think
+    in. Before this it failed with no explanation of why. (Real Nominatim
+    reply.) The label is built from the address details now — never OSM's
+    city or the postal essay of display_name — so it changed from the old
+    display_name split on purpose."""
+    geo_on()
+    got = venue_locate.resolve("Tivoli, København")
     assert got["source"] == "place_name"
-    assert got["lat"] == pytest.approx(55.683903, abs=1e-5)
-    # The full display_name is a postal essay — keep it to the first components.
-    assert got["label"] == "Rosé Rosé Bistro København, Store Kongensgade, Frederiksstaden"
+    assert got["provider"] == "osm"
+    assert got["lat"] == pytest.approx(55.6734161, abs=1e-5)
+    assert got["label"] == "Tivoli, Vesterbrogade, 1609"
+    assert "dawa_id" not in got
 
 
-def test_the_address_register_wins_over_the_name_search(monkeypatch):
+def test_the_address_register_wins_over_the_name_search(geo_on):
     """Order matters: a fuzzy name match must never beat an exact address."""
-    calls = []
-
-    class _Resp:
-        status_code = 200
-        def json(self):
-            return [{
-                "vejnavn": "Vestergade", "husnr": "1", "postnr": "1456",
-                "postnrnavn": "København K", "x": DK_LNG, "y": DK_LAT,
-            }]
-
-    class _Client:
-        def __init__(self, *a, **k): pass
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def get(self, url, **k):
-            calls.append(str(url))
-            return _Resp()
-
-    monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
-    got = venue_locate.resolve("Vestergade 1, 1456")
+    t = geo_on()
+    got = venue_locate.resolve("Rådhuspladsen 1, 1550 København V")
     assert got["source"] == "address"
-    assert not any("nominatim" in c for c in calls), (
+    assert OSM not in {h for h, _, _ in t.calls}, (
         "the name search ran even though the address register had a match"
     )
 
 
-def test_a_name_with_no_map_entry_still_fails_honestly(monkeypatch):
-    """Silberbauer Bistro is genuinely not in OpenStreetMap. The honest outcome
-    is None so the panel can say 'type your street address instead' — not a
-    confident wrong pin."""
-    _stub_nominatim(monkeypatch, [])
+def test_a_name_with_no_map_entry_still_fails_honestly(geo_on):
+    """A name that is not in OpenStreetMap: the honest outcome is None so the
+    panel can say 'type your street address instead' — not a confident wrong
+    pin. (Real empty Nominatim reply.)"""
+    geo_on({(OSM, "/search"): lambda req: reply(osm("misspelled_flakhavn__q"))})
     assert venue_locate.resolve("Silberbauer Bistro") is None
+    assert venue_locate.resolve_outcome("Silberbauer Bistro")[0] == venue_locate.Outcome.NOT_FOUND
 
 
-def test_the_name_search_is_scoped_to_denmark(monkeypatch):
+def test_the_name_search_is_scoped_to_denmark(geo_on):
     """Unscoped, "Silberbauer" returns a street in Bavaria — which would anchor
     a Copenhagen venue in Germany and fail every clock-in."""
-    seen = {}
-
-    class _Resp:
-        status_code = 200
-        def json(self): return []
-
-    class _Client:
-        def __init__(self, *a, **k): pass
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def get(self, url, **k):
-            if "nominatim" in str(url):
-                seen.update(k.get("params") or {})
-            class _Empty:
-                status_code = 200
-                def json(self): return []
-            return _Empty()
-
-    monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
+    t = geo_on({(OSM, "/search"): lambda req: reply(osm("misspelled_flakhavn__q"))})
     venue_locate.resolve("Silberbauer")
-    assert seen.get("countrycodes") == "dk"
+    params = [p for h, _, p in t.calls if h == OSM][0]
+    assert params["countrycodes"] == "dk"
 
 
-def test_x_and_y_are_not_transposed(monkeypatch):
-    """DAWA's x is LONGITUDE and y is LATITUDE. Swapping them puts a Copenhagen
-    venue in the Indian Ocean and every staff clock-in fails the geofence."""
-    _stub_dawa(monkeypatch, [{
-        "vejnavn": "Vestergade", "husnr": "1", "postnr": "1456",
-        "postnrnavn": "København K", "x": DK_LNG, "y": DK_LAT,
-    }])
-    got = venue_locate.from_address("Vestergade 1")
+def test_easting_and_northing_are_not_swapped(geo_on):
+    """The register answers in EPSG:25832: x is the EASTING, y the NORTHING,
+    in metres. Swapping them (or reading them as degrees) puts a Copenhagen
+    venue off the map and every staff clock-in fails the geofence."""
+    geo_on()
+    got = venue_locate.from_address("Rådhuspladsen 1, 1550 København V")
     assert 54 < got["lat"] < 58, "latitude should be Danish"
     assert 8 < got["lng"] < 15, "longitude should be Danish"
 
 
-@pytest.mark.parametrize("payload,status", [
-    ([], 200),          # no match
-    (None, 200),        # unexpected shape
-    ([], 503),          # register down
+@pytest.mark.parametrize("override", [
+    lambda req: reply(kds("aarhus_soendergade__vask")),                       # no match (-700)
+    lambda req: httpx.Response(200, content=b"[]"),                         # unexpected shape
+    lambda req: httpx.Response(503, content=b""),                           # register down
 ])
-def test_a_bad_lookup_fails_soft(monkeypatch, payload, status):
-    """DAWA being unreachable must leave the owner on the stand-at-the-venue
-    path, never break the panel."""
-    _stub_dawa(monkeypatch, payload, status)
-    assert venue_locate.from_address("Vestergade 1, 1456") is None
+def test_a_bad_lookup_fails_soft(geo_on, override):
+    """The register being unreachable must leave the owner on the stand-at-
+    the-venue path, never break the panel."""
+    geo_on({(REG, "/vask/"): override, (REG, "/husnumre/soeg"): override})
+    assert venue_locate.from_address("Rådhuspladsen 1, 1550 København V") is None
 
 
-def test_network_error_fails_soft(monkeypatch):
+def test_network_error_fails_soft(monkeypatch, geo_on):
+    geo_on({(REG, "/vask/"): lambda req: (_ for _ in ()).throw(httpx.ConnectError("offline"))})
+    assert venue_locate.from_address("Rådhuspladsen 1, 1550 København V") is None
+
     class _Client:
         def __init__(self, *a, **k): pass
         def __enter__(self): return self
@@ -297,18 +231,97 @@ def test_network_error_fails_soft(monkeypatch):
         def get(self, *a, **k): raise httpx.ConnectError("offline")
 
     monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
-    assert venue_locate.from_address("Vestergade 1, 1456") is None
     assert venue_locate.from_map_link("https://maps.app.goo.gl/x") is None
 
 
-def test_resolve_routes_links_and_addresses_apart(monkeypatch):
-    _stub_dawa(monkeypatch, [{
-        "vejnavn": "Vestergade", "husnr": "1", "postnr": "1456",
-        "postnrnavn": "København K", "x": DK_LNG, "y": DK_LAT,
-    }])
-    assert venue_locate.resolve("Vestergade 1, 1456")["source"] == "address"
+def test_resolve_routes_links_and_addresses_apart(geo_on):
+    geo_on()
+    assert venue_locate.resolve("Rådhuspladsen 1, 1550 København V")["source"] == "address"
     assert venue_locate.resolve(
         "https://www.google.com/maps/@55.6761,12.5683,17z")["source"] == "map_link"
+
+
+def test_resolve_outcome_keeps_down_apart_from_not_found(geo_on):
+    """The gotcha "boolean erases couldn't check": a register outage with no
+    OpenStreetMap hit is UNAVAILABLE, never NOT_FOUND."""
+    geo_on({(REG, "/vask/"): lambda req: httpx.Response(503, content=b""),
+            (OSM, "/search"): lambda req: reply(osm("misspelled_flakhavn__q"))})
+    out, found, reason = venue_locate.resolve_outcome("Søndergade 1, 8000 Aarhus C")
+    assert (out, found, reason) == (venue_locate.Outcome.UNAVAILABLE, None, None)
+
+
+def test_an_osm_hit_for_a_typed_address_keeps_source_place_name(geo_on):
+    """Register down, OpenStreetMap finds it: source stays "place_name" so old
+    app builds still show their "check it's yours" caveat."""
+    geo_on({(REG, "/vask/"): lambda req: httpx.Response(503, content=b""),
+            (REG, "/husnumre/soeg"): lambda req: httpx.Response(503, content=b"")})
+    got = venue_locate.resolve("Rådhuspladsen 1, 1550 København V")
+    assert got["source"] == "place_name" and got["provider"] == "osm"
+
+
+@pytest.mark.parametrize("query,kind", [
+    ("Rådhuspladsen 1, 1550 København V", "address"),
+    ("Algade 1, 9000 Aalborg", "address"),
+    ("Rentemestervej 8", "address"),
+    ("Vestergade 1 st tv, 8000 Aarhus C", "address"),
+    ("Vestergade 1 baghus", "address"),            # a digit, no parsed number
+    ("Nørregade 3-5, 1165 København K", "address"),  # an interval
+    ("Silberbauer Bistro", "name"),
+    ("Tivoli, København", "name"),
+    ("Café Luna, 8000 Aarhus C", "name"),           # a postcode alone is not an address
+    ("https://maps.google.com/?q=55.6761,12.5683", "map_link"),
+])
+def test_query_kind_tells_a_typed_address_from_a_venue_name(query, kind):
+    """The panel's advice must fit what the owner typed (review P4/P7): an
+    address gets "check the street, number and postcode"; only a NAME gets
+    "not every venue is on the map". Same parser the lookup itself uses."""
+    assert venue_locate.query_kind(query) == kind
+
+
+def test_resolve_answers_carry_query_kind_for_the_caveat(db, client, geo_on):
+    """200: an OpenStreetMap hit for a typed ADDRESS says query_kind
+    "address", so the panel says "found on OpenStreetMap — check the pin",
+    not "found by name". A name lookup says "name". Old keys unchanged."""
+    owner = _owner(db)
+    _as(owner)
+    try:
+        geo_on({(REG, "/vask/"): lambda req: httpx.Response(503, content=b""),
+                (REG, "/husnumre/soeg"): lambda req: httpx.Response(503, content=b"")})
+        r = client.post("/api/staff/clock-geofence/resolve",
+                        json={"query": "Rådhuspladsen 1, 1550 København V"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["source"] == "place_name" and body["provider"] == "osm"
+        assert body["query_kind"] == "address"
+
+        geo_on()
+        r = client.post("/api/staff/clock-geofence/resolve", json={"query": "Tivoli, København"})
+        assert r.status_code == 200, r.text
+        assert r.json()["source"] == "place_name" and r.json()["query_kind"] == "name"
+
+        address_lookup.reset_state()      # the OSM answer above is cached
+        geo_on()
+        r = client.post("/api/staff/clock-geofence/resolve",
+                        json={"query": "Rådhuspladsen 1, 1550 København V"})
+        assert r.status_code == 200, r.text
+        assert r.json()["source"] == "address" and r.json()["query_kind"] == "address"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_short_link_failures_never_log_the_link(monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, *a, **k): raise httpx.ConnectError(f"offline {url}")
+
+    monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
+    venue_locate.from_map_link("https://maps.app.goo.gl/SecretPlace123")
+    assert "SecretPlace123" not in caplog.text
 
 
 # ── the endpoint + provenance ─────────────────────────────────────────────
@@ -374,20 +387,21 @@ def _as(owner):
     app.dependency_overrides[get_current_user] = lambda: owner
 
 
-def test_resolve_endpoint_returns_a_candidate_without_saving(db, client, monkeypatch):
+def test_resolve_endpoint_returns_a_candidate_without_saving(db, client, geo_on):
     """Look-up and commit are separate on purpose: a wrong address must never
     silently re-point a live payroll control."""
-    _stub_dawa(monkeypatch, [{
-        "vejnavn": "Vestergade", "husnr": "1", "postnr": "1456",
-        "postnrnavn": "København K", "x": DK_LNG, "y": DK_LAT,
-    }])
+    geo_on()
     owner = _owner(db)
     _as(owner)
     try:
         r = client.post("/api/staff/clock-geofence/resolve",
-                        json={"query": "Vestergade 1, 1456"})
+                        json={"query": "Rådhuspladsen 1, 1550 København V"})
         assert r.status_code == 200, r.text
-        assert r.json()["lat"] == pytest.approx(DK_LAT, abs=1e-5)
+        body = r.json()
+        assert body["lat"] == pytest.approx(CPH_LAT, abs=1e-5)
+        # The old keys an installed build reads, plus the new provider.
+        assert {"lat", "lng", "label", "source", "dawa_id"} <= set(body)
+        assert body["source"] == "address" and body["provider"] == "dar"
 
         # Nothing was persisted.
         cfg = client.get("/api/staff/clock-geofence").json()
@@ -402,6 +416,76 @@ def test_resolve_rejects_a_too_short_query(db, client):
     try:
         r = client.post("/api/staff/clock-geofence/resolve", json={"query": "a"})
         assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.parametrize("query,overrides,reason", [
+    # Nominatim finds Aalborg's Algade as a street only (real reply).
+    ("Algade 1, 9000 Aalborg", {}, "street_only"),
+    # Nominatim without a city: Hinnerup, Hadsten, Randers (real reply); the
+    # wash reply is the real -700 for the same address with its town.
+    ("Søndergade 1, 8000", {(REG, "/vask/"): lambda req: reply(kds("aarhus_soendergade__vask"))},
+     "postcode_mismatch"),
+    # No postcode, Rentemestervej 8 exists in 2400 and 3400 (real reply).
+    ("Rentemestervej 8", {}, "need_postcode"),
+])
+def test_resolve_refuses_vague_pins_with_a_reason(db, client, geo_on, query, overrides, reason):
+    """Decision 4: refuse street-only, wrong-postcode and ambiguous pins — a
+    wrong anchor can lock staff out of clock-in. 404 keeps error "not_found"
+    (old builds read it) and adds the reason."""
+    geo_on(overrides)
+    owner = _owner(db)
+    _as(owner)
+    try:
+        r = client.post("/api/staff/clock-geofence/resolve", json={"query": query})
+        assert r.status_code == 404, r.text
+        # query_kind added 12 Nov 2026 (old builds ignore it): every query
+        # here is a typed street address, so the panel gives address advice.
+        assert r.json()["detail"] == {"error": "not_found", "reason": reason, "query_kind": "address"}
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_resolve_says_424_when_the_lookup_is_down_never_503(db, client):
+    """The register switched off and OpenStreetMap off (the test default) =
+    the lookup cannot answer. 424, not 503: api.js replays a POST that gets
+    503 up to 4 times."""
+    owner = _owner(db)
+    _as(owner)
+    try:
+        r = client.post("/api/staff/clock-geofence/resolve",
+                        json={"query": "Rådhuspladsen 1, 1550 København V"})
+        assert r.status_code == 424, r.text
+        assert r.json()["detail"] == {"error": "lookup_unavailable"}
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_resolve_with_no_match_is_a_plain_404(db, client, geo_on):
+    geo_on({(OSM, "/search"): lambda req: reply(osm("misspelled_flakhavn__q"))})
+    owner = _owner(db)
+    _as(owner)
+    try:
+        r = client.post("/api/staff/clock-geofence/resolve", json={"query": "Silberbauer Bistro"})
+        assert r.status_code == 404
+        # A venue NAME: the only case where "not every venue is on the map" is true.
+        assert r.json()["detail"] == {"error": "not_found", "reason": None, "query_kind": "name"}
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_saving_an_openstreetmap_anchor_keeps_its_provenance(db, client):
+    """"place_name" was not in the allowlist, so OpenStreetMap anchors were
+    stored with no provenance at all."""
+    owner = _owner(db)
+    _as(owner)
+    try:
+        cfg = client.post("/api/staff/clock-geofence", json={
+            "enabled": True, "lat": 55.6734, "lng": 12.5692,
+            "anchor_source": "place_name", "anchor_label": "Tivoli, Vesterbrogade, 1609",
+        }).json()
+        assert cfg["anchor_source"] == "place_name"
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 

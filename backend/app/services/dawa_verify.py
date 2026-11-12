@@ -1,91 +1,82 @@
-"""DAWA — Danmarks Adressers Web API.
+"""Address check against Danmarks Adresseregister (the file keeps its old
+name; a later cleanup renames it).
 
-The canonical source of truth for Danish postal addresses. It's run
-by Styrelsen for Dataforsyning og Effektivisering (SDFE), free, no
-API key needed, no rate limit on reasonable usage.
+DAWA, the free API this used, closed on 1 Oct 2026. The check now goes to
+Klimadatastyrelsen's (KDS, formerly SDFE/SDFI) Adressevask + Adressevælger,
+the official successor with the same DAR UUIDs, through
+services/address_lookup.py. The register ONLY: OpenStreetMap is a map, not
+the register, and the tick and the market-comparison gate must mean
+"checked against Danmarks Adresseregister".
 
-Why we cross-check CVR addresses against DAWA:
+Why we cross-check CVR addresses against the register:
   • CVR holds the registered address — usually accurate but can drift
     when a business moves and forgets to update.
   • CVR sometimes returns abbreviated forms ("Vestergade 1, 1456 Kbh K")
-    while DAWA holds the canonical postal form
+    while the register holds the canonical postal form
     ("Vestergade 1, 1456 København K").
-  • DAWA has a stable UUID per address (kvhx) — once we store that, we
-    can detect address changes precisely.
+  • The register has a stable DAR UUID per address (an adresse id at unit
+    level, a husnummer id at building level) — the server stores it in
+    business_profiles.dawa_address_id. It is NOT a kvhx key.
 
-Endpoint used:
-  GET https://dawa.aws.dk/datavask/adresser?betegnelse=<address>
-    Returns ranked candidates with kategori = "A" (exact), "B" (close),
-    "C" (no match). We treat A as "verified," B as "near match - confirm,"
-    C as "no DAWA record."
+Categories (the near-match picker keeps working on them):
+  A — verified: the strict check passed (street + exact house number +
+      postcode), or exactly one building-level hit.
+  B — the register writes it a little differently (phonetic, historic,
+      interval): the owner picks.
+  Not found and "couldn't check right now" are two different answers
+  (verify_address_outcome); verify_address() keeps its old dict|None shape.
 
-Failure modes:
-  • DAWA down → return None (we don't block the user — they keep the
-    CVR address, just without the DAGI verification stamp).
-  • Network slow → 5s timeout, then None.
-  • Unexpected response shape → log + return None.
-
-The verifier is purely advisory. The user can override.
+The verifier is advisory for the owner: saving is never blocked.
 """
 from __future__ import annotations
 
-import logging
-import time
-from collections import OrderedDict
+import anyio
 
-import httpx
+from app.services import address_lookup
+from app.services.address_lookup import Outcome, WashResult
 
-logger = logging.getLogger(__name__)
-
-
-_DAWA_URL = "https://dawa.aws.dk/datavask/adresser"
-_TIMEOUT = 5.0  # seconds — addresses are small responses, don't hold the request
-
-# Same simple LRU cache shape as business_lookup. Address verification
-# is idempotent for a given input string within reasonable time
-# windows (canonical addresses don't move daily), so a 24h TTL is safe.
-_cache: OrderedDict[str, tuple[float, dict | None]] = OrderedDict()
-_CACHE_MAX = 500
-_CACHE_TTL = 86400  # 24 hours
-
-
-def _cache_get(key: str) -> dict | None | object:
-    """Returns the cached result if present and not expired.
-    Sentinel object indicates "not in cache" (so we can cache None
-    results too — saves repeated API calls for known-bad addresses)."""
-    sentinel = _cache_get  # function object as sentinel
-    if key in _cache:
-        ts, data = _cache[key]
-        if time.time() - ts < _CACHE_TTL:
-            _cache.move_to_end(key)
-            return data
-        else:
-            del _cache[key]
-    return sentinel
-
-
-def _cache_set(key: str, data: dict | None):
-    _cache[key] = (time.time(), data)
-    if len(_cache) > _CACHE_MAX:
-        _cache.popitem(last=False)
+__all__ = ["Outcome", "verify_address", "verify_address_outcome", "addresses_match", "clear_cache"]
 
 
 def _build_betegnelse(address: str | None, zipcode: str | None,
-                     city: str | None) -> str:
-    """Compose the DAWA-compatible address string from CVR parts.
+                      city: str | None) -> str:
+    """Compose the one-line address from CVR parts:
+    "Vestergade 1, 1456 København K". The postcode is not appended twice when
+    the address already carries it."""
+    return address_lookup._wash_line(address, zipcode, city)
 
-    DAWA accepts free-form: "Vestergade 1, 1456 København K" — we just
-    need to glue the parts back together. CVR sometimes already has the
-    full thing in `address`; sometimes split across address/zipcode/city.
-    """
-    parts = []
-    if address:
-        parts.append(address.strip())
-    zc = (zipcode or "").strip()
-    ct = (city or "").strip()
-    if zc or ct:
-        parts.append(f"{zc} {ct}".strip())
-    return ", ".join(p for p in parts if p)
+
+def _as_dict(r: WashResult) -> dict:
+    return {
+        "id": r.id,                    # DAR UUID (adresse or husnummer)
+        "betegnelse": r.betegnelse,    # canonical form
+        "category": r.category,        # "A" | "B"
+        "level": r.level,              # "unit" | "building"
+        "vejnavn": r.vejnavn,
+        "husnr": r.husnr,
+        "etage": r.etage,
+        "doer": r.doer,
+        "postnr": r.postnr,
+        "postnrnavn": r.postnrnavn,
+        # The street part as the register writes it ("Vestergade 1, 1. th"):
+        # what the picker copies into the address field.
+        "address_line": r.address_line,
+    }
+
+
+def verify_address_outcome(
+    address: str | None,
+    zipcode: str | None = None,
+    city: str | None = None,
+    *,
+    user_key: str | None = None,
+) -> tuple[Outcome, dict | None]:
+    """(FOUND, dict) | (NOT_FOUND, None) | (UNAVAILABLE, None). Sync: run it
+    from a threadpool route, never on the event loop."""
+    outcome, result = address_lookup.wash(address, zipcode, city, user_key=user_key)
+    if outcome == Outcome.FOUND and result is not None:
+        return Outcome.FOUND, _as_dict(result)
+    return (outcome if outcome != Outcome.FOUND else Outcome.NOT_FOUND), None
 
 
 async def verify_address(
@@ -93,105 +84,27 @@ async def verify_address(
     zipcode: str | None = None,
     city: str | None = None,
 ) -> dict | None:
-    """Look up the canonical DAWA record for this address.
+    """The old shape: the record dict, or None when the register has no
+    match OR cannot be reached. Prefer verify_address_outcome, which keeps
+    those two apart.
 
-    Returns:
-      {
-        "id": "0a3f50ad-…",                # DAWA UUID (stable per address)
-        "betegnelse": "Vestergade 1, …",   # canonical form
-        "category": "A" | "B" | "C",       # match strength
-        "vejnavn": "Vestergade",
-        "husnr": "1",
-        "postnr": "1456",
-        "postnrnavn": "København K",
-      }
-      or None if DAWA can't reach a verdict, the address is empty,
-      or the request fails.
-
-    Example:
-      >>> await verify_address("Vestergade 1, 1456 København K")
-      {"id": "...", "category": "A", ...}
+      {"id": "0a3f50ad-…", "betegnelse": "Vestergade 1, …", "category": "A",
+       "vejnavn": "Vestergade", "husnr": "1", "postnr": "1456",
+       "postnrnavn": "København K", …}
     """
-    betegnelse = _build_betegnelse(address, zipcode, city)
-    if not betegnelse or len(betegnelse) < 5:
-        return None
-
-    cache_key = f"dawa:{betegnelse.lower()}"
-    cached = _cache_get(cache_key)
-    if cached is not _cache_get:  # not the sentinel
-        return cached
-
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(
-                _DAWA_URL,
-                params={"betegnelse": betegnelse},
-                headers={"Accept": "application/json"},
-            )
-    except (httpx.TimeoutException, httpx.HTTPError) as e:
-        # Network issue — non-fatal, just no verification stamp
-        logger.info("DAWA unavailable for %r: %s", betegnelse, e)
-        _cache_set(cache_key, None)
-        return None
-
-    if resp.status_code != 200:
-        logger.info("DAWA returned %s for %r", resp.status_code, betegnelse)
-        _cache_set(cache_key, None)
-        return None
-
-    try:
-        data = resp.json()
-    except Exception:  # noqa: BLE001
-        _cache_set(cache_key, None)
-        return None
-
-    # DAWA returns {"resultater": [{"adresse": {...}, "aktueladresse": {...}}, ...]}
-    results = data.get("resultater") or []
-    if not results:
-        _cache_set(cache_key, None)
-        return None
-
-    # Take the top result (best match by score). Use aktueladresse
-    # if present (current canonical) else adresse.
-    top = results[0]
-    record = top.get("aktueladresse") or top.get("adresse") or {}
-    if not record:
-        _cache_set(cache_key, None)
-        return None
-
-    # DAWA sometimes wraps each field in {"navn": "..."} or returns it
-    # flat — handle both shapes defensively.
-    def _f(field: str) -> str | None:
-        v = record.get(field)
-        if isinstance(v, dict):
-            return v.get("navn") or v.get("nr")
-        if v is None:
-            return None
-        return str(v)
-
-    out = {
-        "id": _f("id") or top.get("aktueladresse", {}).get("id"),
-        "betegnelse": _f("betegnelse") or top.get("aktueladresse", {}).get("betegnelse"),
-        "category": data.get("kategori") or top.get("kategori"),
-        "vejnavn": _f("vejnavn"),
-        "husnr": _f("husnr"),
-        "etage": _f("etage"),
-        "doer": _f("dør"),
-        "postnr": _f("postnr"),
-        "postnrnavn": _f("postnrnavn"),
-    }
-    _cache_set(cache_key, out)
-    return out
+    _outcome, record = await anyio.to_thread.run_sync(
+        lambda: verify_address_outcome(address, zipcode, city)
+    )
+    return record
 
 
 def addresses_match(cvr_address: dict, dawa_record: dict) -> bool:
-    """True if the CVR address basically matches the DAWA canonical.
+    """True if the CVR address basically matches the register's record.
 
-    Used to decide whether to show the user a "we updated this address"
-    confirmation. Compares the easy-to-typo fields (zipcode + city) and
-    the street normalized to lowercase ASCII for forgiving matching.
-
-    Returns False if either side is empty.
+    The PICKER'S DISPLAY HINT only — never trust. Compares the postcode, the
+    house number EXACTLY ("Vestergade 1" is not "Vestergade 12"; "3" is not
+    "3B") and the street forgivingly (one contains the other, for
+    abbreviations). Returns False if either side is empty.
     """
     if not cvr_address or not dawa_record:
         return False
@@ -206,16 +119,21 @@ def addresses_match(cvr_address: dict, dawa_record: dict) -> bool:
     if cvr_zip and dawa_zip and cvr_zip != dawa_zip:
         return False
 
-    cvr_street = _norm(cvr_address.get("address", "").split(",")[0])
-    # DAWA gives us vejnavn + husnr separately; reconstruct + normalize
-    dawa_street_full = (dawa_record.get("vejnavn") or "") + (dawa_record.get("husnr") or "")
-    dawa_street = _norm(dawa_street_full)
-    # Tolerant comparison: one must contain the other (handles abbrevs)
+    parsed = address_lookup.parse_street_number((cvr_address.get("address") or "").split(",")[0])
+    cvr_street = _norm(parsed.street)
+    cvr_nr = address_lookup._norm_nr(parsed.number)
+    dawa_street = _norm(dawa_record.get("vejnavn"))
+    dawa_nr = address_lookup._norm_nr(dawa_record.get("husnr"))
     if not cvr_street or not dawa_street:
         return False
+    if (cvr_nr or dawa_nr) and cvr_nr != dawa_nr:
+        return False
+    # Tolerant street comparison: one must contain the other (abbreviations)
     return cvr_street in dawa_street or dawa_street in cvr_street
 
 
 def clear_cache():
-    """Test helper — drop the DAWA cache."""
-    _cache.clear()
+    """Test helper — drop the address-lookup cache (this module keeps none
+    of its own any more: its old 24 h cache also stored outages as 'no
+    match')."""
+    address_lookup.clear_cache()

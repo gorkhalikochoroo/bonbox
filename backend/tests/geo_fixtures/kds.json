@@ -1,0 +1,1538 @@
+{
+ "_about": "Recorded real replies, 11 Nov 2026 (Step 0, DAWA replacement plan). Generic public addresses only. Token removed from every request.",
+ "cases": {
+  "aa_oe_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"70865c44-d570-44e7-a6f5-6f7c90add725\",\"adressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2021-03-01T12:17:48.807Z\",\"virkningtil\":null,\"registreringfra\":\"2021-03-01T12:17:48.807Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"vejnavn\":\"Rådhuspladsen\",\"status\":\"3\",\"virkningfra\":\"2025-08-21T18:07:58.913501+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-08-21T18:07:58.913501+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[724434.93,6175755.61]},\"koordinater\":{\"x\":724434.93,\"y\":6175755.61}},\"postnummer\":{\"id_lokalid\":\"327f7d73-b996-44ab-8830-2227129e9f4c\",\"navn\":\"København V\",\"postnr\":\"1550\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T17:51:17.223964+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T17:51:17.223964+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"db18d58c-b16d-457b-aa1b-e92cbd8aace5\",\"vejnavn\":\"Rådhuspladsen\",\"virkningfra\":\"2021-03-15T16:19:58.843178+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-03-15T16:19:58.843178+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994b98-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"6152\",\"navngivenvej\":\"db18d58c-b16d-457b-aa1b-e92cbd8aace5\",\"virkningfra\":\"2021-03-15T16:19:58.843178+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-03-15T16:19:58.843178+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"83a1b9a3-185d-4596-ad9a-e7587dd14474\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/70865c44-d570-44e7-a6f5-6f7c90add725",
+   "status": 200
+  },
+  "aa_oe_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"titel\":\"Rådhuspladsen 1, 1550 København V\",\"vejnavn\":\"Rådhuspladsen\",\"husnummer\":\"1\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "1550",
+    "vejnavn": "Raadhuspladsen"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aa_oe_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"titel\":\"Rådhuspladsen 1, 1550 København V\",\"vejnavn\":\"Rådhuspladsen\",\"husnummer\":\"1\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Raadhuspladsen 1, 1550 Koebenhavn V"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aa_oe_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":900,\"tekst\":\"Vejnavn tilnærmet ift. stavevariationer. Eksakt husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"70865c44-d570-44e7-a6f5-6f7c90add725\",\"adressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Raadhuspladsen 1, 1550 Koebenhavn V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "aalborg_algade_2__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"f303f2bf-a3d8-49d8-8c7e-05319241d9ff\",\"adressebetegnelse\":\"Adelgade 2, 9000 Aalborg\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2016-04-29T13:22:17.467Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f509c-11b4-32b8-e044-0003ba298018\",\"husnummertekst\":\"2\",\"adgangsadressebetegnelse\":\"Adelgade 2, 9000 Aalborg\",\"vejnavn\":\"Adelgade\",\"status\":\"3\",\"virkningfra\":\"2025-09-17T12:08:09.59474+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-09-17T12:08:09.59474+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f509c-11b4-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2012-11-13T16:32:45.677+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[555850.79,6323156.56]},\"koordinater\":{\"x\":555850.79,\"y\":6323156.56}},\"postnummer\":{\"id_lokalid\":\"587543db-3d0b-4d69-b191-b81ce89322de\",\"navn\":\"Aalborg\",\"postnr\":\"9000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:19:57.73859+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:19:57.73859+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"eef6a140-4600-4433-884d-a3ffbd368109\",\"vejnavn\":\"Adelgade\",\"virkningfra\":\"2021-08-23T12:59:41.181922+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-08-23T12:59:41.181922+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cc2fcaf-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0851\",\"vejkode\":\"0082\",\"navngivenvej\":\"eef6a140-4600-4433-884d-a3ffbd368109\",\"virkningfra\":\"2021-08-23T12:59:41.181922+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-08-23T12:59:41.181922+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"084af3b4-3ba3-4134-a09f-86cb004f1d3f\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/f303f2bf-a3d8-49d8-8c7e-05319241d9ff",
+   "status": 200
+  },
+  "aalborg_algade_2__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":900,\"tekst\":\"Vejnavn tilnærmet ift. stavevariationer. Eksakt husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"f303f2bf-a3d8-49d8-8c7e-05319241d9ff\",\"adressebetegnelse\":\"Adelgade 2, 9000 Aalborg\",\"virkningfra\":\"2016-04-29T13:22:17.467+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Algade 2, 9000 Aalborg"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "aalborg_algade__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "9000",
+    "vejnavn": "Algade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aalborg_algade__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Algade 1, 9000 Aalborg"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aalborg_algade__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-700,\"tekst\":\"Husnummer eksisterer ikke på vejen\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Algade 1, 9000 Aalborg"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "aalborg_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"bdeba035-482c-4334-91bd-bbff7fe6b61c\",\"adressebetegnelse\":\"Gammeltorv 2, 9000 Aalborg\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2022-02-11T09:20:03.417Z\",\"virkningtil\":null,\"registreringfra\":\"2022-02-11T09:20:03.417Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f509c-4077-32b8-e044-0003ba298018\",\"husnummertekst\":\"2\",\"adgangsadressebetegnelse\":\"Gammeltorv 2, 9000 Aalborg\",\"vejnavn\":\"Gammeltorv\",\"status\":\"3\",\"virkningfra\":\"2022-02-11T09:20:03.417481+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-02-11T09:20:03.417481+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f509c-4077-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2012-11-13T21:12:29.8+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[555859.4,6323132.25]},\"koordinater\":{\"x\":555859.4,\"y\":6323132.25}},\"postnummer\":{\"id_lokalid\":\"587543db-3d0b-4d69-b191-b81ce89322de\",\"navn\":\"Aalborg\",\"postnr\":\"9000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:19:57.73859+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:19:57.73859+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"4867ea02-ce49-44ca-a44d-7daa9d789ec5\",\"vejnavn\":\"Gammeltorv\",\"virkningfra\":\"2022-11-14T07:01:09.66851+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-11-14T07:01:09.66851+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cc3de05-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0851\",\"vejkode\":\"2335\",\"navngivenvej\":\"4867ea02-ce49-44ca-a44d-7daa9d789ec5\",\"virkningfra\":\"2022-11-14T07:01:09.66851+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-11-14T07:01:09.66851+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"26a8a719-bbd8-4756-93a6-4644e9430a62\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/bdeba035-482c-4334-91bd-bbff7fe6b61c",
+   "status": 200
+  },
+  "aalborg_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f509c-4077-32b8-e044-0003ba298018\",\"titel\":\"Gammeltorv 2, 9000 Aalborg\",\"vejnavn\":\"Gammeltorv\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2",
+    "maksimum": 10,
+    "postnummer": "9000",
+    "vejnavn": "Gammeltorv"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aalborg_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f509c-4077-32b8-e044-0003ba298018\",\"titel\":\"Gammeltorv 2, 9000 Aalborg\",\"vejnavn\":\"Gammeltorv\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Gammeltorv 2, 9000 Aalborg"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aalborg_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"bdeba035-482c-4334-91bd-bbff7fe6b61c\",\"adressebetegnelse\":\"Gammeltorv 2, 9000 Aalborg\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Gammeltorv 2, 9000 Aalborg"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "aarhus_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"9b9a6a18-ffb7-4ece-a7f1-5368812e4719\",\"adressebetegnelse\":\"Rådhuspladsen 2, 8000 Aarhus C\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2014-05-05T17:07:48.577Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f5096-c91f-32b8-e044-0003ba298018\",\"husnummertekst\":\"2\",\"adgangsadressebetegnelse\":\"Rådhuspladsen 2, 8000 Aarhus C\",\"vejnavn\":\"Rådhuspladsen\",\"status\":\"3\",\"virkningfra\":\"2020-07-28T13:14:04.050996+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-07-28T13:14:04.050996+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5096-c91f-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2012-04-11T15:04:13.63+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[574743.25,6223719]},\"koordinater\":{\"x\":574743.25,\"y\":6223719}},\"postnummer\":{\"id_lokalid\":\"2279cb42-3a7a-4d64-9e1a-34288c093166\",\"navn\":\"Aarhus C\",\"postnr\":\"8000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:03:18.925179+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:03:18.925179+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"f866c0fc-a9f4-47a7-86f7-814303f76f7a\",\"vejnavn\":\"Rådhuspladsen\",\"virkningfra\":\"2022-03-14T19:04:36.496566+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-03-14T19:04:36.496566+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cbb823c-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0751\",\"vejkode\":\"7005\",\"navngivenvej\":\"f866c0fc-a9f4-47a7-86f7-814303f76f7a\",\"virkningfra\":\"2022-03-14T19:04:36.496566+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-03-14T19:04:36.496566+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"5cbf0aab-be15-424d-a996-5cf29604c588\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/9b9a6a18-ffb7-4ece-a7f1-5368812e4719",
+   "status": 200
+  },
+  "aarhus_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5096-c91f-32b8-e044-0003ba298018\",\"titel\":\"Rådhuspladsen 2, 8000 Aarhus C\",\"vejnavn\":\"Rådhuspladsen\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2",
+    "maksimum": 10,
+    "postnummer": "8000",
+    "vejnavn": "Rådhuspladsen"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aarhus_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5096-c91f-32b8-e044-0003ba298018\",\"titel\":\"Rådhuspladsen 2, 8000 Aarhus C\",\"vejnavn\":\"Rådhuspladsen\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Rådhuspladsen 2, 8000 Aarhus C"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aarhus_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"9b9a6a18-ffb7-4ece-a7f1-5368812e4719\",\"adressebetegnelse\":\"Rådhuspladsen 2, 8000 Aarhus C\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 2, 8000 Aarhus C"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "aarhus_soendergade_2__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"19020794-a90c-462e-bebd-ca58d5914074\",\"adressebetegnelse\":\"Søndergade 2, 8000 Aarhus C\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2016-04-29T12:44:34.753Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f5097-0299-32b8-e044-0003ba298018\",\"husnummertekst\":\"2\",\"adgangsadressebetegnelse\":\"Søndergade 2, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"status\":\"3\",\"virkningfra\":\"2018-07-04T16:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-07-04T16:00:00+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5097-0299-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2012-04-11T11:35:55.757+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[575022.44,6224058]},\"koordinater\":{\"x\":575022.44,\"y\":6224058}},\"postnummer\":{\"id_lokalid\":\"2279cb42-3a7a-4d64-9e1a-34288c093166\",\"navn\":\"Aarhus C\",\"postnr\":\"8000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:03:18.925179+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:03:18.925179+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"e54bd9a8-2036-4955-8e44-21c55eb31217\",\"vejnavn\":\"Søndergade\",\"virkningfra\":\"2021-11-23T13:59:37.627046+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-11-23T13:59:37.627046+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cbb83b1-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0751\",\"vejkode\":\"8233\",\"navngivenvej\":\"e54bd9a8-2036-4955-8e44-21c55eb31217\",\"virkningfra\":\"2021-11-23T13:59:37.627046+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-11-23T13:59:37.627046+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"695786eb-56d2-4c50-b232-3f2ced6dd005\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/19020794-a90c-462e-bebd-ca58d5914074",
+   "status": 200
+  },
+  "aarhus_soendergade_2__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"19020794-a90c-462e-bebd-ca58d5914074\",\"adressebetegnelse\":\"Søndergade 2, 8000 Aarhus C\",\"virkningfra\":\"2016-04-29T12:44:34.753+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Søndergade 2, 8000 Aarhus C"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "aarhus_soendergade__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "8000",
+    "vejnavn": "Søndergade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aarhus_soendergade__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Søndergade 1, 8000 Aarhus C"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "aarhus_soendergade__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-700,\"tekst\":\"Husnummer eksisterer ikke på vejen\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Søndergade 1, 8000 Aarhus C"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "cph_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"70865c44-d570-44e7-a6f5-6f7c90add725\",\"adressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2021-03-01T12:17:48.807Z\",\"virkningtil\":null,\"registreringfra\":\"2021-03-01T12:17:48.807Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"vejnavn\":\"Rådhuspladsen\",\"status\":\"3\",\"virkningfra\":\"2025-08-21T18:07:58.913501+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-08-21T18:07:58.913501+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[724434.93,6175755.61]},\"koordinater\":{\"x\":724434.93,\"y\":6175755.61}},\"postnummer\":{\"id_lokalid\":\"327f7d73-b996-44ab-8830-2227129e9f4c\",\"navn\":\"København V\",\"postnr\":\"1550\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T17:51:17.223964+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T17:51:17.223964+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"db18d58c-b16d-457b-aa1b-e92cbd8aace5\",\"vejnavn\":\"Rådhuspladsen\",\"virkningfra\":\"2021-03-15T16:19:58.843178+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-03-15T16:19:58.843178+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994b98-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"6152\",\"navngivenvej\":\"db18d58c-b16d-457b-aa1b-e92cbd8aace5\",\"virkningfra\":\"2021-03-15T16:19:58.843178+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-03-15T16:19:58.843178+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"83a1b9a3-185d-4596-ad9a-e7587dd14474\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/70865c44-d570-44e7-a6f5-6f7c90add725",
+   "status": 200
+  },
+  "cph_raadhus__husnumre_id": {
+   "body": "{\"status\":\"ok\",\"husnummer\":{\"id_lokalid\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"vejnavn\":\"Rådhuspladsen\",\"status\":\"3\",\"virkningfra\":\"2025-08-21T18:07:58.913Z\",\"virkningtil\":null,\"registreringfra\":\"2025-08-21T18:07:58.913Z\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[724434.93,6175755.61]},\"koordinater\":{\"x\":724434.93,\"y\":6175755.61}},\"postnummer\":{\"id_lokalid\":\"327f7d73-b996-44ab-8830-2227129e9f4c\",\"navn\":\"København V\",\"postnr\":\"1550\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T17:51:17.223964+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T17:51:17.223964+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"db18d58c-b16d-457b-aa1b-e92cbd8aace5\",\"vejnavn\":\"Rådhuspladsen\",\"virkningfra\":\"2021-03-15T16:19:58.843178+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-03-15T16:19:58.843178+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994b98-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"6152\",\"navngivenvej\":\"db18d58c-b16d-457b-aa1b-e92cbd8aace5\",\"virkningfra\":\"2021-03-15T16:19:58.843178+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-03-15T16:19:58.843178+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"83a1b9a3-185d-4596-ad9a-e7587dd14474\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/husnumre/0a3f507a-ec01-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "cph_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"titel\":\"Rådhuspladsen 1, 1550 København V\",\"vejnavn\":\"Rådhuspladsen\",\"husnummer\":\"1\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "1550",
+    "vejnavn": "Rådhuspladsen"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "cph_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"titel\":\"Rådhuspladsen 1, 1550 København V\",\"vejnavn\":\"Rådhuspladsen\",\"husnummer\":\"1\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Rådhuspladsen 1, 1550 København V"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "cph_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"70865c44-d570-44e7-a6f5-6f7c90add725\",\"adressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 1, 1550 København V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "cph_raadhus_kbh_abbrev__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"70865c44-d570-44e7-a6f5-6f7c90add725\",\"adressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2021-03-01T12:17:48.807Z\",\"virkningtil\":null,\"registreringfra\":\"2021-03-01T12:17:48.807Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"vejnavn\":\"Rådhuspladsen\",\"status\":\"3\",\"virkningfra\":\"2025-08-21T18:07:58.913501+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-08-21T18:07:58.913501+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-ec01-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[724434.93,6175755.61]},\"koordinater\":{\"x\":724434.93,\"y\":6175755.61}},\"postnummer\":{\"id_lokalid\":\"327f7d73-b996-44ab-8830-2227129e9f4c\",\"navn\":\"København V\",\"postnr\":\"1550\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T17:51:17.223964+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T17:51:17.223964+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"db18d58c-b16d-457b-aa1b-e92cbd8aace5\",\"vejnavn\":\"Rådhuspladsen\",\"virkningfra\":\"2021-03-15T16:19:58.843178+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-03-15T16:19:58.843178+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994b98-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"6152\",\"navngivenvej\":\"db18d58c-b16d-457b-aa1b-e92cbd8aace5\",\"virkningfra\":\"2021-03-15T16:19:58.843178+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-03-15T16:19:58.843178+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"83a1b9a3-185d-4596-ad9a-e7587dd14474\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/70865c44-d570-44e7-a6f5-6f7c90add725",
+   "status": 200
+  },
+  "cph_raadhus_kbh_abbrev__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"70865c44-d570-44e7-a6f5-6f7c90add725\",\"adressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 1, 1550 Kbh V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "digit_street_kolding__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"b6b17b36-30a6-4b59-a2db-ed8d678c4621\",\"adressebetegnelse\":\"Christian 10 Gade 2, 6000 Kolding\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2020-09-10T10:30:51.196Z\",\"virkningtil\":null,\"registreringfra\":\"2020-09-10T10:30:51.196Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f5090-1b72-32b8-e044-0003ba298018\",\"husnummertekst\":\"2\",\"adgangsadressebetegnelse\":\"Christian 10 Gade 2, 6000 Kolding\",\"vejnavn\":\"Christian 10 Gade\",\"status\":\"3\",\"virkningfra\":\"2020-09-10T10:30:51.196881+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-09-10T10:30:51.196881+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5090-1b72-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2020-09-10T10:30:51.196881+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-09-10T10:30:51.196881+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[530082.086297166,6148777.94051537]},\"koordinater\":{\"x\":530082.086297166,\"y\":6148777.94051537}},\"postnummer\":{\"id_lokalid\":\"3a6b09ec-cfd7-4cc9-8eed-d9f3f0e4978a\",\"navn\":\"Kolding\",\"postnr\":\"6000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:23:10.278819+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:23:10.278819+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"0889bb71-9b5e-4157-849a-b876a06777fb\",\"vejnavn\":\"Christian 10 Gade\",\"virkningfra\":\"1980-01-01T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-29T15:30:00.004005+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cb376f6-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0621\",\"vejkode\":\"1484\",\"navngivenvej\":\"0889bb71-9b5e-4157-849a-b876a06777fb\",\"virkningfra\":\"1980-01-01T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"978d674c-8413-497d-a596-a6d4eb61f56a\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/b6b17b36-30a6-4b59-a2db-ed8d678c4621",
+   "status": 200
+  },
+  "digit_street_kolding__husnumre_id": {
+   "body": "{\"status\":\"ok\",\"husnummer\":{\"id_lokalid\":\"0a3f5090-1b72-32b8-e044-0003ba298018\",\"husnummertekst\":\"2\",\"adgangsadressebetegnelse\":\"Christian 10 Gade 2, 6000 Kolding\",\"vejnavn\":\"Christian 10 Gade\",\"status\":\"3\",\"virkningfra\":\"2020-09-10T10:30:51.196Z\",\"virkningtil\":null,\"registreringfra\":\"2020-09-10T10:30:51.196Z\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5090-1b72-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2020-09-10T10:30:51.196881+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-09-10T10:30:51.196881+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[530082.086297166,6148777.94051537]},\"koordinater\":{\"x\":530082.086297166,\"y\":6148777.94051537}},\"postnummer\":{\"id_lokalid\":\"3a6b09ec-cfd7-4cc9-8eed-d9f3f0e4978a\",\"navn\":\"Kolding\",\"postnr\":\"6000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:23:10.278819+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:23:10.278819+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"0889bb71-9b5e-4157-849a-b876a06777fb\",\"vejnavn\":\"Christian 10 Gade\",\"virkningfra\":\"1980-01-01T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-29T15:30:00.004005+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cb376f6-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0621\",\"vejkode\":\"1484\",\"navngivenvej\":\"0889bb71-9b5e-4157-849a-b876a06777fb\",\"virkningfra\":\"1980-01-01T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"978d674c-8413-497d-a596-a6d4eb61f56a\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/husnumre/0a3f5090-1b72-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "digit_street_kolding__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5090-1b72-32b8-e044-0003ba298018\",\"titel\":\"Christian 10 Gade 2, 6000 Kolding\",\"vejnavn\":\"Christian 10 Gade\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2",
+    "maksimum": 10,
+    "postnummer": "6000",
+    "vejnavn": "Christian 10 Gade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "digit_street_kolding__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"b6b17b36-30a6-4b59-a2db-ed8d678c4621\",\"adressebetegnelse\":\"Christian 10 Gade 2, 6000 Kolding\",\"virkningfra\":\"2016-04-29T11:11:19.37+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Christian 10 Gade 2, 6000 Kolding"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "discover_digit_street__husnumre_soeg": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5090-1b72-32b8-e044-0003ba298018\",\"titel\":\"Christian 10 Gade 2, 6000 Kolding\",\"vejnavn\":\"Christian 10 Gade\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Christian 10 Gade 2"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "err_adresser_not_uuid__adresser_id": {
+   "body": "id skal være en gyldig uuid (not-a-uuid)",
+   "content_type": "text/html; charset=utf-8",
+   "params": {},
+   "path": "/adresser/not-a-uuid",
+   "status": 400
+  },
+  "err_adresser_random_uuid__adresser_id": {
+   "body": "",
+   "content_type": null,
+   "params": {},
+   "path": "/adresser/00000000-0000-0000-0000-000000001234",
+   "status": 404
+  },
+  "err_husnumre_random_uuid__husnumre_id": {
+   "body": "",
+   "content_type": null,
+   "params": {},
+   "path": "/husnumre/00000000-0000-0000-0000-000000005678",
+   "status": 404
+  },
+  "err_no_token__vask": {
+   "body": "Mangler nødvendig queryparameter: token",
+   "content_type": "text/html; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 1, 1550 København V"
+   },
+   "path": "/vask/",
+   "status": 400
+  },
+  "err_other_token_10plus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"70865c44-d570-44e7-a6f5-6f7c90add725\",\"adressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 1, 1550 København V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "err_short_token__vask": {
+   "body": "Ugyldigt token (abc)",
+   "content_type": "text/html; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 1, 1550 København V"
+   },
+   "path": "/vask/",
+   "status": 400
+  },
+  "err_soeg_garbage__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "tekst": "qqqzzzxxx"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "err_soeg_husnummer_5__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "12345",
+    "postnummer": "1550",
+    "vejnavn": "Rådhuspladsen"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "err_soeg_only_husnummer__husnumre_soeg_struct": {
+   "body": "Mangler nødvendig queryparameter: vejnavn",
+   "content_type": "text/html; charset=utf-8",
+   "params": {
+    "husnummer": "1"
+   },
+   "path": "/husnumre/soeg",
+   "status": 400
+  },
+  "err_soeg_postnummer_5__husnumre_soeg_struct": {
+   "body": "postnummer skal være præcis 4 tegn (15500)",
+   "content_type": "text/html; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "postnummer": "15500",
+    "vejnavn": "Rådhuspladsen"
+   },
+   "path": "/husnumre/soeg",
+   "status": 400
+  },
+  "err_soeg_tekst_74__husnumre_soeg_tekst": {
+   "body": "tekst må maksimalt være 73 tegn (RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR)",
+   "content_type": "text/html; charset=utf-8",
+   "params": {
+    "tekst": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR"
+   },
+   "path": "/husnumre/soeg",
+   "status": 400
+  },
+  "err_soeg_vejnavn_41__husnumre_soeg_struct": {
+   "body": "vejnavn må maksimalt være 40 tegn (VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV)",
+   "content_type": "text/html; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "postnummer": "1550",
+    "vejnavn": "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+   },
+   "path": "/husnumre/soeg",
+   "status": 400
+  },
+  "err_unknown_path__unknown": {
+   "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /foo</pre>\n</body>\n</html>\n",
+   "content_type": "text/html; charset=utf-8",
+   "params": {},
+   "path": "/foo",
+   "status": 404
+  },
+  "err_vask_empty__vask": {
+   "body": "adresse skal være mindst 1 tegn ()",
+   "content_type": "text/html; charset=utf-8",
+   "params": {
+    "adresse": ""
+   },
+   "path": "/vask/",
+   "status": 400
+  },
+  "err_vask_long__vask": {
+   "body": "adresse må maksimalt være 200 tegn (Rådhuspladsen 1, 1550 København V xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)",
+   "content_type": "text/html; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 1, 1550 København V xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "path": "/vask/",
+   "status": 400
+  },
+  "err_vask_no_slash__vask_noslash": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"70865c44-d570-44e7-a6f5-6f7c90add725\",\"adressebetegnelse\":\"Rådhuspladsen 1, 1550 København V\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 1, 1550 København V"
+   },
+   "path": "/vask",
+   "status": 200
+  },
+  "err_vask_smiley__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-1000,\"tekst\":\"Tekst kan ikke genkendes som en adresse\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": ":-)"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "esbjerg_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"c4c474a2-458d-493c-a6a1-1e2ccc25c69c\",\"adressebetegnelse\":\"Torvegade 74, 6700 Esbjerg\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2014-05-05T17:07:48.577Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f508d-ca1c-32b8-e044-0003ba298018\",\"husnummertekst\":\"74\",\"adgangsadressebetegnelse\":\"Torvegade 74, 6700 Esbjerg\",\"vejnavn\":\"Torvegade\",\"status\":\"3\",\"virkningfra\":\"2024-03-08T09:45:16.534399+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-03-08T09:45:16.534399+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f508d-ca1c-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-24T02:15:25+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[465430.17,6147486.26]},\"koordinater\":{\"x\":465430.17,\"y\":6147486.26}},\"postnummer\":{\"id_lokalid\":\"aca72104-f0fc-49ce-8818-5cc607ae32a5\",\"navn\":\"Esbjerg\",\"postnr\":\"6700\",\"status\":\"3\",\"virkningfra\":\"2026-10-14T11:39:30.64767+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-10-14T11:39:30.64767+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"c6ef5b22-6ad4-498d-9c8d-29530de2be8a\",\"vejnavn\":\"Torvegade\",\"virkningfra\":\"2024-05-06T08:01:17.909775+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-05-06T08:01:17.909775+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cb040bf-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0561\",\"vejkode\":\"8751\",\"navngivenvej\":\"c6ef5b22-6ad4-498d-9c8d-29530de2be8a\",\"virkningfra\":\"2024-11-18T13:03:17.659028+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-11-18T13:03:17.659028+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"69ef75d8-cef9-4b38-b93e-bd112bfb5b96\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/c4c474a2-458d-493c-a6a1-1e2ccc25c69c",
+   "status": 200
+  },
+  "esbjerg_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f508d-ca1c-32b8-e044-0003ba298018\",\"titel\":\"Torvegade 74, 6700 Esbjerg\",\"vejnavn\":\"Torvegade\",\"husnummer\":\"74\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "74",
+    "maksimum": 10,
+    "postnummer": "6700",
+    "vejnavn": "Torvegade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "esbjerg_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f508d-ca1c-32b8-e044-0003ba298018\",\"titel\":\"Torvegade 74, 6700 Esbjerg\",\"vejnavn\":\"Torvegade\",\"husnummer\":\"74\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Torvegade 74, 6700 Esbjerg"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "esbjerg_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"c4c474a2-458d-493c-a6a1-1e2ccc25c69c\",\"adressebetegnelse\":\"Torvegade 74, 6700 Esbjerg\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Torvegade 74, 6700 Esbjerg"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "fanoe_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"0a3f50b9-73f1-32b8-e044-0003ba298018\",\"adressebetegnelse\":\"Skolevej 5, Nordby, 6720 Fanø\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2000-02-05T17:31:12.000Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f508d-e41b-32b8-e044-0003ba298018\",\"husnummertekst\":\"5\",\"adgangsadressebetegnelse\":\"Skolevej 5, Nordby, 6720 Fanø\",\"vejnavn\":\"Skolevej\",\"status\":\"3\",\"virkningfra\":\"2019-09-11T14:53:51.065995+00:00\",\"virkningtil\":null,\"registreringfra\":\"2019-09-11T14:53:51.065995+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f508d-e41b-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2018-10-30T07:17:55.634055+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-10-30T07:17:55.634055+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[462206.584413169,6144603.7492075]},\"koordinater\":{\"x\":462206.584413169,\"y\":6144603.7492075}},\"postnummer\":{\"id_lokalid\":\"4726e2ae-9886-43a0-afb8-eb2ed33c4c57\",\"navn\":\"Fanø\",\"postnr\":\"6720\",\"status\":\"3\",\"virkningfra\":\"1753-01-01T00:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"56382925-8f63-4f4c-8f89-42730e5057fd\",\"vejnavn\":\"Skolevej\",\"virkningfra\":\"2022-06-23T08:59:15.23988+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-06-23T08:59:15.23988+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cb0420d-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0563\",\"vejkode\":\"6496\",\"navngivenvej\":\"56382925-8f63-4f4c-8f89-42730e5057fd\",\"virkningfra\":\"2022-06-23T08:59:15.23988+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-06-23T08:59:15.23988+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"59ece72d-683c-46f9-b8d2-62613ceb23dc\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":\"681e90fa-bf28-4576-945b-e7dbf727adad\",\"status\":\"3\",\"supplerendebynavn\":\"686435\",\"navn\":\"Nordby\",\"virkningfra\":\"2025-10-16T09:34:45.761721+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-10-16T09:34:45.761721+00:00\",\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/0a3f50b9-73f1-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "fanoe_raadhus__husnumre_id": {
+   "body": "{\"status\":\"ok\",\"husnummer\":{\"id_lokalid\":\"0a3f508d-e41b-32b8-e044-0003ba298018\",\"husnummertekst\":\"5\",\"adgangsadressebetegnelse\":\"Skolevej 5, Nordby, 6720 Fanø\",\"vejnavn\":\"Skolevej\",\"status\":\"3\",\"virkningfra\":\"2019-09-11T14:53:51.065Z\",\"virkningtil\":null,\"registreringfra\":\"2019-09-11T14:53:51.065Z\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f508d-e41b-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2018-10-30T07:17:55.634055+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-10-30T07:17:55.634055+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[462206.584413169,6144603.7492075]},\"koordinater\":{\"x\":462206.584413169,\"y\":6144603.7492075}},\"postnummer\":{\"id_lokalid\":\"4726e2ae-9886-43a0-afb8-eb2ed33c4c57\",\"navn\":\"Fanø\",\"postnr\":\"6720\",\"status\":\"3\",\"virkningfra\":\"1753-01-01T00:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"56382925-8f63-4f4c-8f89-42730e5057fd\",\"vejnavn\":\"Skolevej\",\"virkningfra\":\"2022-06-23T08:59:15.23988+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-06-23T08:59:15.23988+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cb0420d-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0563\",\"vejkode\":\"6496\",\"navngivenvej\":\"56382925-8f63-4f4c-8f89-42730e5057fd\",\"virkningfra\":\"2022-06-23T08:59:15.23988+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-06-23T08:59:15.23988+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"59ece72d-683c-46f9-b8d2-62613ceb23dc\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":\"681e90fa-bf28-4576-945b-e7dbf727adad\",\"status\":\"3\",\"supplerendebynavn\":\"686435\",\"navn\":\"Nordby\",\"virkningfra\":\"2025-10-16T09:34:45.761721+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-10-16T09:34:45.761721+00:00\",\"registreringtil\":null}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/husnumre/0a3f508d-e41b-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "fanoe_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f508d-e41b-32b8-e044-0003ba298018\",\"titel\":\"Skolevej 5, Nordby, 6720 Fanø\",\"vejnavn\":\"Skolevej\",\"husnummer\":\"5\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "5",
+    "maksimum": 10,
+    "postnummer": "6720",
+    "vejnavn": "Skolevej"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "fanoe_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f508d-e41b-32b8-e044-0003ba298018\",\"titel\":\"Skolevej 5, Nordby, 6720 Fanø\",\"vejnavn\":\"Skolevej\",\"husnummer\":\"5\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Skolevej 5, 6720 Fanø"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "fanoe_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"0a3f50b9-73f1-32b8-e044-0003ba298018\",\"adressebetegnelse\":\"Skolevej 5, Nordby, 6720 Fanø\",\"virkningfra\":\"2000-02-05T17:31:12+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Skolevej 5, 6720 Fanø"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "islands_brygge_floor_1__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-800,\"tekst\":\"Vejnavn findes ikke indenfor postdistriktet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Islands Brygge 32B, 1., 2300 København S"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_900_spelling__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"0ef9e32f-5541-49b5-805b-4af2b4d4bd38\",\"adressebetegnelse\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2020-05-29T15:41:11.076Z\",\"virkningtil\":null,\"registreringfra\":\"2020-05-29T15:41:11.076Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"husnummertekst\":\"11\",\"adgangsadressebetegnelse\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"vejnavn\":\"Sankt Kjelds Plads\",\"status\":\"3\",\"virkningfra\":\"2022-10-09T05:17:26.494672+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-10-09T05:17:26.494672+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[723910.44,6179652.89]},\"koordinater\":{\"x\":723910.44,\"y\":6179652.89}},\"postnummer\":{\"id_lokalid\":\"002115e2-658c-443c-9b65-96abe855cff7\",\"navn\":\"København Ø\",\"postnr\":\"2100\",\"status\":\"3\",\"virkningfra\":\"2024-09-17T06:51:01.977117+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-09-17T06:51:01.977117+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"e5d7fe4e-cd69-412d-97b9-94bd90d4edad\",\"vejnavn\":\"Sankt Kjelds Plads\",\"virkningfra\":\"2026-01-13T09:59:12.750152+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-01-13T09:59:12.750152+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994bb8-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"6268\",\"navngivenvej\":\"e5d7fe4e-cd69-412d-97b9-94bd90d4edad\",\"virkningfra\":\"2026-01-13T09:59:12.750152+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-01-13T09:59:12.750152+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"6d4c4aa4-b3d2-45e3-9246-58f2f99004e5\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/0ef9e32f-5541-49b5-805b-4af2b4d4bd38",
+   "status": 200
+  },
+  "kds_900_spelling__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2100",
+    "maksimum": 10,
+    "postnummer": "2100",
+    "vejnavn": "Sanct Keld Plads 11"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_900_spelling__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"titel\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"vejnavn\":\"Sankt Kjelds Plads\",\"husnummer\":\"11\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Sanct Keld Plads 11 2100 København Ø"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_900_spelling__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":900,\"tekst\":\"Vejnavn tilnærmet ift. stavevariationer. Eksakt husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"0ef9e32f-5541-49b5-805b-4af2b4d4bd38\",\"adressebetegnelse\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"virkningfra\":\"2020-04-07T06:05:29.944482+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Sanct Keld Plads 11 2100 København Ø"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_doc_kolding__husnumre_id": {
+   "body": "{\"status\":\"ok\",\"husnummer\":{\"id_lokalid\":\"0a3f5090-48fe-32b8-e044-0003ba298018\",\"husnummertekst\":\"87A\",\"adgangsadressebetegnelse\":\"Nr. Bjertvej 87A, Nr Bjert, 6000 Kolding\",\"vejnavn\":\"Nr. Bjertvej\",\"status\":\"3\",\"virkningfra\":\"2021-01-05T14:56:02.099Z\",\"virkningtil\":null,\"registreringfra\":\"2021-01-05T14:56:02.099Z\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5090-48fe-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2018-08-09T12:05:02.078138+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-08-09T12:05:02.078138+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[533640.58,6152135.2]},\"koordinater\":{\"x\":533640.58,\"y\":6152135.2}},\"postnummer\":{\"id_lokalid\":\"3a6b09ec-cfd7-4cc9-8eed-d9f3f0e4978a\",\"navn\":\"Kolding\",\"postnr\":\"6000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:23:10.278819+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:23:10.278819+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"bb1dc312-85e4-4716-905d-af17080d2c5f\",\"vejnavn\":\"Nr. Bjertvej\",\"virkningfra\":\"2026-04-25T14:14:58.864301+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-04-25T14:14:58.864301+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cb378e9-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0621\",\"vejkode\":\"5842\",\"navngivenvej\":\"bb1dc312-85e4-4716-905d-af17080d2c5f\",\"virkningfra\":\"2024-03-01T18:06:40.065587+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-03-01T18:06:40.065587+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"7f77286f-37bc-4dc8-9c7b-ebd0af1f93c9\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":\"542c9041-e487-4b63-8fd0-af4f5c71eaa5\",\"status\":\"3\",\"supplerendebynavn\":\"665549\",\"navn\":\"Nr Bjert\",\"virkningfra\":\"2021-01-05T14:56:02.099849+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-01-05T14:56:02.099849+00:00\",\"registreringtil\":null}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/husnumre/0a3f5090-48fe-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "kds_door_missing_500__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2300",
+    "maksimum": 10,
+    "postnummer": "2300",
+    "vejnavn": "Islands Brygge 32B 1"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_door_missing_500__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-9af2-32b8-e044-0003ba298018\",\"titel\":\"Islands Brygge 32B, 2300 København S\",\"vejnavn\":\"Islands Brygge\",\"husnummer\":\"32B\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Islands Brygge 32B 1 2300 København S"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_door_missing_500__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-800,\"tekst\":\"Vejnavn findes ikke indenfor postdistriktet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Islands Brygge 32B 1 2300 København S"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_exact__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"0ef9e32f-5541-49b5-805b-4af2b4d4bd38\",\"adressebetegnelse\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2020-05-29T15:41:11.076Z\",\"virkningtil\":null,\"registreringfra\":\"2020-05-29T15:41:11.076Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"husnummertekst\":\"11\",\"adgangsadressebetegnelse\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"vejnavn\":\"Sankt Kjelds Plads\",\"status\":\"3\",\"virkningfra\":\"2022-10-09T05:17:26.494672+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-10-09T05:17:26.494672+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[723910.44,6179652.89]},\"koordinater\":{\"x\":723910.44,\"y\":6179652.89}},\"postnummer\":{\"id_lokalid\":\"002115e2-658c-443c-9b65-96abe855cff7\",\"navn\":\"København Ø\",\"postnr\":\"2100\",\"status\":\"3\",\"virkningfra\":\"2024-09-17T06:51:01.977117+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-09-17T06:51:01.977117+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"e5d7fe4e-cd69-412d-97b9-94bd90d4edad\",\"vejnavn\":\"Sankt Kjelds Plads\",\"virkningfra\":\"2026-01-13T09:59:12.750152+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-01-13T09:59:12.750152+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994bb8-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"6268\",\"navngivenvej\":\"e5d7fe4e-cd69-412d-97b9-94bd90d4edad\",\"virkningfra\":\"2026-01-13T09:59:12.750152+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-01-13T09:59:12.750152+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"6d4c4aa4-b3d2-45e3-9246-58f2f99004e5\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/0ef9e32f-5541-49b5-805b-4af2b4d4bd38",
+   "status": 200
+  },
+  "kds_exact__husnumre_id": {
+   "body": "{\"status\":\"ok\",\"husnummer\":{\"id_lokalid\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"husnummertekst\":\"11\",\"adgangsadressebetegnelse\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"vejnavn\":\"Sankt Kjelds Plads\",\"status\":\"3\",\"virkningfra\":\"2022-10-09T05:17:26.494Z\",\"virkningtil\":null,\"registreringfra\":\"2022-10-09T05:17:26.494Z\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[723910.44,6179652.89]},\"koordinater\":{\"x\":723910.44,\"y\":6179652.89}},\"postnummer\":{\"id_lokalid\":\"002115e2-658c-443c-9b65-96abe855cff7\",\"navn\":\"København Ø\",\"postnr\":\"2100\",\"status\":\"3\",\"virkningfra\":\"2024-09-17T06:51:01.977117+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-09-17T06:51:01.977117+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"e5d7fe4e-cd69-412d-97b9-94bd90d4edad\",\"vejnavn\":\"Sankt Kjelds Plads\",\"virkningfra\":\"2026-01-13T09:59:12.750152+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-01-13T09:59:12.750152+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994bb8-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"6268\",\"navngivenvej\":\"e5d7fe4e-cd69-412d-97b9-94bd90d4edad\",\"virkningfra\":\"2026-01-13T09:59:12.750152+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-01-13T09:59:12.750152+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"6d4c4aa4-b3d2-45e3-9246-58f2f99004e5\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/husnumre/0a3f507a-eedb-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "kds_exact__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"titel\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"vejnavn\":\"Sankt Kjelds Plads\",\"husnummer\":\"11\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "11",
+    "maksimum": 10,
+    "postnummer": "2100",
+    "vejnavn": "Sankt Kjelds Plads"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_exact__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-eedb-32b8-e044-0003ba298018\",\"titel\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"vejnavn\":\"Sankt Kjelds Plads\",\"husnummer\":\"11\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Sankt Kjelds Plads 11 2100 København Ø"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_exact__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"0ef9e32f-5541-49b5-805b-4af2b4d4bd38\",\"adressebetegnelse\":\"Sankt Kjelds Plads 11, 2100 København Ø\",\"virkningfra\":\"2020-04-07T06:05:29.944482+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Sankt Kjelds Plads 11 2100 København Ø"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_floor_example__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"0a3f50a0-4661-32b8-e044-0003ba298018\",\"adressebetegnelse\":\"Rentemestervej 8, 1., 2400 København NV\",\"etagebetegnelse\":\"1\",\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2000-02-05T19:31:05.000Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f507a-e179-32b8-e044-0003ba298018\",\"husnummertekst\":\"8\",\"adgangsadressebetegnelse\":\"Rentemestervej 8, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"status\":\"3\",\"virkningfra\":\"2018-07-04T16:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-07-04T16:00:00+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-e179-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[722125.86,6178892.29]},\"koordinater\":{\"x\":722125.86,\"y\":6178892.29}},\"postnummer\":{\"id_lokalid\":\"f9d004e5-c180-4d70-986f-d3c2cd9ab1f2\",\"navn\":\"København NV\",\"postnr\":\"2400\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:07:08.717582+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:07:08.717582+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"831a760e-4e3f-42e8-a9a5-0b771f72880a\",\"vejnavn\":\"Rentemestervej\",\"virkningfra\":\"2025-06-06T21:39:33.394851+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-06-06T21:39:33.394851+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994b36-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"5804\",\"navngivenvej\":\"831a760e-4e3f-42e8-a9a5-0b771f72880a\",\"virkningfra\":\"2025-06-06T21:39:33.394851+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-06-06T21:39:33.394851+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"3e3d775b-5f76-41dd-a04f-0de5fed9f574\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/0a3f50a0-4661-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "kds_floor_example__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-e179-32b8-e044-0003ba298018\",\"titel\":\"Rentemestervej 8, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"8\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "8",
+    "maksimum": 10,
+    "postnummer": "2400",
+    "vejnavn": "Rentemestervej"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_floor_example__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-e179-32b8-e044-0003ba298018\",\"titel\":\"Rentemestervej 8, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"8\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Rentemestervej 8, 1., 2400 København NV"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_floor_example__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"0a3f50a0-4661-32b8-e044-0003ba298018\",\"adressebetegnelse\":\"Rentemestervej 8, 1., 2400 København NV\",\"virkningfra\":\"2000-02-05T19:31:05+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Rentemestervej 8, 1., 2400 København NV"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_floor_missing_600__husnumre_id": {
+   "body": "{\"status\":\"ok\",\"husnummer\":{\"id_lokalid\":\"0a3f507a-9af2-32b8-e044-0003ba298018\",\"husnummertekst\":\"32B\",\"adgangsadressebetegnelse\":\"Islands Brygge 32B, 2300 København S\",\"vejnavn\":\"Islands Brygge\",\"status\":\"3\",\"virkningfra\":\"2024-12-01T02:04:33.474Z\",\"virkningtil\":null,\"registreringfra\":\"2024-12-01T02:04:33.474Z\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507a-9af2-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[724449.7,6174112.44]},\"koordinater\":{\"x\":724449.7,\"y\":6174112.44}},\"postnummer\":{\"id_lokalid\":\"7005971d-ad67-41a0-a1d3-4312f841e3ae\",\"navn\":\"København S\",\"postnr\":\"2300\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T18:23:45.596797+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T18:23:45.596797+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"5f546e48-c55a-4ebb-ad00-2ebdf77dc320\",\"vejnavn\":\"Islands Brygge\",\"virkningfra\":\"2026-08-13T11:59:50.046945+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-08-13T11:59:50.046945+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c98e276-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"3300\",\"navngivenvej\":\"5f546e48-c55a-4ebb-ad00-2ebdf77dc320\",\"virkningfra\":\"2026-08-13T11:59:50.046945+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-08-13T11:59:50.046945+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"173c3389-6f61-4658-a7b2-e54f42e63ccb\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/husnumre/0a3f507a-9af2-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "kds_floor_missing_600__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-9af2-32b8-e044-0003ba298018\",\"titel\":\"Islands Brygge 32B, 2300 København S\",\"vejnavn\":\"Islands Brygge\",\"husnummer\":\"32B\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "32B",
+    "maksimum": 10,
+    "postnummer": "2300",
+    "vejnavn": "Islands Brygge"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_floor_missing_600__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-9af2-32b8-e044-0003ba298018\",\"titel\":\"Islands Brygge 32B, 2300 København S\",\"vejnavn\":\"Islands Brygge\",\"husnummer\":\"32B\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Islands Brygge 32B 2300 København S"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_floor_missing_600__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-600,\"tekst\":\"Etage findes ikke på adresse på husnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Islands Brygge 32B 2300 København S"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_historic_hoejgaardsvej__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"8dc244f4-3ead-4022-9ae9-a35ed427aff3\",\"adressebetegnelse\":\"Højgaardsvej 3B, 4760 Vordingborg\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2024-09-01T00:00:00.000Z\",\"virkningtil\":null,\"registreringfra\":\"2024-08-29T12:37:26.634Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"597b20d4-abda-4331-be47-ed052fa7a287\",\"husnummertekst\":\"3B\",\"adgangsadressebetegnelse\":\"Højgaardsvej 3B, 4760 Vordingborg\",\"vejnavn\":\"Højgaardsvej\",\"status\":\"3\",\"virkningfra\":\"2026-06-27T01:00:11.609398+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-06-27T01:00:11.609398+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"e8793b0d-6436-4b5e-982c-f02a92d5eb42\",\"status\":\"8\",\"virkningfra\":\"2026-06-27T01:00:11.609398+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-06-27T01:00:11.609398+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[692257.424514849,6098620.377240757]},\"koordinater\":{\"x\":692257.4245148493,\"y\":6098620.377240757}},\"postnummer\":{\"id_lokalid\":\"c37ba3f2-6024-4593-81cf-a1abaf68adb3\",\"navn\":\"Vordingborg\",\"postnr\":\"4760\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:38:10.210651+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:38:10.210651+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"5dbc1be2-9bf9-4bd2-a6c1-63b11264b3d1\",\"vejnavn\":\"Højgaardsvej\",\"virkningfra\":\"2026-10-05T07:04:34.858365+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-10-05T07:04:34.858365+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5ca83a5b-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0390\",\"vejkode\":\"0643\",\"navngivenvej\":\"5dbc1be2-9bf9-4bd2-a6c1-63b11264b3d1\",\"virkningfra\":\"2026-10-05T07:04:34.858365+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-10-05T07:04:34.858365+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"d6e312bd-9036-4ce8-88e7-ffe4488ba375\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/8dc244f4-3ead-4022-9ae9-a35ed427aff3",
+   "status": 200
+  },
+  "kds_historic_hoejgaardsvej__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "3",
+    "maksimum": 10,
+    "postnummer": "4773",
+    "vejnavn": "Højgaardsvej"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_historic_hoejgaardsvej__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Højgaardsvej 3, 4773 Stensved"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_historic_hoejgaardsvej__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"8dc244f4-3ead-4022-9ae9-a35ed427aff3\",\"adressebetegnelse\":\"Højgaardsvej 3B, 4760 Vordingborg\",\"virkningfra\":\"2024-09-01T00:00:00+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":\"Højgaardsvej 3, 4773 Stensved\",\"virkningfra\":\"2017-04-11T07:49:33.157+00:00\",\"virkningtil\":\"2020-01-06T11:14:21.606191+00:00\"}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Højgaardsvej 3, 4773 Stensved"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_interval_700__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1K",
+    "maksimum": 10,
+    "postnummer": "1216",
+    "vejnavn": "lotsholmsgade 1N-"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_interval_700__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "lotsholmsgade 1N-1K, 1216 København K"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_interval_700__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-800,\"tekst\":\"Vejnavn findes ikke indenfor postdistriktet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "lotsholmsgade 1N-1K, 1216 København K"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_interval_700_fixed__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"13e7ef98-7758-42cf-a254-7acdbbc9e979\",\"adressebetegnelse\":\"Slotsholmsgade 1N, 1216 København K\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2024-05-02T09:09:54.277Z\",\"virkningtil\":null,\"registreringfra\":\"2024-05-02T09:09:54.277Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"9ae2ee64-7aab-43a5-a814-a32db12e7566\",\"husnummertekst\":\"1N\",\"adgangsadressebetegnelse\":\"Slotsholmsgade 1N, 1216 København K\",\"vejnavn\":\"Slotsholmsgade\",\"status\":\"3\",\"virkningfra\":\"2025-11-24T09:39:17.054566+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-11-24T09:39:17.054566+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"6ee21701-099d-4292-9679-57954ea13f17\",\"status\":\"8\",\"virkningfra\":\"2024-05-02T09:00:53.252654+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-05-02T09:00:53.252654+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[725402.022384086,6175769.453313759]},\"koordinater\":{\"x\":725402.022384086,\"y\":6175769.453313759}},\"postnummer\":{\"id_lokalid\":\"ac454eb5-2393-4794-a611-04f290dca094\",\"navn\":\"København K\",\"postnr\":\"1216\",\"status\":\"3\",\"virkningfra\":\"2024-09-17T07:46:57.485956+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-09-17T07:46:57.485956+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"a6dc271b-c6ba-4077-af39-2b5722a9f295\",\"vejnavn\":\"Slotsholmsgade\",\"virkningfra\":\"1900-01-01T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-29T15:30:00.004005+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c994c1b-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"6604\",\"navngivenvej\":\"a6dc271b-c6ba-4077-af39-2b5722a9f295\",\"virkningfra\":\"2020-10-07T18:00:48.724456+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-10-07T18:00:48.724456+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"5891d815-c861-4f7c-a1c3-a28bfe9c6092\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/13e7ef98-7758-42cf-a254-7acdbbc9e979",
+   "status": 200
+  },
+  "kds_interval_700_fixed__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":800,\"tekst\":\"Eksakt match på vejnavn og postnummer. Første husnummer i interval\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"13e7ef98-7758-42cf-a254-7acdbbc9e979\",\"adressebetegnelse\":\"Slotsholmsgade 1N, 1216 København K\",\"virkningfra\":\"2024-05-02T09:09:54.27785+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Slotsholmsgade 1N-1K, 1216 København K"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_interval_800__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"afc30444-1977-4596-b359-9955a89ac978\",\"adressebetegnelse\":\"Christiansborg Slot 1, 1218 København K\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2015-05-08T16:54:37.857Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"5837f63b-67e5-4cb9-ac2d-117856916523\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Christiansborg Slot 1, 1218 København K\",\"vejnavn\":\"Christiansborg Slot\",\"status\":\"3\",\"virkningfra\":\"2026-07-20T09:35:19.441193+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-07-20T09:35:19.441193+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"1ba4fb44-d7e4-47f3-a5dc-369caebc377b\",\"status\":\"8\",\"virkningfra\":\"2016-12-05T10:16:11.093+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[725110.32,6175853.55]},\"koordinater\":{\"x\":725110.32,\"y\":6175853.55}},\"postnummer\":{\"id_lokalid\":\"9cc9db44-5599-4f4e-bebe-1e2ad684052a\",\"navn\":\"København K\",\"postnr\":\"1218\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T14:01:57.480179+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T14:01:57.480179+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"32257ef6-601c-47a2-b582-c990d1eec880\",\"vejnavn\":\"Christiansborg Slot\",\"virkningfra\":\"1974-12-15T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-29T15:30:00.004005+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c9637d7-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"1118\",\"navngivenvej\":\"32257ef6-601c-47a2-b582-c990d1eec880\",\"virkningfra\":\"1974-12-15T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"f1c3051f-4842-42fa-a763-58e105876498\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/afc30444-1977-4596-b359-9955a89ac978",
+   "status": 200
+  },
+  "kds_interval_800__husnumre_id": {
+   "body": "{\"status\":\"ok\",\"husnummer\":{\"id_lokalid\":\"5837f63b-67e5-4cb9-ac2d-117856916523\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Christiansborg Slot 1, 1218 København K\",\"vejnavn\":\"Christiansborg Slot\",\"status\":\"3\",\"virkningfra\":\"2026-07-20T09:35:19.441Z\",\"virkningtil\":null,\"registreringfra\":\"2026-07-20T09:35:19.441Z\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"1ba4fb44-d7e4-47f3-a5dc-369caebc377b\",\"status\":\"8\",\"virkningfra\":\"2016-12-05T10:16:11.093+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[725110.32,6175853.55]},\"koordinater\":{\"x\":725110.32,\"y\":6175853.55}},\"postnummer\":{\"id_lokalid\":\"9cc9db44-5599-4f4e-bebe-1e2ad684052a\",\"navn\":\"København K\",\"postnr\":\"1218\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T14:01:57.480179+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T14:01:57.480179+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"32257ef6-601c-47a2-b582-c990d1eec880\",\"vejnavn\":\"Christiansborg Slot\",\"virkningfra\":\"1974-12-15T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-29T15:30:00.004005+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c9637d7-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"1118\",\"navngivenvej\":\"32257ef6-601c-47a2-b582-c990d1eec880\",\"virkningfra\":\"1974-12-15T12:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"f1c3051f-4842-42fa-a763-58e105876498\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/husnumre/5837f63b-67e5-4cb9-ac2d-117856916523",
+   "status": 200
+  },
+  "kds_interval_800__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"5837f63b-67e5-4cb9-ac2d-117856916523\",\"titel\":\"Christiansborg Slot 1, 1218 København K\",\"vejnavn\":\"Christiansborg Slot\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f507a-582d-32b8-e044-0003ba298018\",\"titel\":\"Christiansborg Slotsplads 1, 1218 København K\",\"vejnavn\":\"Christiansborg Slotsplads\",\"husnummer\":\"1\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "1218",
+    "vejnavn": "Christiansborg Slot"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_interval_800__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"5837f63b-67e5-4cb9-ac2d-117856916523\",\"titel\":\"Christiansborg Slot 1, 1218 København K\",\"vejnavn\":\"Christiansborg Slot\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f507a-582d-32b8-e044-0003ba298018\",\"titel\":\"Christiansborg Slotsplads 1, 1218 København K\",\"vejnavn\":\"Christiansborg Slotsplads\",\"husnummer\":\"1\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Christiansborg Slot 1-5, 1218 København K"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_interval_800__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":800,\"tekst\":\"Eksakt match på vejnavn og postnummer. Første husnummer i interval\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"afc30444-1977-4596-b359-9955a89ac978\",\"adressebetegnelse\":\"Christiansborg Slot 1, 1218 København K\",\"virkningfra\":\"2015-05-08T16:54:37.857+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Christiansborg Slot 1-5, 1218 København K"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_no_number_700__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2100",
+    "maksimum": 10,
+    "postnummer": "2100",
+    "vejnavn": "Sankt Kjelds Plads 555"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_no_number_700__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Sankt Kjelds Plads 555 2100 København Ø"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_no_number_700__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-700,\"tekst\":\"Husnummer eksisterer ikke på vejen\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Sankt Kjelds Plads 555 2100 København Ø"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_no_postcode_300__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-9af2-32b8-e044-0003ba298018\",\"titel\":\"Islands Brygge 32B, 2300 København S\",\"vejnavn\":\"Islands Brygge\",\"husnummer\":\"32B\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Islands Brygge 32B, 1. København S"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_no_postcode_300__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-300,\"tekst\":\"Postnummer er ikke angivet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Islands Brygge 32B, 1. København S"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_not_address_1000__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2100",
+    "maksimum": 10,
+    "postnummer": "2100",
+    "vejnavn": "11 Sankt Kjelds Plads"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_not_address_1000__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "11 Sankt Kjelds Plads  2100 København Ø"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_not_address_1000__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-1000,\"tekst\":\"Tekst kan ikke genkendes som en adresse\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "11 Sankt Kjelds Plads  2100 København Ø"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "kds_unknown_postcode_900__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "9999",
+    "maksimum": 10,
+    "postnummer": "9999",
+    "vejnavn": "Islands Brygge 32B"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_unknown_postcode_900__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-9af2-32b8-e044-0003ba298018\",\"titel\":\"Islands Brygge 32B, 2300 København S\",\"vejnavn\":\"Islands Brygge\",\"husnummer\":\"32B\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Islands Brygge 32B 9999 København V"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "kds_unknown_postcode_900__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-900,\"tekst\":\"Postnummer eksisterer ikke\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Islands Brygge 32B 9999 København V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "laesoe_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"5661ca25-f834-25c4-e044-0003ba298018\",\"adressebetegnelse\":\"Doktorvejen 2, Byrum, 9940 Læsø\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2000-02-05T19:59:20.000Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f509a-c800-32b8-e044-0003ba298018\",\"husnummertekst\":\"2\",\"adgangsadressebetegnelse\":\"Doktorvejen 2, Byrum, 9940 Læsø\",\"vejnavn\":\"Doktorvejen\",\"status\":\"3\",\"virkningfra\":\"2024-04-16T06:28:03.753945+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-04-16T06:28:03.753945+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f509a-c800-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2024-04-16T06:28:03.753945+00:00\",\"virkningtil\":null,\"registreringfra\":\"2024-04-16T06:28:03.753945+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[620613.24,6347685.24]},\"koordinater\":{\"x\":620613.24,\"y\":6347685.24}},\"postnummer\":{\"id_lokalid\":\"9a4e1f4b-a6da-4d94-bba6-6127239757c0\",\"navn\":\"Læsø\",\"postnr\":\"9940\",\"status\":\"3\",\"virkningfra\":\"1753-01-01T00:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"cea70471-e80b-4d3b-ba6a-1d6f186d7469\",\"vejnavn\":\"Doktorvejen\",\"virkningfra\":\"2022-12-21T11:59:28.162893+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-12-21T11:59:28.162893+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cc15f35-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0825\",\"vejkode\":\"0048\",\"navngivenvej\":\"cea70471-e80b-4d3b-ba6a-1d6f186d7469\",\"virkningfra\":\"2018-12-19T17:34:44.565796+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-12-19T16:59:10.106531+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"8f8b5e31-c057-4a35-96ac-5a3d88b3b879\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":\"e3318f17-1a7f-4922-9331-80205c3828c8\",\"status\":\"3\",\"supplerendebynavn\":\"680497\",\"navn\":\"Byrum\",\"virkningfra\":\"2023-03-25T04:56:54.600537+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-25T04:56:54.600537+00:00\",\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/5661ca25-f834-25c4-e044-0003ba298018",
+   "status": 200
+  },
+  "laesoe_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f509a-c800-32b8-e044-0003ba298018\",\"titel\":\"Doktorvejen 2, Byrum, 9940 Læsø\",\"vejnavn\":\"Doktorvejen\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2",
+    "maksimum": 10,
+    "postnummer": "9940",
+    "vejnavn": "Doktorvejen"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "laesoe_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f509a-c800-32b8-e044-0003ba298018\",\"titel\":\"Doktorvejen 2, Byrum, 9940 Læsø\",\"vejnavn\":\"Doktorvejen\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Doktorvejen 2, 9940 Læsø"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "laesoe_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"5661ca25-f834-25c4-e044-0003ba298018\",\"adressebetegnelse\":\"Doktorvejen 2, Byrum, 9940 Læsø\",\"virkningfra\":\"2000-02-05T19:59:20+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Doktorvejen 2, 9940 Læsø"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "letter_current_3b__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"8dc244f4-3ead-4022-9ae9-a35ed427aff3\",\"adressebetegnelse\":\"Højgaardsvej 3B, 4760 Vordingborg\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2024-09-01T00:00:00.000Z\",\"virkningtil\":null,\"registreringfra\":\"2024-08-29T12:37:26.634Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"597b20d4-abda-4331-be47-ed052fa7a287\",\"husnummertekst\":\"3B\",\"adgangsadressebetegnelse\":\"Højgaardsvej 3B, 4760 Vordingborg\",\"vejnavn\":\"Højgaardsvej\",\"status\":\"3\",\"virkningfra\":\"2026-06-27T01:00:11.609398+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-06-27T01:00:11.609398+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"e8793b0d-6436-4b5e-982c-f02a92d5eb42\",\"status\":\"8\",\"virkningfra\":\"2026-06-27T01:00:11.609398+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-06-27T01:00:11.609398+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[692257.424514849,6098620.377240757]},\"koordinater\":{\"x\":692257.4245148493,\"y\":6098620.377240757}},\"postnummer\":{\"id_lokalid\":\"c37ba3f2-6024-4593-81cf-a1abaf68adb3\",\"navn\":\"Vordingborg\",\"postnr\":\"4760\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:38:10.210651+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:38:10.210651+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"5dbc1be2-9bf9-4bd2-a6c1-63b11264b3d1\",\"vejnavn\":\"Højgaardsvej\",\"virkningfra\":\"2026-10-05T07:04:34.858365+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-10-05T07:04:34.858365+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5ca83a5b-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0390\",\"vejkode\":\"0643\",\"navngivenvej\":\"5dbc1be2-9bf9-4bd2-a6c1-63b11264b3d1\",\"virkningfra\":\"2026-10-05T07:04:34.858365+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-10-05T07:04:34.858365+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"d6e312bd-9036-4ce8-88e7-ffe4488ba375\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/8dc244f4-3ead-4022-9ae9-a35ed427aff3",
+   "status": 200
+  },
+  "letter_current_3b__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"8dc244f4-3ead-4022-9ae9-a35ed427aff3\",\"adressebetegnelse\":\"Højgaardsvej 3B, 4760 Vordingborg\",\"virkningfra\":\"2024-09-01T00:00:00+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Højgaardsvej 3B, 4760 Vordingborg"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "letter_mismatch_32__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "32",
+    "maksimum": 10,
+    "postnummer": "2300",
+    "vejnavn": "Islands Brygge"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "letter_not_existing_1a__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-700,\"tekst\":\"Husnummer eksisterer ikke på vejen\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsen 1A, 1550 København V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "marstal_museum__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "5960",
+    "vejnavn": "Prinsegade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "marstal_museum__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Prinsegade 1, 5960 Marstal"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "marstal_museum__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-800,\"tekst\":\"Vejnavn findes ikke indenfor postdistriktet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Prinsegade 1, 5960 Marstal"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "marstal_museum_fixed__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"0a3f50b3-0eef-32b8-e044-0003ba298018\",\"adressebetegnelse\":\"Prinsensgade 1, 5960 Marstal\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2000-02-05T05:02:09.000Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f5088-870b-32b8-e044-0003ba298018\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Prinsensgade 1, 5960 Marstal\",\"vejnavn\":\"Prinsensgade\",\"status\":\"3\",\"virkningfra\":\"2018-07-04T16:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-07-04T16:00:00+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5088-870b-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-23T22:27:19+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[597653.87,6079607.73]},\"koordinater\":{\"x\":597653.87,\"y\":6079607.73}},\"postnummer\":{\"id_lokalid\":\"2251f8c8-6dd4-4381-8fa7-81bdd4584e51\",\"navn\":\"Marstal\",\"postnr\":\"5960\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:10:22.492542+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:10:22.492542+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"a56997df-ed4a-4b77-8aad-64d7d96667e2\",\"vejnavn\":\"Prinsensgade\",\"virkningfra\":\"2020-05-29T15:15:35.755325+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-05-29T15:15:35.755325+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cad6e26-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0492\",\"vejkode\":\"0227\",\"navngivenvej\":\"a56997df-ed4a-4b77-8aad-64d7d96667e2\",\"virkningfra\":\"2018-11-06T17:10:10.280941+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-11-06T16:59:06.656123+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"a01bead8-20a5-497f-906f-960b9599033a\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/0a3f50b3-0eef-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "marstal_museum_fixed__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"0a3f50b3-0eef-32b8-e044-0003ba298018\",\"adressebetegnelse\":\"Prinsensgade 1, 5960 Marstal\",\"virkningfra\":\"2000-02-05T05:02:09+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Prinsensgade 1, 5960 Marstal"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "misspelled_flakhavn__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2",
+    "maksimum": 10,
+    "postnummer": "5000",
+    "vejnavn": "Flakhavn"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "misspelled_flakhavn__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Flakhavn 2, 5000 Odense C"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "misspelled_flakhavn__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-800,\"tekst\":\"Vejnavn findes ikke indenfor postdistriktet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Flakhavn 2, 5000 Odense C"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "nopc_algade_1__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5081-db35-32b8-e044-0003ba298018\",\"titel\":\"Algade 1, 4000 Roskilde\",\"vejnavn\":\"Algade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5082-f360-32b8-e044-0003ba298018\",\"titel\":\"Algade 1, Rosted, 4200 Slagelse\",\"vejnavn\":\"Algade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5084-1e7f-32b8-e044-0003ba298018\",\"titel\":\"Algade 1, 4230 Skælskør\",\"vejnavn\":\"Algade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"48154b07-bb7d-1d3e-e044-0003ba298018\",\"titel\":\"Algade 1, 4281 Gørlev\",\"vejnavn\":\"Algade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5083-c80e-32b8-e044-0003ba298018\",\"titel\":\"Algade 1, 4500 Nykøbing Sj\",\"vejnavn\":\"Algade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"693c8a91-7ad2-28de-e044-00144f3ead67\",\"titel\":\"Algade 1, 4660 Store Heddinge\",\"vejnavn\":\"Algade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5088-8e53-32b8-e044-0003ba298018\",\"titel\":\"Algade 1, 5500 Middelfart\",\"vejnavn\":\"Algade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5087-fd54-32b8-e044-0003ba298018\",\"titel\":\"Algade 1, Ejby, 5592 Ejby\",\"vejnavn\":\"Algade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5081-db43-32b8-e044-0003ba298018\",\"titel\":\"Algade 10, 4000 Roskilde\",\"vejnavn\":\"Algade\",\"husnummer\":\"10\"},{\"type\":\"husnummer\",\"id\":\"0a3f5081-db44-32b8-e044-0003ba298018\",\"titel\":\"Algade 11, 4000 Roskilde\",\"vejnavn\":\"Algade\",\"husnummer\":\"11\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Algade 1"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "nopc_soendergade_1__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5087-aabe-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1, Svaneke, 3740 Svaneke\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5087-ab41-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1, Allinge, 3770 Allinge\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5087-ab2c-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1, Klemensker, 3782 Klemensker\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5081-4d61-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1, 4030 Tune\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5080-aa52-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1, Skuldelev, 4050 Skibby\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5084-1708-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1, 4100 Ringsted\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5081-d7ca-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1, 4130 Viby Sjælland\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5084-8d97-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1, 4180 Sorø\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1\"},{\"type\":\"husnummer\",\"id\":\"0a3f5080-3b1c-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 17, 3390 Hundested\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"17\"},{\"type\":\"husnummer\",\"id\":\"0a3f5080-3b1d-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 18, 3390 Hundested\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"18\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Søndergade 1"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "number_prefix_of_12__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"e3328f31-74c7-45c3-b27d-0d0c68491071\",\"adressebetegnelse\":\"Flakhaven 1, 5000 Odense C\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2021-11-12T12:35:57.763Z\",\"virkningtil\":null,\"registreringfra\":\"2021-11-12T12:35:57.763Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f5089-2a5a-32b8-e044-0003ba298018\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Flakhaven 1, 5000 Odense C\",\"vejnavn\":\"Flakhaven\",\"status\":\"3\",\"virkningfra\":\"2021-11-12T12:36:19.015041+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-11-12T12:36:19.015041+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5089-2a5a-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2021-11-12T12:35:57.763998+00:00\",\"virkningtil\":null,\"registreringfra\":\"2021-11-12T12:35:57.763998+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[587892.759790647,6139744.87148804]},\"koordinater\":{\"x\":587892.759790647,\"y\":6139744.87148804}},\"postnummer\":{\"id_lokalid\":\"4a532e97-1491-4041-bf37-7411e3095a3e\",\"navn\":\"Odense C\",\"postnr\":\"5000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T19:21:27.021304+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T19:21:27.021304+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"184816ef-baf3-4187-b1ad-0eeb9f048346\",\"vejnavn\":\"Flakhaven\",\"virkningfra\":\"2025-08-25T11:11:04.863092+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-08-25T11:11:04.863092+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cab6e0b-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0461\",\"vejkode\":\"2295\",\"navngivenvej\":\"184816ef-baf3-4187-b1ad-0eeb9f048346\",\"virkningfra\":\"2025-08-25T11:11:04.863092+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-08-25T11:11:04.863092+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"fff8434f-0cde-4e14-94e7-4fb77e350745\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/e3328f31-74c7-45c3-b27d-0d0c68491071",
+   "status": 200
+  },
+  "number_prefix_of_12__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"e3328f31-74c7-45c3-b27d-0d0c68491071\",\"adressebetegnelse\":\"Flakhaven 1, 5000 Odense C\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Flakhaven 1, 5000 Odense C"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "odense_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"2c539135-5264-4d18-8a79-e6ad22ee1019\",\"adressebetegnelse\":\"Flakhaven 2, 5000 Odense C\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2014-05-05T17:07:48.577Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f5089-2a5b-32b8-e044-0003ba298018\",\"husnummertekst\":\"2\",\"adgangsadressebetegnelse\":\"Flakhaven 2, 5000 Odense C\",\"vejnavn\":\"Flakhaven\",\"status\":\"3\",\"virkningfra\":\"2023-10-17T10:59:46.117994+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-10-17T10:59:46.117994+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5089-2a5b-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2012-01-17T21:15:32.127+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[587945.21,6139738.97]},\"koordinater\":{\"x\":587945.21,\"y\":6139738.97}},\"postnummer\":{\"id_lokalid\":\"4a532e97-1491-4041-bf37-7411e3095a3e\",\"navn\":\"Odense C\",\"postnr\":\"5000\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T19:21:27.021304+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T19:21:27.021304+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"184816ef-baf3-4187-b1ad-0eeb9f048346\",\"vejnavn\":\"Flakhaven\",\"virkningfra\":\"2025-08-25T11:11:04.863092+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-08-25T11:11:04.863092+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cab6e0b-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0461\",\"vejkode\":\"2295\",\"navngivenvej\":\"184816ef-baf3-4187-b1ad-0eeb9f048346\",\"virkningfra\":\"2025-08-25T11:11:04.863092+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-08-25T11:11:04.863092+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"fff8434f-0cde-4e14-94e7-4fb77e350745\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/2c539135-5264-4d18-8a79-e6ad22ee1019",
+   "status": 200
+  },
+  "odense_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5089-2a5b-32b8-e044-0003ba298018\",\"titel\":\"Flakhaven 2, 5000 Odense C\",\"vejnavn\":\"Flakhaven\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "2",
+    "maksimum": 10,
+    "postnummer": "5000",
+    "vejnavn": "Flakhaven"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "odense_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5089-2a5b-32b8-e044-0003ba298018\",\"titel\":\"Flakhaven 2, 5000 Odense C\",\"vejnavn\":\"Flakhaven\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Flakhaven 2, 5000 Odense C"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "odense_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"2c539135-5264-4d18-8a79-e6ad22ee1019\",\"adressebetegnelse\":\"Flakhaven 2, 5000 Odense C\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Flakhaven 2, 5000 Odense C"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "oe_for_oe_soendergade__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "8000",
+    "vejnavn": "Soendergade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "oe_for_oe_soendergade__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Soendergade 1, 8000 Aarhus C"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "oe_for_oe_soendergade__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-800,\"tekst\":\"Vejnavn findes ikke indenfor postdistriktet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Soendergade 1, 8000 Aarhus C"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "phonetic_missing_s__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"0430efe5-0ce3-44d1-aa7c-7554ef1e059d\",\"adressebetegnelse\":\"Brøndumsvej 4, 9990 Skagen\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2013-05-31T08:45:47.997Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f509b-83b4-32b8-e044-0003ba298018\",\"husnummertekst\":\"4\",\"adgangsadressebetegnelse\":\"Brøndumsvej 4, 9990 Skagen\",\"vejnavn\":\"Brøndumsvej\",\"status\":\"3\",\"virkningfra\":\"2018-07-04T16:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-07-04T16:00:00+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f509b-83b4-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2012-10-31T04:05:55.09+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[595128.91,6399156.18]},\"koordinater\":{\"x\":595128.91,\"y\":6399156.18}},\"postnummer\":{\"id_lokalid\":\"3a26eeed-633e-4618-97ac-881e4a9ce19d\",\"navn\":\"Skagen\",\"postnr\":\"9990\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:03:47.582835+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:03:47.582835+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"99dd7b90-8c28-4748-94d2-15242fc13161\",\"vejnavn\":\"Brøndumsvej\",\"virkningfra\":\"2026-11-09T23:36:17.138281+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-11-09T23:36:17.138281+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cbfec6e-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0813\",\"vejkode\":\"0192\",\"navngivenvej\":\"99dd7b90-8c28-4748-94d2-15242fc13161\",\"virkningfra\":\"2026-11-09T23:36:17.138281+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-11-09T23:36:17.138281+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"b6764a64-ffa7-4222-8a48-c3e6cac8ef7f\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/0430efe5-0ce3-44d1-aa7c-7554ef1e059d",
+   "status": 200
+  },
+  "phonetic_missing_s__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":900,\"tekst\":\"Vejnavn tilnærmet ift. stavevariationer. Eksakt husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"0430efe5-0ce3-44d1-aa7c-7554ef1e059d\",\"adressebetegnelse\":\"Brøndumsvej 4, 9990 Skagen\",\"virkningfra\":\"2013-05-31T08:45:47.997+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Brøndumvej 4, 9990 Skagen"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "phonetic_raadhuspladsn__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-800,\"tekst\":\"Vejnavn findes ikke indenfor postdistriktet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Rådhuspladsn 1, 1550 København V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "praestoe_adelgade__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"5540c7a6-6286-407e-b7da-ae8f3698d8fb\",\"adressebetegnelse\":\"Adelgade 1, 4720 Præstø\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2017-05-31T12:14:39.320Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f5086-6176-32b8-e044-0003ba298018\",\"husnummertekst\":\"1\",\"adgangsadressebetegnelse\":\"Adelgade 1, 4720 Præstø\",\"vejnavn\":\"Adelgade\",\"status\":\"3\",\"virkningfra\":\"2018-07-04T16:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-07-04T16:00:00+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5086-6176-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2017-05-31T12:02:45.003+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[693687.22,6112435.21]},\"koordinater\":{\"x\":693687.22,\"y\":6112435.21}},\"postnummer\":{\"id_lokalid\":\"b6524ed6-8c7c-4448-a613-34b521351518\",\"navn\":\"Præstø\",\"postnr\":\"4720\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T18:29:35.282017+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T18:29:35.282017+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"16df20a6-47cd-42e5-8c01-e863b2ea8120\",\"vejnavn\":\"Adelgade\",\"virkningfra\":\"2022-11-17T20:06:31.423064+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-11-17T20:06:31.423064+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5ca7d386-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0390\",\"vejkode\":\"0019\",\"navngivenvej\":\"16df20a6-47cd-42e5-8c01-e863b2ea8120\",\"virkningfra\":\"2022-11-17T20:06:31.423064+00:00\",\"virkningtil\":null,\"registreringfra\":\"2022-11-17T20:06:31.423064+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"0624b27a-9fad-4a2f-b4be-6850cac70c6e\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/5540c7a6-6286-407e-b7da-ae8f3698d8fb",
+   "status": 200
+  },
+  "praestoe_adelgade__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5086-6176-32b8-e044-0003ba298018\",\"titel\":\"Adelgade 1, 4720 Præstø\",\"vejnavn\":\"Adelgade\",\"husnummer\":\"1\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "4720",
+    "vejnavn": "Adelgade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "praestoe_adelgade__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5086-6176-32b8-e044-0003ba298018\",\"titel\":\"Adelgade 1, 4720 Præstø\",\"vejnavn\":\"Adelgade\",\"husnummer\":\"1\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Adelgade 1, 4720 Præstø"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "praestoe_adelgade__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"5540c7a6-6286-407e-b7da-ae8f3698d8fb\",\"adressebetegnelse\":\"Adelgade 1, 4720 Præstø\",\"virkningfra\":\"2017-05-31T12:14:39.32+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Adelgade 1, 4720 Præstø"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "roenne_raadhus__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"0a3f50b2-35a7-32b8-e044-0003ba298018\",\"adressebetegnelse\":\"Ullasvej 23, Rønne, 3700 Rønne\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2000-02-05T21:48:27.000Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f5087-b10b-32b8-e044-0003ba298018\",\"husnummertekst\":\"23\",\"adgangsadressebetegnelse\":\"Ullasvej 23, Rønne, 3700 Rønne\",\"vejnavn\":\"Ullasvej\",\"status\":\"3\",\"virkningfra\":\"2026-02-07T04:45:43.567494+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-02-07T04:45:43.567494+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f5087-b10b-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-24T00:50:11+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[864128.36,6119981.84]},\"koordinater\":{\"x\":864128.36,\"y\":6119981.84}},\"postnummer\":{\"id_lokalid\":\"dd771bdd-acdb-408c-8dee-cdffe683b8db\",\"navn\":\"Rønne\",\"postnr\":\"3700\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:32:17.022749+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:32:17.022749+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"d423c2b7-3083-475a-b220-3c0a009d7010\",\"vejnavn\":\"Ullasvej\",\"virkningfra\":\"2020-03-04T22:06:23.927577+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-03-04T22:06:23.927577+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5ca96c78-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0400\",\"vejkode\":\"4638\",\"navngivenvej\":\"d423c2b7-3083-475a-b220-3c0a009d7010\",\"virkningfra\":\"2020-03-04T22:06:23.927577+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-03-04T22:06:23.927577+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"e8bde823-2857-42e8-9c62-af41a8357ea7\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":\"469f29d3-64d8-4c88-8561-e53975658e77\",\"status\":\"3\",\"supplerendebynavn\":\"699374\",\"navn\":\"Rønne\",\"virkningfra\":\"2023-03-24T15:11:37.65337+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T15:11:37.65337+00:00\",\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/0a3f50b2-35a7-32b8-e044-0003ba298018",
+   "status": 200
+  },
+  "roenne_raadhus__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5087-b10b-32b8-e044-0003ba298018\",\"titel\":\"Ullasvej 23, Rønne, 3700 Rønne\",\"vejnavn\":\"Ullasvej\",\"husnummer\":\"23\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "23",
+    "maksimum": 10,
+    "postnummer": "3700",
+    "vejnavn": "Ullasvej"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "roenne_raadhus__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5087-b10b-32b8-e044-0003ba298018\",\"titel\":\"Ullasvej 23, Rønne, 3700 Rønne\",\"vejnavn\":\"Ullasvej\",\"husnummer\":\"23\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Ullasvej 23, 3700 Rønne"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "roenne_raadhus__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"0a3f50b2-35a7-32b8-e044-0003ba298018\",\"adressebetegnelse\":\"Ullasvej 23, Rønne, 3700 Rønne\",\"virkningfra\":\"2000-02-05T21:48:27+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Ullasvej 23, 3700 Rønne"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "skagen_museum__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"0430efe5-0ce3-44d1-aa7c-7554ef1e059d\",\"adressebetegnelse\":\"Brøndumsvej 4, 9990 Skagen\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2013-05-31T08:45:47.997Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f509b-83b4-32b8-e044-0003ba298018\",\"husnummertekst\":\"4\",\"adgangsadressebetegnelse\":\"Brøndumsvej 4, 9990 Skagen\",\"vejnavn\":\"Brøndumsvej\",\"status\":\"3\",\"virkningfra\":\"2018-07-04T16:00:00+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-07-04T16:00:00+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f509b-83b4-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2012-10-31T04:05:55.09+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[595128.91,6399156.18]},\"koordinater\":{\"x\":595128.91,\"y\":6399156.18}},\"postnummer\":{\"id_lokalid\":\"3a26eeed-633e-4618-97ac-881e4a9ce19d\",\"navn\":\"Skagen\",\"postnr\":\"9990\",\"status\":\"3\",\"virkningfra\":\"2023-03-24T16:03:47.582835+00:00\",\"virkningtil\":null,\"registreringfra\":\"2023-03-24T16:03:47.582835+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"99dd7b90-8c28-4748-94d2-15242fc13161\",\"vejnavn\":\"Brøndumsvej\",\"virkningfra\":\"2026-11-09T23:36:17.138281+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-11-09T23:36:17.138281+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5cbfec6e-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0813\",\"vejkode\":\"0192\",\"navngivenvej\":\"99dd7b90-8c28-4748-94d2-15242fc13161\",\"virkningfra\":\"2026-11-09T23:36:17.138281+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-11-09T23:36:17.138281+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"b6764a64-ffa7-4222-8a48-c3e6cac8ef7f\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/0430efe5-0ce3-44d1-aa7c-7554ef1e059d",
+   "status": 200
+  },
+  "skagen_museum__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f509b-83b4-32b8-e044-0003ba298018\",\"titel\":\"Brøndumsvej 4, 9990 Skagen\",\"vejnavn\":\"Brøndumsvej\",\"husnummer\":\"4\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "4",
+    "maksimum": 10,
+    "postnummer": "9990",
+    "vejnavn": "Brøndumsvej"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "skagen_museum__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f509b-83b4-32b8-e044-0003ba298018\",\"titel\":\"Brøndumsvej 4, 9990 Skagen\",\"vejnavn\":\"Brøndumsvej\",\"husnummer\":\"4\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Brøndumsvej 4, 9990 Skagen"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "skagen_museum__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"0430efe5-0ce3-44d1-aa7c-7554ef1e059d\",\"adressebetegnelse\":\"Brøndumsvej 4, 9990 Skagen\",\"virkningfra\":\"2013-05-31T08:45:47.997+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Brøndumsvej 4, 9990 Skagen"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "street_algade_9000__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"id\":\"084af3b4-3ba3-4134-a09f-86cb004f1d3f\",\"type\":\"navngivenvejpostnummer\",\"titel\":\"Adelgade 9000 Aalborg\",\"vejnavn\":\"Adelgade\",\"postnr\":\"9000\",\"postdistrikt\":\"Aalborg\",\"antal_husnumre\":9},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1353-32b8-e044-0003ba298018\",\"titel\":\"Algade 3, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1354-32b8-e044-0003ba298018\",\"titel\":\"Algade 4, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"4\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1355-32b8-e044-0003ba298018\",\"titel\":\"Algade 5, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"5\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1356-32b8-e044-0003ba298018\",\"titel\":\"Algade 6, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"6\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1357-32b8-e044-0003ba298018\",\"titel\":\"Algade 7, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"7\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1358-32b8-e044-0003ba298018\",\"titel\":\"Algade 7A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"7A\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1359-32b8-e044-0003ba298018\",\"titel\":\"Algade 8, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"8\"},{\"type\":\"husnummer\",\"id\":\"390407ba-2b4c-4e9a-a002-d63abb9aebba\",\"titel\":\"Algade 8A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"8A\"},{\"type\":\"husnummer\",\"id\":\"b91b5907-d354-45e1-826c-b1e9a5cdf11a\",\"titel\":\"Algade 8B, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"8B\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-135a-32b8-e044-0003ba298018\",\"titel\":\"Algade 9, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"9\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-135b-32b8-e044-0003ba298018\",\"titel\":\"Algade 10, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"10\"},{\"type\":\"husnummer\",\"id\":\"1de21027-a85e-1d9f-e044-0003ba298018\",\"titel\":\"Algade 11A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"11A\"},{\"type\":\"husnummer\",\"id\":\"362e6b23-5830-0f9b-e044-0003ba298018\",\"titel\":\"Algade 11B, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"11B\"},{\"type\":\"husnummer\",\"id\":\"362e6b23-5831-0f9b-e044-0003ba298018\",\"titel\":\"Algade 11C, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"11C\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-135d-32b8-e044-0003ba298018\",\"titel\":\"Algade 13, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"13\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-135e-32b8-e044-0003ba298018\",\"titel\":\"Algade 14, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"14\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-135f-32b8-e044-0003ba298018\",\"titel\":\"Algade 14A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"14A\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1360-32b8-e044-0003ba298018\",\"titel\":\"Algade 14B, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"14B\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1361-32b8-e044-0003ba298018\",\"titel\":\"Algade 15, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"15\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1362-32b8-e044-0003ba298018\",\"titel\":\"Algade 16, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"16\"},{\"type\":\"husnummer\",\"id\":\"95e44583-bf51-4d60-bee4-7d970a6a41ad\",\"titel\":\"Algade 16A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"16A\"},{\"type\":\"husnummer\",\"id\":\"bf9ad4b7-fa30-41bf-ab8c-ef781626f29e\",\"titel\":\"Algade 16C, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"16C\"},{\"type\":\"husnummer\",\"id\":\"8b4c6c07-1b2d-46f6-858a-082aeda01a97\",\"titel\":\"Algade 16F, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"16F\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1363-32b8-e044-0003ba298018\",\"titel\":\"Algade 17, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"17\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1364-32b8-e044-0003ba298018\",\"titel\":\"Algade 18, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"18\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1365-32b8-e044-0003ba298018\",\"titel\":\"Algade 19, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"19\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1366-32b8-e044-0003ba298018\",\"titel\":\"Algade 19A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"19A\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1367-32b8-e044-0003ba298018\",\"titel\":\"Algade 19B, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"19B\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1368-32b8-e044-0003ba298018\",\"titel\":\"Algade 21, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"21\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1369-32b8-e044-0003ba298018\",\"titel\":\"Algade 23, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"23\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-136a-32b8-e044-0003ba298018\",\"titel\":\"Algade 25, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"25\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-136b-32b8-e044-0003ba298018\",\"titel\":\"Algade 27, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"27\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-136c-32b8-e044-0003ba298018\",\"titel\":\"Algade 28, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"28\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-136d-32b8-e044-0003ba298018\",\"titel\":\"Algade 30, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"30\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-136e-32b8-e044-0003ba298018\",\"titel\":\"Algade 31, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"31\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-136f-32b8-e044-0003ba298018\",\"titel\":\"Algade 32, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"32\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1370-32b8-e044-0003ba298018\",\"titel\":\"Algade 33, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"33\"},{\"type\":\"husnummer\",\"id\":\"5484d921-3386-4b32-a7fd-d9a78be04e91\",\"titel\":\"Algade 33A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"33A\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1371-32b8-e044-0003ba298018\",\"titel\":\"Algade 35A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"35A\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1372-32b8-e044-0003ba298018\",\"titel\":\"Algade 35B, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"35B\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1373-32b8-e044-0003ba298018\",\"titel\":\"Algade 35C, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"35C\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1374-32b8-e044-0003ba298018\",\"titel\":\"Algade 37, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"37\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1375-32b8-e044-0003ba298018\",\"titel\":\"Algade 37A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"37A\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1376-32b8-e044-0003ba298018\",\"titel\":\"Algade 38, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"38\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1377-32b8-e044-0003ba298018\",\"titel\":\"Algade 38B, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"38B\"},{\"type\":\"husnummer\",\"id\":\"d11fc383-836e-4ce7-8fd1-3a9862531a8e\",\"titel\":\"Algade 38C, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"38C\"},{\"type\":\"husnummer\",\"id\":\"a62f1a1f-8138-4f60-adca-f24aefa6e944\",\"titel\":\"Algade 38D, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"38D\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1378-32b8-e044-0003ba298018\",\"titel\":\"Algade 39, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"39\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1379-32b8-e044-0003ba298018\",\"titel\":\"Algade 40, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"40\"},{\"type\":\"husnummer\",\"id\":\"dd6abb55-43e7-4477-9f7a-bd3d280eda40\",\"titel\":\"Algade 42, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"42\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-137c-32b8-e044-0003ba298018\",\"titel\":\"Algade 44, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"44\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-137d-32b8-e044-0003ba298018\",\"titel\":\"Algade 46, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"46\"},{\"type\":\"husnummer\",\"id\":\"47ac1370-5c92-4579-ae7e-2aace8922156\",\"titel\":\"Algade 48, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"48\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-137e-32b8-e044-0003ba298018\",\"titel\":\"Algade 50, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"50\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-137f-32b8-e044-0003ba298018\",\"titel\":\"Algade 53, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"53\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1380-32b8-e044-0003ba298018\",\"titel\":\"Algade 54, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"54\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1381-32b8-e044-0003ba298018\",\"titel\":\"Algade 54A, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"54A\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1382-32b8-e044-0003ba298018\",\"titel\":\"Algade 54B, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"54B\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1383-32b8-e044-0003ba298018\",\"titel\":\"Algade 55, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"55\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1384-32b8-e044-0003ba298018\",\"titel\":\"Algade 56, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"56\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1385-32b8-e044-0003ba298018\",\"titel\":\"Algade 57, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"57\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1386-32b8-e044-0003ba298018\",\"titel\":\"Algade 58, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"58\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1387-32b8-e044-0003ba298018\",\"titel\":\"Algade 59, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"59\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1388-32b8-e044-0003ba298018\",\"titel\":\"Algade 60, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"60\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-1389-32b8-e044-0003ba298018\",\"titel\":\"Algade 61, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"61\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-138a-32b8-e044-0003ba298018\",\"titel\":\"Algade 65, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"65\"},{\"type\":\"husnummer\",\"id\":\"56549d4e-25f6-49b3-a4cc-0770a3599c6c\",\"titel\":\"Algade 65C, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"65C\"},{\"type\":\"husnummer\",\"id\":\"0a3f509c-138b-32b8-e044-0003ba298018\",\"titel\":\"Algade 67, 9000 Aalborg\",\"vejnavn\":\"Algade\",\"husnummer\":\"67\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "postnummer": "9000",
+    "vejnavn": "Algade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "street_soendergade_8000__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5097-0297-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1A, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1A\"},{\"type\":\"husnummer\",\"id\":\"0a3f5097-0298-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 1B, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"1B\"},{\"type\":\"husnummer\",\"id\":\"0a3f5097-0299-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 2, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"2\"},{\"type\":\"husnummer\",\"id\":\"0a3f5097-029a-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 3, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"66de867b-0bb0-4f27-9805-75104e41b690\",\"titel\":\"Søndergade 3D, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"3D\"},{\"type\":\"husnummer\",\"id\":\"0a3f5097-029b-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 4, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"4\"},{\"type\":\"husnummer\",\"id\":\"0a3f5097-029c-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 5, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"5\"},{\"type\":\"husnummer\",\"id\":\"29cc6d4c-18fa-476a-a8d9-eb47310f9971\",\"titel\":\"Søndergade 6A, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"6A\"},{\"type\":\"husnummer\",\"id\":\"ebec27bc-7391-410d-a254-9afa58d21e78\",\"titel\":\"Søndergade 6B, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"6B\"},{\"type\":\"husnummer\",\"id\":\"0a3f5097-029d-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 7, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"7\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "postnummer": "8000",
+    "vejnavn": "Søndergade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "tekst_algade_2_9000__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f509c-11b4-32b8-e044-0003ba298018\",\"titel\":\"Adelgade 2, 9000 Aalborg\",\"vejnavn\":\"Adelgade\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Algade 2, 9000 Aalborg"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "tekst_no_pc_rentemestervej_8__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507a-e179-32b8-e044-0003ba298018\",\"titel\":\"Rentemestervej 8, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"8\"},{\"type\":\"husnummer\",\"id\":\"0a3f5080-135c-32b8-e044-0003ba298018\",\"titel\":\"Rentemestervej 8, 3400 Hillerød\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"8\"},{\"type\":\"husnummer\",\"id\":\"0a3f507a-e1c2-32b8-e044-0003ba298018\",\"titel\":\"Rentemestervej 80, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"80\"},{\"type\":\"husnummer\",\"id\":\"008eb840-bc1b-443e-b70d-4e4c8b31a276\",\"titel\":\"Rentemestervej 82, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"82\"},{\"type\":\"husnummer\",\"id\":\"0a3f507a-e1c4-32b8-e044-0003ba298018\",\"titel\":\"Rentemestervej 84, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"84\"},{\"type\":\"husnummer\",\"id\":\"0a3f507a-e1c5-32b8-e044-0003ba298018\",\"titel\":\"Rentemestervej 86, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"86\"},{\"type\":\"husnummer\",\"id\":\"0a3f507a-e1c6-32b8-e044-0003ba298018\",\"titel\":\"Rentemestervej 88, 2400 København NV\",\"vejnavn\":\"Rentemestervej\",\"husnummer\":\"88\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Rentemestervej 8"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "tekst_soendergade_2_8000__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f5097-0299-32b8-e044-0003ba298018\",\"titel\":\"Søndergade 2, 8000 Aarhus C\",\"vejnavn\":\"Søndergade\",\"husnummer\":\"2\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Søndergade 2, 8000 Aarhus C"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "tekst_tivoli_1620_kbhv__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507b-2327-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 3, 1620 København V\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Vesterbrogade 3, 1620 Kbh V"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "tivoli_kbh_abbrev__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "3",
+    "maksimum": 10,
+    "postnummer": "1630",
+    "vejnavn": "Vesterbrogade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "tivoli_kbh_abbrev__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[{\"type\":\"husnummer\",\"id\":\"0a3f507b-2327-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 3, 1620 København V\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"0a3f5085-7d14-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 3, 4930 Maribo\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"0a3f5090-66b4-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 3, 6000 Kolding\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"0a3f508f-355a-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 3, 7000 Fredericia\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"0a3f508e-0a92-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 3, 7200 Grindsted\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"0a3f5091-f8c7-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 3, 7500 Holstebro\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"0a3f5092-a748-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 3, Humlum, 7600 Struer\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3\"},{\"type\":\"husnummer\",\"id\":\"35453a34-3519-4274-a8be-e3cecb040abe\",\"titel\":\"Vesterbrogade 3A, 1620 København V\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3A\"},{\"type\":\"husnummer\",\"id\":\"fd94cab5-4959-40c0-9ef5-65ad380900f8\",\"titel\":\"Vesterbrogade 3B, 1620 København V\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"3B\"},{\"type\":\"husnummer\",\"id\":\"0a3f507b-2357-32b8-e044-0003ba298018\",\"titel\":\"Vesterbrogade 30, 1620 København V\",\"vejnavn\":\"Vesterbrogade\",\"husnummer\":\"30\"}]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Vesterbrogade 3, 1630 Kbh V"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "tivoli_kbh_abbrev__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-900,\"tekst\":\"Postnummer eksisterer ikke\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Vesterbrogade 3, 1630 Kbh V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "tivoli_kbh_abbrev_fixed__adresser_id": {
+   "body": "{\"status\":\"ok\",\"adresse\":{\"id_lokalid\":\"f2e0d2c1-f516-4f0e-a7f1-b6c9903870a6\",\"adressebetegnelse\":\"Vesterbrogade 3, 1620 København V\",\"etagebetegnelse\":null,\"doerbetegnelse\":null,\"status\":\"3\",\"virkningfra\":\"2014-05-05T17:07:48.577Z\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34.000Z\",\"registreringtil\":null,\"husnummer\":{\"id_lokalid\":\"0a3f507b-2327-32b8-e044-0003ba298018\",\"husnummertekst\":\"3\",\"adgangsadressebetegnelse\":\"Vesterbrogade 3, 1620 København V\",\"vejnavn\":\"Vesterbrogade\",\"status\":\"3\",\"virkningfra\":\"2026-11-10T12:48:01.71672+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-11-10T12:48:01.71672+00:00\",\"registreringtil\":null,\"adgangspunkt\":{\"id_lokalid\":\"0a3f507b-2327-32b8-e044-0003ba298018\",\"status\":\"8\",\"virkningfra\":\"2009-11-25T00:07:37+00:00\",\"virkningtil\":null,\"registreringfra\":\"2018-05-03T16:58:34+00:00\",\"registreringtil\":null,\"geometri\":{\"type\":\"Point\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"coordinates\":[724194.23,6175634.68]},\"koordinater\":{\"x\":724194.23,\"y\":6175634.68}},\"postnummer\":{\"id_lokalid\":\"894e278e-504c-45b7-86fc-370db28b9a26\",\"navn\":\"København V\",\"postnr\":\"1620\",\"status\":\"3\",\"virkningfra\":\"2026-08-21T10:55:01.471875+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-08-21T10:55:01.471875+00:00\",\"registreringtil\":null},\"navngivenvej\":{\"id_lokalid\":\"8693473f-abf4-476b-99ab-4a35135ce47e\",\"vejnavn\":\"Vesterbrogade\",\"virkningfra\":\"2026-08-07T12:03:02.989873+00:00\",\"virkningtil\":null,\"registreringfra\":\"2026-08-07T12:03:02.989873+00:00\",\"registreringtil\":null},\"navngivenvejkommunedel\":{\"id_lokalid\":\"5c9634dd-4eae-11e8-93fd-066cff24d637\",\"kommune\":\"0101\",\"vejkode\":\"8204\",\"navngivenvej\":\"8693473f-abf4-476b-99ab-4a35135ce47e\",\"virkningfra\":\"2025-06-06T21:20:41.29484+00:00\",\"virkningtil\":null,\"registreringfra\":\"2025-06-06T21:20:41.29484+00:00\",\"registreringtil\":null},\"navngivenvejpostnummer\":{\"id_lokalid\":\"60c6e9dd-9655-4d19-8df8-648ad40c1baf\",\"virkningfra\":\"2020-12-18T15:17:19.000774+00:00\",\"virkningtil\":null,\"registreringfra\":\"2020-12-18T15:17:19.000774+00:00\",\"registreringtil\":null},\"supplerendebynavn\":{\"id_lokalid\":null,\"status\":null,\"supplerendebynavn\":null,\"navn\":null,\"virkningfra\":null,\"virkningtil\":null,\"registreringfra\":null,\"registreringtil\":null}}}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {},
+   "path": "/adresser/f2e0d2c1-f516-4f0e-a7f1-b6c9903870a6",
+   "status": 200
+  },
+  "tivoli_kbh_abbrev_fixed__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":1000,\"tekst\":\"Eksakt match på vejnavn, husnummer og postnummer\"},\"vaskeresultat\":{\"adresse_id_lokalid\":\"f2e0d2c1-f516-4f0e-a7f1-b6c9903870a6\",\"adressebetegnelse\":\"Vesterbrogade 3, 1620 København V\",\"virkningfra\":\"2014-05-05T17:07:48.577+00:00\",\"virkningtil\":null,\"status\":3},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Vesterbrogade 3, 1620 Kbh V"
+   },
+   "path": "/vask/",
+   "status": 200
+  },
+  "wrong_postcode_algade_8000__husnumre_soeg_struct": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "husnummer": "1",
+    "maksimum": 10,
+    "postnummer": "8000",
+    "vejnavn": "Algade"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "wrong_postcode_algade_8000__husnumre_soeg_tekst": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "maksimum": 10,
+    "tekst": "Algade 1, 8000 Aarhus C"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "wrong_postcode_algade_8000__vask": {
+   "body": "{\"vaskestatus\":{\"kode\":-800,\"tekst\":\"Vejnavn findes ikke indenfor postdistriktet\"},\"vaskeresultat\":{\"adresse_id_lokalid\":null,\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null,\"status\":null},\"vaskeresultat_historisk\":{\"adressebetegnelse\":null,\"virkningfra\":null,\"virkningtil\":null}}",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "adresse": "Algade 1, 8000 Aarhus C"
+   },
+   "path": "/vask/",
+   "status": 200
+  }
+ }
+}

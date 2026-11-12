@@ -1006,15 +1006,44 @@ export function ClockedInStrip() {
   );
 }
 
+// The geofence panel's messages. State holds a KEY and the words are looked
+// up at render time: a message stored as text kept the old language after a
+// language switch. Literal t() calls, so the i18n guards still see the keys.
+const GEO_MSG = {
+  err: (t) => t("schedGeoErr", "Couldn't save. Try again."),
+  noGps: (t) => t("schedGeoNoGps", "Location unavailable on this device."),
+  denied: (t) => t("schedGeoDenied", "Allow location to set the venue."),
+  saved: (t) => t("schedGeoSaved", "Venue anchored here. Staff clock-in is now location-bound."),
+  lookupDown: (t) => t("schedGeoLookupDown", "The address lookup isn't answering right now. Try again in a few minutes, or paste a map link."),
+  streetOnly: (t) => t("schedGeoStreetOnly", "We found the street, but not that house number. Paste a map link, or stand at the venue and use your location."),
+  needPostcode: (t) => t("schedGeoNeedPostcode", "That address exists in more than one town. Add the postcode."),
+  postcodeMismatch: (t) => t("schedGeoPostcodeMismatch", "We couldn't find that address in that postcode. Check the postcode, paste a map link, or stand at the venue and use your location."),
+  addrNotFound: (t) => t("schedGeoAddrNotFound", "We couldn't find that address. Check the street, number and postcode, paste a map link, or stand at the venue and use your location."),
+  // Only for a venue NAME: there "not every venue is on the map" is true.
+  notFound: (t) => t("schedGeoNotFound", "Couldn't find that. Not every venue is on the map — type your street address instead, or paste a map link."),
+};
+
+// What the owner typed: "address", "name" or "map_link". The server says so
+// (query_kind, 12 Nov 2026); for an older server the same rule runs here: a
+// digit before any trailing postcode + town reads as a street address
+// ("Algade 1, 9000 Aalborg"), none as a venue name ("Café Luna, 8000 Aarhus C").
+function guessQueryKind(q) {
+  const s = String(q || "").trim();
+  if (/^https?:\/\//i.test(s)) return "map_link";
+  const rest = s.replace(/[\s,]+\d{4}(?:\s+[^\d,][^\d,]*)?\s*$/, "");
+  return /\d/.test(rest) ? "address" : "name";
+}
+
 // Clock-in geofence (location lock) setup — opt-in. Owner taps "use my
 // current location" while standing at the venue to set the anchor; staff
 // clock-in then verifies device distance. Staff location is checked only at
 // the punch, never stored (GDPR) — the staff card shows that notice.
+// Exported for its tests (__tests__/addressRegisterFind.test.jsx).
 export function ClockGeofenceSettings({ className = "" }) {
   const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [savedMsg, setSavedMsg] = useState(""); // honest success confirmation
+  const [msg, setMsg] = useState("");           // a GEO_MSG key, translated at render
+  const [savedMsg, setSavedMsg] = useState(""); // honest success confirmation (a GEO_MSG key)
   const [open, setOpen] = useState(false);      // expanded only when unset, or on demand
   const [query, setQuery] = useState("");       // address or pasted map link
   const [found, setFound] = useState(null);     // resolved candidate, not yet saved
@@ -1042,10 +1071,10 @@ export function ClockGeofenceSettings({ className = "" }) {
       // the lock is on — never overclaim. (Honesty: a distance check at the
       // punch instant, not proof of presence.)
       if (patch.lat != null && patch.lng != null && res.data?.has_location && res.data?.enabled) {
-        setSavedMsg(t("schedGeoSaved", "Venue anchored here. Staff clock-in is now location-bound."));
+        setSavedMsg("saved");
       }
     } catch {
-      setMsg(t("schedGeoErr", "Couldn't save. Try again."));
+      setMsg("err");
     } finally {
       setBusy(false);
     }
@@ -1053,7 +1082,7 @@ export function ClockGeofenceSettings({ className = "" }) {
 
   const setHere = () => {
     if (!navigator.geolocation) {
-      setMsg(t("schedGeoNoGps", "Location unavailable on this device."));
+      setMsg("noGps");
       return;
     }
     setBusy(true);
@@ -1065,7 +1094,7 @@ export function ClockGeofenceSettings({ className = "" }) {
       }),
       () => {
         setBusy(false);
-        setMsg(t("schedGeoDenied", "Allow location to set the venue."));
+        setMsg("denied");
       },
       { enableHighAccuracy: true, timeout: 8000 },
     );
@@ -1089,14 +1118,32 @@ export function ClockGeofenceSettings({ className = "" }) {
     setSavedMsg("");
     setFound(null);
     try {
-      const res = await api.post("/staff/clock-geofence/resolve", { query: q });
-      setFound(res.data);
+      // _noRetry: a lookup is one question, never replayed (api.js would
+      // re-send a 5xx/timed-out POST up to 4 times — a minute-long spinner).
+      const res = await api.post("/staff/clock-geofence/resolve", { query: q }, { _noRetry: true });
+      setFound(res.data ? { ...res.data, query_kind: res.data.query_kind || guessQueryKind(q) } : res.data);
     } catch (err) {
-      setMsg(
-        err?.response?.status === 404
-          ? t("schedGeoNotFound", "Couldn't find that. Try a full address, or paste a map link.")
-          : t("schedGeoErr", "Couldn't save. Try again."),
-      );
+      // 424 = the lookup is down; 404 carries why a vague pin was refused
+      // (street_only / need_postcode / postcode_mismatch). Never "Couldn't
+      // save" — nothing was being saved. A plain 404 for a typed ADDRESS
+      // says to check it (review P4): "not every venue is on the map — type
+      // your street address instead" told them to do what they just did.
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      const reason = detail?.reason;
+      if (status === 424) {
+        setMsg("lookupDown");
+      } else if (status === 404 && reason === "street_only") {
+        setMsg("streetOnly");
+      } else if (status === 404 && reason === "need_postcode") {
+        setMsg("needPostcode");
+      } else if (status === 404 && reason === "postcode_mismatch") {
+        setMsg("postcodeMismatch");
+      } else if (status === 404) {
+        setMsg((detail?.query_kind || guessQueryKind(q)) === "address" ? "addrNotFound" : "notFound");
+      } else {
+        setMsg("lookupDown");
+      }
     } finally {
       setBusy(false);
     }
@@ -1251,7 +1298,15 @@ export function ClockGeofenceSettings({ className = "" }) {
                 "schedGeoPinCaveat",
                 "A dropped pin is only as exact as where it was placed — check it sits on the venue, not the street.",
               )}
-            {found.source === "place_name" &&
+            {/* OpenStreetMap: "found by name" only for a NAME lookup. A typed
+                address that fell back to OpenStreetMap (the register missed
+                it, or was down) says where it came from (review P7). */}
+            {found.source === "place_name" && found.query_kind === "address" &&
+              t(
+                "schedGeoOsmAddrCaveat",
+                "Found on OpenStreetMap, a public map — check the pin sits on your venue before using it.",
+              )}
+            {found.source === "place_name" && found.query_kind !== "address" &&
               t(
                 "schedGeoNameCaveat",
                 "Found by name on a public map — check the address above is really yours before using it.",
@@ -1263,6 +1318,18 @@ export function ClockGeofenceSettings({ className = "" }) {
                 { m: cfg.radius_m },
               )}
           </p>
+          {/* Data credits (CC BY 4.0 for the register; ODbL for OpenStreetMap,
+              which also asks for visible attribution). */}
+          {found.source === "address" && (
+            <p className="w-full text-[10px] text-gray-400 dark:text-gray-500" data-testid="geo-register-credit">
+              {t("addrRegisterCredit", "Address data: Klimadatastyrelsen")}
+            </p>
+          )}
+          {found.source === "place_name" && (
+            <p className="w-full text-[10px] text-gray-400 dark:text-gray-500" data-testid="geo-osm-credit">
+              {t("schedGeoOsmCredit", "Map data © OpenStreetMap contributors")}
+            </p>
+          )}
         </div>
       )}
       {/* Clock-in TIME window — one toggle, no knobs. Flip it on and staff can't
@@ -1309,9 +1376,9 @@ export function ClockGeofenceSettings({ className = "" }) {
           {t("schedBreaksLiveNote", "Staff tap Start break and End break in the app, so breaks are logged as they happen. A break they record replaces the automatic 45-minute deduction in their pay.")}
         </span>
       </div>
-      {msg && <span className="w-full text-[12px] text-red-500 dark:text-red-400">{msg}</span>}
-      {savedMsg && !msg && (
-        <span className="w-full text-[12px] text-emerald-600 dark:text-emerald-400">{savedMsg}</span>
+      {msg && GEO_MSG[msg] && <span className="w-full text-[12px] text-red-500 dark:text-red-400">{GEO_MSG[msg](t)}</span>}
+      {savedMsg && !msg && GEO_MSG[savedMsg] && (
+        <span className="w-full text-[12px] text-emerald-600 dark:text-emerald-400">{GEO_MSG[savedMsg](t)}</span>
       )}
       {cfg.has_location && (
         <button

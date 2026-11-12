@@ -6,8 +6,9 @@ Endpoints:
   GET    /api/business/lookup           — search the register (smart
                                            input: CVR / domain / name)
   POST   /api/business/verify-address   — cross-check address against
-                                           DAWA (Danmarks Adressers Web
-                                           API)
+                                           Danmarks Adresseregister (KDS
+                                           Adressevask; DAWA closed 1 Oct
+                                           2026)
   POST   /api/business/reverify         — re-fetch from CVR + bump
                                            cvr_verified_at on the user's
                                            saved profile
@@ -54,8 +55,10 @@ from app.services.business_lookup import (
     get_supported_countries,
     LookupError,
 )
-from app.services.dawa_verify import verify_address as dawa_verify
-from app.services.dawa_verify import addresses_match
+# The address check (register only). Outcome comes through dawa_verify: only
+# venue_locate and dawa_verify may import services/address_lookup (repo guard
+# in tests/test_address_lookup.py).
+from app.services.dawa_verify import Outcome as _AddrOutcome, verify_address_outcome
 
 router = APIRouter()
 
@@ -187,51 +190,145 @@ async def signup_lookup(
     return trimmed
 
 
-# ─── DAWA address verification ────────────────────────────────────────
+# ─── Address check: Danmarks Adresseregister ──────────────────────────
 
 class AddressVerifyRequest(BaseModel):
     address: str | None = None
     zipcode: str | None = None
     city: str | None = None
+    # New builds send the country; old builds only ever called this for DK.
+    country: str | None = None
 
 
 @router.post("/verify-address")
 @_limiter.limit("60/minute")
-async def verify_address_endpoint(
+def verify_address_endpoint(
     request: Request,
     payload: AddressVerifyRequest,
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Cross-check an address against DAWA (Danmarks Adressers Web API).
+    """Cross-check an address against Danmarks Adresseregister (KDS
+    Adressevask; the register only, never OpenStreetMap).
 
-    Returns:
-      {
-        "verified": true,
-        "id": "0a3f50ad-...",
-        "betegnelse": "Vestergade 1, 1456 København K",
-        "category": "A",
-        "matches_input": true   — whether the canonical form matches
-                                   what the user supplied (false means
-                                   we'd update + show "we corrected
-                                   this")
-      }
-      or {"verified": false} when DAWA returns no match (or is down,
-      or the address is non-DK).
+    Returns the old keys plus `status`, `source` and `level`:
+      found, verified:  {"verified": true, "matches_input": true,
+                         "category": "A", "id", "betegnelse", "vejnavn",
+                         "husnr", "postnr", "postnrnavn", "address_line",
+                         "level": "unit"|"building", "status": "found",
+                         "source": "dar"}
+      found, near match: the same with "matches_input": false,
+                         "category": "B" — the picker ("the register writes
+                         it a little differently")
+      {"verified": false, "status": "not_found", "source": "dar"}
+      {"verified": false, "status": "unavailable", "source": "dar"} — the
+                         register could not be reached: "couldn't check
+                         right now", never "not found".
 
-    No rate limit — DAWA is free + public + the user's own input.
+    Rate-limited (60/min per IP) plus the per-user register budget in
+    services/address_lookup. A plain `def`: the session opened by
+    get_current_user is committed (its pooled connection goes back) before
+    the outbound call, which runs in the threadpool.
     """
-    record = await dawa_verify(payload.address, payload.zipcode, payload.city)
-    if not record:
-        return {"verified": False}
-    matches = addresses_match(
-        {
-            "address": payload.address or "",
-            "zipcode": payload.zipcode or "",
-            "city": payload.city or "",
-        },
-        record,
+    user_key = str(user.id)   # read before the commit: no reload after it
+    db.commit()
+    if (payload.country or "DK").strip().upper() != "DK":
+        return {"verified": False, "status": "not_found", "source": "dar"}
+    outcome, record = verify_address_outcome(
+        payload.address, payload.zipcode, payload.city, user_key=user_key,
     )
-    return {"verified": True, "matches_input": matches, **record}
+    if outcome == _AddrOutcome.UNAVAILABLE:
+        return {"verified": False, "status": "unavailable", "source": "dar"}
+    if outcome != _AddrOutcome.FOUND or not record:
+        return {"verified": False, "status": "not_found", "source": "dar"}
+    return {
+        "verified": True,
+        # The strict check decides it (category A); "B" always shows the picker.
+        "matches_input": record.get("category") == "A",
+        **record,
+        "status": "found",
+        "source": "dar",
+    }
+
+
+# ─── Server-owned dawa_address_id ─────────────────────────────────────
+
+_REGISTER_SOURCES = ("cvrapi.dk", "virk.dk")
+
+
+def _address_snapshot(profile) -> tuple:
+    return (
+        (getattr(profile, "address", None) if profile else None),
+        (getattr(profile, "zipcode", None) if profile else None),
+        (getattr(profile, "city", None) if profile else None),
+    )
+
+
+def _address_differs(a: tuple, b: tuple) -> bool:
+    """Whitespace, case and None-vs-empty are not a move (the Profile cards
+    echo the address on every save)."""
+    def _n(t):
+        return tuple(" ".join((v or "").split()).casefold() for v in t)
+    return _n(a) != _n(b)
+
+
+def _stamp_register_address_id(db: Session, *, profile_id, country: str | None,
+                               snapshot: tuple, address_changed: bool,
+                               stored_id: str | None, user_key: str) -> None:
+    """Decide and write business_profiles.dawa_address_id AFTER the save's own
+    commit (the pooled connection is back), in a short second transaction.
+
+    The server owns the id — the client's value is never trusted (Audit P2 /
+    Task #76: the market-comparison gate reads it). A verified wash (A, unit
+    or building) sets it; a near match (B) or not found clears it; a register
+    outage clears it only when the address changed (else the old id stays).
+    The UPDATE is compare-and-set on the washed address, so a parallel save
+    that changed the address meanwhile cannot get a stale id. A failed wash
+    never fails the save.
+    """
+    from sqlalchemy import and_, update as _update
+
+    address, zipcode, city = snapshot
+    zc = (zipcode or "").strip()
+    new_id = stored_id
+    try:
+        if (country or "DK").strip().upper() != "DK" or not re.fullmatch(r"\d{4}", zc):
+            new_id = None if address_changed else stored_id
+        else:
+            outcome, record = verify_address_outcome(address, zipcode, city, user_key=user_key)
+            if outcome == _AddrOutcome.FOUND and record and record.get("category") == "A":
+                new_id = record.get("id")
+            elif outcome == _AddrOutcome.UNAVAILABLE:
+                new_id = None if address_changed else stored_id
+            else:
+                new_id = None
+    except Exception as e:  # noqa: BLE001 — a failed wash never fails the save
+        import logging
+        logging.getLogger(__name__).warning("address id stamp skipped: %s", type(e).__name__)
+        new_id = None if address_changed else stored_id
+    if new_id == stored_id:
+        return
+
+    def _eq(col, value):
+        return col.is_(None) if value is None else col == value
+
+    try:
+        db.execute(
+            _update(BusinessProfile)
+            .where(and_(
+                BusinessProfile.id == profile_id,
+                _eq(BusinessProfile.address, address),
+                _eq(BusinessProfile.zipcode, zipcode),
+                _eq(BusinessProfile.city, city),
+            ))
+            .values(dawa_address_id=new_id)
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        import logging
+        logging.getLogger(__name__).warning("address id stamp not written: %s", type(e).__name__)
 
 
 # ─── Re-verify saved profile ──────────────────────────────────────────
@@ -323,6 +420,9 @@ def reverify_profile(
 
     fresh = results[0]
     changed = []
+    # The address as stored before this re-verify (the server-owned register
+    # id is decided after the commit below).
+    start_address = _address_snapshot(profile)
 
     def _maybe_update(field: str, new_value):
         """Update the profile field iff the new value is non-empty
@@ -362,7 +462,23 @@ def reverify_profile(
     profile.cvr_verified_at = utc_now()
     profile.cvr_verified_source = fresh.get("source", "cvrapi.dk")
 
+    # Re-verify can move the address from CVR; an old id must not survive a
+    # move. Captured before the commit (no attribute reads after it, so the
+    # pooled connection stays released during the wash).
+    final_address = _address_snapshot(profile)
+    address_changed = _address_differs(final_address, start_address)
+    stored_id = None if address_changed else profile.dawa_address_id
+    if address_changed:
+        profile.dawa_address_id = None
+    profile_id, country, user_key = profile.id, profile.country, str(user.id)
+    need_wash = address_changed or not stored_id
+
     db.commit()
+    if need_wash:
+        _stamp_register_address_id(
+            db, profile_id=profile_id, country=country, snapshot=final_address,
+            address_changed=address_changed, stored_id=stored_id, user_key=user_key,
+        )
     db.refresh(profile)
 
     return ReverifyResponse(
@@ -449,6 +565,9 @@ def save_profile(
     # company_name on every save, so only a real change may move the trading
     # name (the booking page's name) — see the end of this handler.
     old_company = (profile.company_name or "").strip() if profile else ""
+    # The address as stored BEFORE this request: the server-owned register id
+    # (dawa_address_id) is re-decided after the save when it changed.
+    start_address = _address_snapshot(profile)
 
     # day_cutoff_hour — clamp to [0, 23] so a typo (e.g. "26") can't
     # land a junk value that the tz_utils helper would then defensively
@@ -485,6 +604,11 @@ def save_profile(
     # lock. The address is checked here, and a NEW address only mails the
     # revisor on lock when the owner ticked that choice in the same save.
     changes = data.model_dump(exclude_unset=True)
+    # The server owns dawa_address_id (plan 3.4, Audit P2 / Task #76): the
+    # market-comparison gate trusts it, so a client value is never stored.
+    # Old builds still send it; it is dropped here and decided by the wash
+    # after the commit below.
+    changes.pop("dawa_address_id", None)
     # Decided BEFORE this save touches anything: is the saved revisor the
     # demo seeder's sample? (Used below so a rename cannot un-fence it.)
     from app.services.revisor_mail import is_demo_revisor as _is_demo_revisor
@@ -547,6 +671,7 @@ def save_profile(
     else:
         full = data.model_dump()
         full.update(changes)
+        full["dawa_address_id"] = None      # server-owned, see above
         profile = BusinessProfile(
             id=uuid.uuid4(),
             user_id=user.id,
@@ -620,7 +745,30 @@ def save_profile(
             or (new_company != old_company and trading == old_company)):
         user.business_name = new_company
 
+    # ── The register id, decided by the server ──
+    # Wash only when the final address, zipcode or city differ from the start
+    # (the demo-identity restore above included), or when no id is stored and
+    # the save came from the register (cvrapi.dk / virk.dk) — never because
+    # the client sent an id. An address change clears the old id in THIS
+    # transaction, so a stale id never sits beside a new address.
+    final_address = _address_snapshot(profile)
+    address_changed = _address_differs(final_address, start_address)
+    if address_changed:
+        profile.dawa_address_id = None
+    stored_id = profile.dawa_address_id
+    need_wash = address_changed or (
+        not stored_id and (data.source or "").lower() in _REGISTER_SOURCES
+    )
+    # Read before the commit: no attribute reload (and no pooled connection)
+    # while the wash waits on the register.
+    profile_id, country, user_key = profile.id, profile.country, str(user.id)
+
     db.commit()
+    if need_wash:
+        _stamp_register_address_id(
+            db, profile_id=profile_id, country=country, snapshot=final_address,
+            address_changed=address_changed, stored_id=stored_id, user_key=user_key,
+        )
     db.refresh(profile)
     profile.fence_user = user
     return profile

@@ -73,6 +73,53 @@ def test_scrub_redacts_tokens_in_log_lines_and_breadcrumbs_and_keeps_ids():
     assert out["transaction"] == "/api/portal/{token}/clock-in"
 
 
+def test_a_leading_token_in_http_query_is_redacted():
+    """Sentry's httpx integration stores the query without "?", so a token in
+    first place escaped redact_text (it matches "?token=" / "&token=")."""
+    event = {
+        "breadcrumbs": {"values": [{"type": "http", "category": "httplib", "data": {
+            "url": "https://api.example.com/x", "method": "GET",
+            "http.query": f"token={_TOKEN}&page=2"}}]},
+        "spans": [{"op": "http.client", "data": {"url": "https://api.example.com/x",
+                                                 "http.query": f"t={_TOKEN}"}}],
+    }
+    out = scrub_event(event, {})
+    assert _TOKEN not in json.dumps(out)
+    assert out["breadcrumbs"]["values"][0]["data"]["http.query"] == "token=:redacted&page=2"
+    assert out["spans"][0]["data"]["http.query"] == "t=:redacted"
+
+
+def test_an_address_lookup_never_reaches_sentry():
+    """services/address_lookup.py: the owner's address travels in the query to
+    adressevaelger.dk / nominatim.openstreetmap.org. The address values are
+    dropped wherever such a URL or query appears, and the KDS token too."""
+    kds_token = "kds-shared-token-" + "X" * 12
+    event = {
+        "breadcrumbs": {"values": [
+            {"type": "http", "data": {"url": "https://adressevaelger.dk/vask/", "method": "GET",
+                                      "http.query": f"adresse=R%C3%A5dhuspladsen+1%2C+1550&token={kds_token}"}},
+            {"type": "http", "data": {"url": "https://nominatim.openstreetmap.org/search",
+                                      "http.query": "street=1+Algade&postalcode=9000&city=Aalborg&format=json"}},
+            {"message": "GET https://adressevaelger.dk/husnumre/soeg?tekst=Vestergade+1&maksimum=10"},
+        ]},
+        "spans": [{"op": "http.client",
+                   "description": "GET https://nominatim.openstreetmap.org/search?q=Tivoli+K%C3%B8benhavn&countrycodes=dk",
+                   "data": {"url": "https://adressevaelger.dk/husnumre/soeg",
+                            "http.query": "vejnavn=Algade&husnummer=1&postnummer=9000&maksimum=10"}}],
+    }
+    out = scrub_event(event, {})
+    blob = json.dumps(out, ensure_ascii=False)
+    for leak in (kds_token, "R%C3%A5dhuspladsen", "Algade", "Aalborg", "9000", "Vestergade",
+                 "Tivoli"):
+        assert leak not in blob, leak
+    crumbs = out["breadcrumbs"]["values"]
+    assert crumbs[0]["data"]["http.query"] == "adresse=:redacted&token=:redacted"
+    assert crumbs[1]["data"]["http.query"] == \
+        "street=:redacted&postalcode=:redacted&city=:redacted&format=json"
+    assert "maksimum=10" in crumbs[2]["message"]
+    assert out["spans"][0]["description"].endswith("q=:redacted&countrycodes=dk")
+
+
 def test_scrub_drops_an_event_it_cannot_scrub():
     assert scrub_event(None, {}) is None
 

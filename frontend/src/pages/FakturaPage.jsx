@@ -233,7 +233,7 @@ export default function FakturaPage() {
           {
             title: t("fakturaStep1Title", "1. Add a customer first"),
             body:
-              t("fakturaStep1Body", "Type a CVR and we auto-fill name + address from CVR/DAWA. For private clients, toggle Privatperson — no CVR needed."),
+              t("fakturaStep1Body", "Type a CVR and we auto-fill name + address from the CVR register. For private clients, toggle Privatperson — no CVR needed."),
           },
           {
             title: t("fakturaStep2Title", "2. Create the invoice"),

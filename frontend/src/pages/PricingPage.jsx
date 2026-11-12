@@ -8,6 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import SmartPricingCard from "../components/SmartPricingCard";
+import MarketSetupHint from "../components/MarketSetupHint";
 import { PageHeader, StatCard, SectionBanner, Button, Amount } from "../components/ui";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -142,13 +143,17 @@ export default function PricingPage({ embedded = false }) {
             const severity = alert.severity === "warning" ? "warn"
               : alert.severity === "positive" ? "success"
               : "info";
+            // The server writes these alerts in English. "healthy" carries no
+            // numbers, so its words are translated here (it read English on
+            // the Danish page); the other types still arrive in English.
+            const healthy = alert.type === "healthy";
             return (
               <SectionBanner
                 key={i}
                 severity={severity}
-                title={alert.title}
+                title={healthy ? t("ppAlertHealthyTitle", "Pricing looks healthy") : alert.title}
               >
-                <p>{alert.detail}</p>
+                <p>{healthy ? t("ppAlertHealthyDetail", "No major issues detected.") : alert.detail}</p>
                 {alert.action && (
                   <p className="text-xs mt-2 font-medium">{alert.action}</p>
                 )}
@@ -390,13 +395,19 @@ function SmartPricingSection({ data, loading, currencyCode }) {
   if (!data) return null;
 
   if (data.needs_setup) {
+    // setup_hint: the postcode and cuisine ARE set; it says exactly what is
+    // still missing (the address check, the CVR check, or both). "Add your
+    // postal code…" was a dead end for them. Old servers send no hint.
     return (
       <SectionBanner
         severity="info"
         icon="Globe"
-        title={t("smartPricingTitle") || "Market comparison"}
+        title={t("smartPricingTitle", "Market comparison")}
       >
-        {t("smartPricingNeedsSetup") || "Set your postal code and cuisine in Profile to unlock neighborhood price comparisons."}
+        <MarketSetupHint
+          hint={data.setup_hint}
+          fallback={t("smartPricingNeedsSetup", "Add your postal code and cuisine in Profile to see market comparisons.")}
+        />
       </SectionBanner>
     );
   }

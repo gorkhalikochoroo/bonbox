@@ -9,31 +9,41 @@ the evening before opening simply cannot finish the step. The geofence is the
 control that decides who may clock in, so a setup path that requires physical
 presence is a setup path many owners never complete.
 
-TWO INPUTS, NEITHER NEEDING AN API KEY
+THREE INPUTS, NONE NEEDING A PAID KEY
 
-1. A Danish address  →  DAWA (Danmarks Adressers Web API).
-   Free, keyless, and the register Danish addresses are legally DEFINED by.
-   `struktur=mini` returns the coordinate in the same call as the match, so one
-   request gives everything. The point is the `adgangspunkt` — the surveyed
-   access point of the building, not a street centroid.
+1. A Danish address  ->  Danmarks Adresseregister through Klimadatastyrelsen's
+   Adressevælger (services/address_lookup.py). DAWA, the free API this used,
+   closed on 1 Oct 2026; KDS's service is its official successor with the
+   same DAR ids. The point is the `adgangspunkt`, the surveyed access point
+   of the building, not a street centroid. The record must be THIS address
+   (street + exact house number + postcode): a phonetic match to a nearby
+   street is refused.
 
-2. A map link  →  parse the coordinates out of the URL.
+2. A map link  ->  parse the coordinates out of the URL.
    Owners share their venue's pin constantly; the coordinates are already in
    the link. Free, no lookup at all for the long form.
+
+3. A venue name, or an address the register cannot place (or a register
+   outage)  ->  OpenStreetMap's Nominatim, hardened: a postcode guard, a
+   house-number guard, countrycodes=dk, at most one call per second, an
+   identifying User-Agent, and a kill switch (GEO_OSM_ENABLED).
 
 DELIBERATELY NOT THE GOOGLE GEOCODING API. It needs a billing-enabled key, and
 its terms restrict retaining geocoded coordinates beyond ~30 days with narrow
 exceptions — a permanent geofence anchor is exactly the long-term storage that
-excludes. In Denmark it is also a step DOWN in accuracy from DAWA, which is the
-authority Google is approximating. If BonBox ever anchors venues outside the
-Nordics this is the seam to revisit; until then it buys a key, a bill and a
-terms problem for nothing.
+excludes. In Denmark it is also a step DOWN in accuracy from the address
+register, which is the authority Google is approximating.
 
 PRECISION, STATED HONESTLY. An address resolves to the building's access point,
 which in a large or corner venue can sit 20-40 m from where staff actually
 stand to clock in. At the default 150 m radius that is comfortably inside.
 Callers should still record WHICH method set the anchor (`source`) so the owner
 is never told a derived point was measured on site — computed is not measured.
+
+OUTCOMES. resolve_outcome() returns (Outcome, dict|None, reason) so the
+endpoint can tell "not found" (404, with street_only / postcode_mismatch /
+need_postcode) apart from "the lookup is down" (424). resolve() keeps the old
+dict|None shape. Nothing here ever logs the address or a URL.
 """
 
 import logging
@@ -42,18 +52,14 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
+from app.services import address_lookup
+from app.services.address_lookup import GeoResult, Outcome
+
 logger = logging.getLogger(__name__)
 
-# One call returns the match AND its coordinate. `x` is longitude, `y` is
-# latitude (DAWA uses EPSG:4326 in this struktur).
-_DAWA_SEARCH = "https://api.dataforsyningen.dk/adresser"
+# Short-link expansion only (a maps.app.goo.gl redirect). Address and name
+# lookups go through services/address_lookup.py, never from here.
 _TIMEOUT = 5.0
-
-# Venue-NAME fallback, used only after the address register has no match.
-# Nominatim's usage policy asks for an identifying User-Agent and light
-# traffic; an owner anchors a venue about once, ever, so both hold.
-_NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search"
-_NOMINATIM_UA = "BonBox/1.0 (+https://bonbox.dk)"
 
 # Hosts we will follow a link to. An owner-only endpoint is still an outbound
 # fetch, so the host is allowlisted rather than "anything that looks like a
@@ -131,10 +137,11 @@ def _expand_short_link(url: str) -> str | None:
             resp = c.get(url, headers={"User-Agent": "BonBox/1.0"})
         final = str(resp.url)
     except (httpx.TimeoutException, httpx.HTTPError) as e:
-        logger.info("map short-link expand failed for %r: %s", url, e)
+        # No URL in the log: a link can carry an address or a place name.
+        logger.info("map short-link expand failed: %s", type(e).__name__)
         return None
     if not _host_allowed(final):
-        logger.warning("map short-link redirected off-allowlist: %r", final)
+        logger.warning("map short-link redirected off the allowlist")
         return None
     return final
 
@@ -165,137 +172,91 @@ def from_map_link(url: str) -> dict | None:
     }
 
 
-def from_address(query: str) -> dict | None:
-    """{lat, lng, label, source} from a Danish address via DAWA, or None.
+def _as_dict(geo: GeoResult) -> dict:
+    """The resolve payload. Register hits keep source "address" and the DAR id
+    in `dawa_id` (the old field name; same DAR UUIDs). OpenStreetMap hits keep
+    source "place_name" even for a typed address, so old app builds still show
+    their "check it's yours" caveat. `provider` is new: "dar" | "osm"."""
+    out = {
+        "lat": round(float(geo.lat), 6),
+        "lng": round(float(geo.lng), 6),
+        "label": geo.label or None,
+        "source": "address" if geo.provider == "dar" else "place_name",
+        "provider": geo.provider,
+    }
+    if geo.provider == "dar":
+        out["dawa_id"] = geo.address_id
+    return out
 
-    Never raises — a geocoder being unreachable must not break the geofence
-    panel, it must just leave the owner on the "stand at the venue" path.
+
+def from_address(query: str) -> dict | None:
+    """{lat, lng, label, source="address", dawa_id, provider="dar"} from a
+    Danish address via the official register, or None.
+
+    Register only. Never raises — the register being unreachable must not
+    break the geofence panel.
     """
     q = (query or "").strip()
     if len(q) < 4:
         return None
-    try:
-        with httpx.Client(timeout=_TIMEOUT) as c:
-            resp = c.get(
-                _DAWA_SEARCH,
-                params={"q": q, "struktur": "mini", "per_side": 1},
-                headers={"Accept": "application/json"},
-            )
-    except (httpx.TimeoutException, httpx.HTTPError) as e:
-        logger.info("DAWA unavailable for %r: %s", q, e)
-        return None
-    if resp.status_code != 200:
-        logger.info("DAWA returned %s for %r", resp.status_code, q)
-        return None
-    try:
-        rows = resp.json()
-    except ValueError:
-        return None
-    if not isinstance(rows, list) or not rows:
-        return None
-
-    top = rows[0]
-    lat, lng = top.get("y"), top.get("x")   # y = latitude, x = longitude
-    if not _valid(lat, lng):
-        return None
-
-    # Rebuild the canonical one-line form DAWA's mini struktur omits.
-    #
-    # ETAGE IS DELIBERATELY DROPPED. DAWA returns the floor for a postal
-    # address, so "Vestergade 1" comes back as "Vestergade 1, 1." — which
-    # renders as "Vestergade 1, 1., 1456 København K" and reads like a typo.
-    # It is also meaningless here: this label names a VENUE whose geofence
-    # anchor is the building's access point, and that point is identical on
-    # every floor. Seen on the live panel, not reasoned about — it looked
-    # broken before it looked wrong.
-    bits = " ".join(str(p) for p in (top.get("vejnavn"), top.get("husnr")) if p)
-    tail = " ".join(str(p) for p in (top.get("postnr"), top.get("postnrnavn")) if p)
-    label = ", ".join(p for p in (bits.strip(), tail.strip()) if p) or q
-
-    return {
-        "lat": round(float(lat), 6),
-        "lng": round(float(lng), 6),
-        "label": label,
-        "source": "address",
-        "dawa_id": top.get("id"),
-    }
+    outcome, geo, _reason = address_lookup.geocode(q, register=True, osm=False)
+    return _as_dict(geo) if outcome == Outcome.FOUND and geo else None
 
 
 def from_place_name(query: str) -> dict | None:
-    """{lat, lng, label, source} for a venue NAME via OpenStreetMap, or None.
+    """{lat, lng, label, source="place_name", provider="osm"} via
+    OpenStreetMap (hardened Nominatim), or None.
 
     A FALLBACK, never the first choice. Owners naturally type "Silberbauer
-    Bistro" rather than a street address — it is the name they think in — and
-    before this that simply failed with no explanation of why.
+    Bistro" rather than a street address — it is the name they think in.
+    Coverage is whatever volunteers have mapped, and an owner always knows
+    their own address but cannot know whether their venue is on the map, so
+    the register runs first and this only after it.
 
-    Why it is second and not first: coverage is whatever volunteers have
-    mapped. "bistro københavn" resolves fine; "Silberbauer Bistro" is not in
-    OSM at all. An owner always knows their own address; they cannot know
-    whether their venue is on the map. So the address path is the reliable
-    one and this only runs when that has already failed.
-
-    The wrong-match risk is contained by the caller, not here: /resolve never
-    saves, so a bad hit shows up as an obviously wrong address in the confirm
-    row and the owner rejects it. That two-step design is what makes an
-    imperfect lookup safe to offer at all.
-
-    Scoped to Denmark (countrycodes=dk) so a name that also exists in Austria
-    cannot anchor a Copenhagen venue in Lohberg — which is exactly what an
-    unscoped search for "Silberbauer" returns.
-
-    Nominatim's usage policy asks for a identifying User-Agent and light use.
-    Both hold: an owner sets a venue anchor roughly once, ever.
+    The wrong-match risk is contained here AND by the caller: a typed postcode
+    and house number must match the hit (else it is refused), the search is
+    scoped to Denmark, and /resolve never saves — the owner confirms.
     """
     q = (query or "").strip()
     if len(q) < 3:
         return None
-    try:
-        with httpx.Client(timeout=_TIMEOUT) as c:
-            resp = c.get(
-                _NOMINATIM_SEARCH,
-                params={"q": q, "format": "json", "limit": 1, "countrycodes": "dk"},
-                headers={"User-Agent": _NOMINATIM_UA, "Accept": "application/json"},
-            )
-    except (httpx.TimeoutException, httpx.HTTPError) as e:
-        logger.info("Nominatim unavailable for %r: %s", q, e)
-        return None
-    if resp.status_code != 200:
-        return None
-    try:
-        rows = resp.json()
-    except ValueError:
-        return None
-    if not isinstance(rows, list) or not rows:
-        return None
-
-    top = rows[0]
-    lat, lng = top.get("lat"), top.get("lon")
-    if not _valid(lat, lng):
-        return None
-
-    # Keep the first few components — the full display_name is a postal essay
-    # ("…, Indre By, København, Region Hovedstaden, 1234, Danmark").
-    parts = [p.strip() for p in str(top.get("display_name") or q).split(",")]
-    label = ", ".join(parts[:3]) or q
-
-    return {
-        "lat": round(float(lat), 6),
-        "lng": round(float(lng), 6),
-        "label": label,
-        "source": "place_name",
-    }
+    outcome, geo, _reason = address_lookup.geocode(q, register=False, osm=True)
+    return _as_dict(geo) if outcome == Outcome.FOUND and geo else None
 
 
-def resolve(query: str) -> dict | None:
-    """Map link, Danish address, or — failing both — a venue name.
+def resolve_outcome(query: str, *, user_key: str | None = None) -> tuple[Outcome, dict | None, str | None]:
+    """Map link, Danish address, or — failing the register — a venue name.
 
+    (FOUND, dict, None) | (NOT_FOUND, None, reason) | (UNAVAILABLE, None, None).
+    reason is None, "street_only", "postcode_mismatch" or "need_postcode".
     Order is deliberate: the address register is authoritative and exact, the
-    name search is best-effort. Trying the name first would let a fuzzy match
-    beat an exact one.
+    name search is best-effort; a fuzzy match must never beat an exact one.
     """
     q = (query or "").strip()
     if not q:
-        return None
+        return Outcome.NOT_FOUND, None, None
     if q.lower().startswith(("http://", "https://")):
-        return from_map_link(q)
-    return from_address(q) or from_place_name(q)
+        found = from_map_link(q)
+        return (Outcome.FOUND, found, None) if found else (Outcome.NOT_FOUND, None, None)
+    outcome, geo, reason = address_lookup.geocode(q, user_key=user_key)
+    if outcome == Outcome.FOUND and geo:
+        return Outcome.FOUND, _as_dict(geo), None
+    return outcome if outcome != Outcome.FOUND else Outcome.NOT_FOUND, None, reason
+
+
+def query_kind(query: str) -> str:
+    """"map_link", "address" (a typed street address) or "name" (a venue
+    name). Added to the /resolve answers (200 and 404) so the panel's advice
+    matches what the owner typed: "check the street, number and postcode"
+    for an address; "not every venue is on the map" only for a name; and an
+    OpenStreetMap hit for a typed address says it came from OpenStreetMap,
+    not "found by name". Old builds ignore the field."""
+    q = (query or "").strip()
+    if q.lower().startswith(("http://", "https://")):
+        return "map_link"
+    return "address" if address_lookup.looks_like_street_address(q) else "name"
+
+
+def resolve(query: str) -> dict | None:
+    """The old dict|None shape (a thin wrapper over resolve_outcome)."""
+    return resolve_outcome(query)[1]

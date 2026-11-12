@@ -144,7 +144,14 @@ describe("1 · Orvexlo, as the CVR register has it", () => {
 
   it("dates: /privacy and /cookies and the Terms' 'Sidst opdateret' carry the push day (not before the rename); the Terms version is not bumped", () => {
     expect(PRIVACY_UPDATED >= "2026-11-03").toBe(true);
-    expect(TERMS_TEXT_UPDATED).toBe(PRIVACY_UPDATED); // one push dates the three pages
+    // The Orvexlo push dated the three pages on one day (3 Nov). Edited on
+    // purpose 12 Nov 2026 (DAWA replacement): /privacy then changed ALONE
+    // (two vendor rows: Klimadatastyrelsen, OpenStreetMap Foundation), so its
+    // date moves to that push day while the Terms text keeps 3 Nov. The rule
+    // that stays: the Terms date is never after /privacy's, and never before
+    // the rename.
+    expect(TERMS_TEXT_UPDATED).toBe("2026-11-03");
+    expect(TERMS_TEXT_UPDATED <= PRIVACY_UPDATED).toBe(true);
     // a TERMS_VERSION bump re-runs the "Vi har opdateret vores Handelsbetingelser" notice for every owner until
     // TERMS_EXISTING_FROM, with October's change list: the rename changes the text, not the version
     expect(TERMS_VERSION < TERMS_TEXT_UPDATED).toBe(true);

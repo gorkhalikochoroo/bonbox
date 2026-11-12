@@ -79,15 +79,24 @@ function SwapRow({ swap, onChanged, t, lang }) {
   const [note, setNote] = useState("");
   const [denying, setDenying] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [decideErr, setDecideErr] = useState("");
 
   const decide = async (approve) => {
     setBusy(true);
+    setDecideErr("");
     try {
       await api.post(`/staff/swap-requests/${swap.id}/decide`, {
         approve,
         note: note.trim() || null,
       });
       onChanged();
+    } catch (err) {
+      // A refusal used to vanish (no catch). The server refuses to hand over
+      // a shift that has already started: 422 {code: "shift_started"}.
+      const code = err?.response?.data?.detail?.code;
+      setDecideErr(code === "shift_started"
+        ? t("swapShiftStartedOwner", "That shift has already started, so the swap can't go through.")
+        : t("swapDecideFailed", "Couldn't save your answer. Try again."));
     } finally {
       setBusy(false);
     }
@@ -169,6 +178,9 @@ function SwapRow({ swap, onChanged, t, lang }) {
             </button>
           </div>
         </div>
+      )}
+      {decideErr && (
+        <p className="text-[12px] text-red-600 dark:text-red-400" data-testid="swap-decide-error">{decideErr}</p>
       )}
     </div>
   );

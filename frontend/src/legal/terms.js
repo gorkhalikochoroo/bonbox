@@ -97,8 +97,15 @@ export const PRIVACY_PUSH_DAY_PLACEHOLDER = "2099-12-31";
    placeholder until the packet step on push day; it was "2026-10-12".
 
    3 Nov 2026 (Orvexlo): the controller's registered name on /privacy and
-   /cookies is Orvexlo now; this push day dates both pages. */
-export const PRIVACY_UPDATED = "2026-11-03";
+   /cookies is Orvexlo now; this push day dates both pages.
+
+   12 Nov 2026 (DAWA replacement, branch fix/address-register): /privacy gets
+   two vendor rows (Klimadatastyrelsen — Adressevælger/Adressevask, and the
+   OpenStreetMap Foundation — Nominatim, live since 1 Oct without a row). The
+   push day is not known yet, so this is the placeholder again: the release
+   packet sets the Copenhagen push day here (privacyUpdatedPushDay.test.js is
+   red until it does — on purpose). Then rebuild the staff bundle. */
+export const PRIVACY_UPDATED = PRIVACY_PUSH_DAY_PLACEHOLDER;
 
 /* The fallback copy in the old Supabase project (database and files moved to
    Frankfurt on 20 Oct 2026; the old project is kept unchanged as a fallback

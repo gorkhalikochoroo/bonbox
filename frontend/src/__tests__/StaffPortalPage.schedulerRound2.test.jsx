@@ -246,6 +246,41 @@ describe("Byt pickers never offer a shift that has started", () => {
   });
 });
 
+// Swap guard (12 Nov 2026): the server refuses a shift that has already
+// started — 422 {code: "shift_started", message: <English for old builds>}.
+describe("A shift that has already started", () => {
+  it("a refused propose reads as Danish, not the English fallback", async () => {
+    postImpl = () => reject(422, { detail: { code: "shift_started", message: "That shift has already started or is in the past, so it can't be swapped or given away." } });
+    const picker = await openSwapPicker();
+    fireEvent.change(picker, { target: { value: "jonas-thu" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send bytteanmodning" })); });
+    expect(await screen.findByText("Vagten er allerede gået i gang, så den kan ikke længere byttes eller gives væk.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("already started or is in the past");
+  });
+
+  it("accepting is refused in Danish and the row reads 'Vagten er gået i gang'", async () => {
+    let status = "proposed";
+    swapsImpl = () => ok([{
+      id: "sw1", status, direction: "incoming",
+      from_staff_name: "Jonas B.", to_staff_name: "Ali R.",
+      from_shift_id: "jonas-thu", from_shift_date: THU, from_shift_time: "16:00–22:00",
+      to_shift_id: "ali-fri", to_shift_date: FRI, to_shift_time: "15:00–23:00",
+    }]);
+    postImpl = () => {
+      status = "expired";   // the server ended it on the spot
+      return reject(422, { detail: { code: "shift_started", message: "x" } });
+    };
+    await mount("da");
+    navTo("Byt");
+    const accept = await screen.findByRole("button", { name: "Accepter" });
+    await act(async () => { fireEvent.click(accept); });
+    expect((await screen.findByRole("alert")).textContent)
+      .toBe("Vagten er allerede gået i gang, så den kan ikke længere byttes eller gives væk.");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Accepter" })).toBeNull());
+    expect(screen.getByText("Vagten er gået i gang")).toBeInTheDocument();
+  });
+});
+
 describe("Accepting a swap that would double-book you", () => {
   it("shows the reason and keeps Afvis within reach (it used to vanish silently)", async () => {
     swapsImpl = () => ok([{

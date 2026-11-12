@@ -293,8 +293,9 @@ def get_market_comparison(
         .first()
     )
     # Audit P2 (Task #76): only trust profile.zipcode when the owner
-    # has verified the address against DAWA AND a real CVR lookup
-    # confirms the company.  Without both, an attacker can flip
+    # has verified the address against Danmarks Adresseregister (the
+    # server-set dawa_address_id) AND a real CVR lookup confirms the
+    # company.  Without both, an attacker can flip
     # postal codes via PUT /business to leech a richer cohort OR
     # probe sparse cohorts to de-anonymize neighbours.  The explicit
     # ?postal_code= override stays — that's a caller-supplied hint
@@ -328,7 +329,11 @@ def get_market_comparison(
 
     # ── Setup gating ──────────────────────────────────────────────────
     if not eff_postal or not eff_cuisine:
-        return _unavailable("needs_setup")
+        # reason stays "needs_setup" (old builds show "Couldn't load right
+        # now" for any reason they do not know); setup_hint says WHY when the
+        # postcode and cuisine are already there.
+        hint = _setup_hint(profile, eff_cuisine, profile_postal_trusted)
+        return _unavailable("needs_setup", **({"setup_hint": hint} if hint else {}))
     if not canonical:
         return _unavailable("unknown_item", raw_name=item_name)
 
@@ -601,7 +606,7 @@ def get_all_market_comparisons(db: Session, user: User) -> dict:
         .filter(BusinessProfile.user_id == user.id)
         .first()
     )
-    # Audit P2 (Task #76): same DAWA + CVR gate as get_market_comparison.
+    # Audit P2 (Task #76): same register-id + CVR gate as get_market_comparison.
     # Untrusted postal codes never feed the cohort query.
     profile_postal_trusted = bool(
         profile
@@ -626,13 +631,17 @@ def get_all_market_comparisons(db: Session, user: User) -> dict:
     )
 
     if not eff_postal or not eff_cuisine:
-        return {
+        out = {
             "available_count": 0,
             "unavailable_count": 0,
             "comparisons": [],
             "needs_setup": True,
             "message_key": "smartPricingNeedsSetup",
         }
+        hint = _setup_hint(profile, eff_cuisine, profile_postal_trusted)
+        if hint:
+            out["setup_hint"] = hint
+        return out
 
     # Pull every priced item once, group by canonical → max sell_price.
     user_items = (
@@ -735,6 +744,43 @@ def _audit_query(
             db.rollback()
         except Exception:  # noqa: BLE001
             pass
+
+
+# setup_hint values (reason stays "needs_setup"; old builds read only that).
+# Each names exactly what is missing, so the copy never blames the address
+# when only the CVR check is missing (review P1, approved 12 Nov 2026):
+#   address_unverified              the address only (no server-set register id)
+#   company_unverified              the CVR check only (no cvr_verified_at)
+#   address_and_company_unverified  both
+# "address_unverified" keeps its meaning: the address, and nothing else.
+SETUP_HINT_ADDRESS = "address_unverified"
+SETUP_HINT_COMPANY = "company_unverified"
+SETUP_HINT_BOTH = "address_and_company_unverified"
+
+
+def _setup_hint(profile, eff_cuisine, postal_trusted: bool) -> str | None:
+    """Why the market comparison is locked when the postcode and the cuisine
+    are already set: the old copy ("Add your postal code and cuisine…") was
+    a dead end for an owner who had both.
+
+    None outside Denmark: the server never checks a non-DK address against
+    Danmarks Adresseregister, so a hint pointing there would lead nowhere
+    (review R3)."""
+    if profile is None or postal_trusted:
+        return None
+    if (getattr(profile, "country", None) or "DK").strip().upper() != "DK":
+        return None
+    if not ((profile.zipcode or "").strip() and eff_cuisine):
+        return None
+    address_ok = bool((profile.dawa_address_id or "").strip())
+    company_ok = bool(profile.cvr_verified_at)
+    if not address_ok and not company_ok:
+        return SETUP_HINT_BOTH
+    if not address_ok:
+        return SETUP_HINT_ADDRESS
+    if not company_ok:
+        return SETUP_HINT_COMPANY
+    return None
 
 
 def _unavailable(reason: str, **extra) -> dict:

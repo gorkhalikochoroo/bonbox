@@ -267,6 +267,7 @@ function PrivacyEn() {
               ["OCR.space", "Reading text from receipt photos (when enabled)", "Not confirmed", "Photos of receipts you upload"],
               ["Stripe", "Subscription payments", "Not confirmed", "Billing email and business name, your BonBox account id, plan, business type and the Terms version you accepted, subscription status; card details go straight to Stripe and never reach our servers. When you delete your account: if there are no invoices for you at Stripe, we also delete your customer record at Stripe; if there are, we keep the customer record at Stripe for 5 years from the end of the financial year, because we must keep our own accounting records, and then delete it. The issued invoices stay at Stripe, which does not allow an issued invoice to be deleted"],
               ["cvrapi.dk", "Business registration lookup", "Not confirmed", "CVR numbers (public data)"],
+              ["OpenStreetMap Foundation (Nominatim)", "Finding your venue's location for the clock-in geofence when the address register cannot (a venue name, or the register is not answering)", "Not confirmed", "The address or venue name you type. No personal names, e-mail addresses or CVR numbers"],
               ["Companies House", "Business registration lookup for UK companies (when used)", "United Kingdom", "The company name or number you search (public data)"],
               ["Mindee", "Reading receipts and invoices (when enabled)", "Not confirmed", "Photos of receipts and invoices you upload"],
               ["Cloudflare", "Network security and routing in front of our servers", "Global", "IP address and request data, in transit only"],
@@ -279,6 +280,20 @@ function PrivacyEn() {
               ["Sentry", "Error reports from our servers (when enabled)", "Not confirmed", "Technical error details, sent without IP addresses or cookies"],
               ["Slack", "Alerting us to urgent support requests", "Not confirmed", "The request's subject and your account email"],
               ["Simply.com", "Our e-mail inbox for contact@bonbox.dk", "Not confirmed", "The e-mails you send us"],
+            ]}
+          />
+          {/* Klimadatastyrelsen is not our data processor: the agency runs the
+              register under its own public mandate (DPA drafts, bilag IV.3:
+              "Ikke underdatabehandlere"). Its own heading, not under
+              "Service providers (data processors)" (review P11, 12 Nov 2026). */}
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2" data-testid="privacy-public-registers">Public registers we look up</h3>
+          <p className="text-sm">
+            We look your business address up in this public register. The agency runs the register under its own public mandate; it is not our data processor.
+          </p>
+          <Table
+            headers={["Register", "Purpose", "Location", "Data sent"]}
+            rows={[
+              ["Klimadatastyrelsen (Adressevælger / Adressevask)", "Checking your business address against Danmarks Adresseregister, and finding your venue's location for the clock-in geofence. A lookup in a public register that the Danish agency runs under its own public mandate", "Not confirmed", "The business address you type or pick (street, number, postcode, town). No personal names, e-mail addresses or CVR numbers"],
             ]}
           />
           <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-location-note">
@@ -551,6 +566,7 @@ function PrivacyDa() {
               ["OCR.space", "Aflæsning af tekst fra kvitteringsbilleder (når funktionen er slået til)", "Ikke bekræftet", "Billeder af kvitteringer, du uploader"],
               ["Stripe", "Betaling af abonnementer", "Ikke bekræftet", "E-mail og virksomhedsnavn til fakturering, dit BonBox-konto-id, plan, virksomhedstype og den version af Handelsbetingelserne, du har accepteret, abonnementsstatus; kortoplysninger går direkte til Stripe og når aldrig vores servere. Når du sletter din konto: Er der ingen fakturaer til dig hos Stripe, sletter vi også dine kundeoplysninger hos Stripe; er der fakturaer, beholder vi kundeoplysningerne hos Stripe i 5 år fra udgangen af regnskabsåret, fordi vi skal opbevare vores egne regnskabsbilag, og sletter derefter kundeoplysningerne. De udstedte fakturaer bliver hos Stripe, som ikke tillader, at en udstedt faktura slettes"],
               ["cvrapi.dk", "Opslag i virksomhedsregistret", "Ikke bekræftet", "CVR-numre (offentlige data)"],
+              ["OpenStreetMap Foundation (Nominatim)", "Opslag af stedets placering til stemplingens geofence, når adresseregistret ikke kan finde det (et navn på stedet, eller registret svarer ikke)", "Ikke bekræftet", "Den adresse eller det stednavn, du skriver. Ingen personnavne, e-mailadresser eller CVR-numre"],
               ["Companies House", "Opslag af britiske virksomheder (når det bruges)", "Storbritannien", "Det virksomhedsnavn eller -nummer, du søger på (offentlige data)"],
               ["Mindee", "Aflæsning af kvitteringer og fakturaer (når slået til)", "Ikke bekræftet", "Billeder af kvitteringer og fakturaer, du uploader"],
               ["Cloudflare", "Netværkssikkerhed og routing foran vores servere", "Globalt", "IP-adresse og forespørgselsdata, kun under overførsel"],
@@ -563,6 +579,17 @@ function PrivacyDa() {
               ["Sentry", "Fejlrapporter fra vores servere (når slået til)", "Ikke bekræftet", "Tekniske fejldetaljer, sendt uden IP-adresser og cookies"],
               ["Slack", "Besked til os om hastende supporthenvendelser", "Ikke bekræftet", "Henvendelsens emne og din kontos e-mail"],
               ["Simply.com", "Vores e-mailindbakke for contact@bonbox.dk", "Ikke bekræftet", "De e-mails, du sender os"],
+            ]}
+          />
+          {/* Se den engelske version: Klimadatastyrelsen er ikke vores databehandler. */}
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2" data-testid="privacy-public-registers">Offentlige registre, vi slår op i</h3>
+          <p className="text-sm">
+            Vi slår din virksomhedsadresse op i dette offentlige register. Styrelsen driver registret under sin egen offentlige opgave; den er ikke vores databehandler.
+          </p>
+          <Table
+            headers={["Register", "Formål", "Placering", "Data, der sendes"]}
+            rows={[
+              ["Klimadatastyrelsen (Adressevælger / Adressevask)", "Tjek af din virksomhedsadresse mod Danmarks Adresseregister og opslag af stedets placering til stemplingens geofence. Et opslag i et offentligt register, som styrelsen driver under sin egen offentlige opgave", "Ikke bekræftet", "Den virksomhedsadresse, du skriver eller vælger (vej, nummer, postnummer, by). Ingen personnavne, e-mailadresser eller CVR-numre"],
             ]}
           />
           <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-location-note">

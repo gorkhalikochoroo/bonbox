@@ -3505,7 +3505,7 @@ def portal_offer_giveaway(
     """Staffer puts their own shift up for grabs ("Sæt vagt til salg").
     staff_id is bound by the magic-link token, never the body."""
     import uuid as _uuid
-    from app.services.shift_swap_service import offer_giveaway, ShiftSwapError
+    from app.services.shift_swap_service import offer_giveaway, ShiftSwapError, ShiftSwapStarted
 
     _link, member = _get_staff_from_token(token, db)
     try:
@@ -3517,6 +3517,8 @@ def portal_offer_giveaway(
             db, owner_id=member.user_id, from_staff_id=member.id,
             from_shift_id=shift_id, reason=body.reason,
         )
+    except ShiftSwapStarted as e:
+        raise HTTPException(status_code=422, detail=_shift_started_detail(e))
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _hydrate_swap(swap, db, viewer_staff_id=member.id)
@@ -3552,7 +3554,7 @@ def portal_claim_giveaway(
     reassigns), per the auto-execute-on-mutual-handshake swap doctrine.
     Owner is notified, not gated."""
     import uuid as _uuid
-    from app.services.shift_swap_service import claim_giveaway, ShiftSwapError
+    from app.services.shift_swap_service import claim_giveaway, ShiftSwapError, ShiftSwapStarted
 
     _link, member = _get_staff_from_token(token, db)
     try:
@@ -3564,6 +3566,8 @@ def portal_claim_giveaway(
             db, owner_id=member.user_id, swap_id=ga_uuid,
             claimer_staff_id=member.id,
         )
+    except ShiftSwapStarted as e:
+        raise HTTPException(status_code=422, detail=_shift_started_detail(e))
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -3600,6 +3604,14 @@ def portal_claim_giveaway(
     return _hydrate_swap(swap, db, viewer_staff_id=member.id)
 
 
+def _shift_started_detail(e) -> dict:
+    """422 body for a shift that has already started (or the staffer is
+    clocked in on it). `code` lets the portal say it in the staffer's
+    language; `message` is the English fallback an older bundle shows
+    through errText. Status 422, as every swap refusal before it."""
+    return {"code": "shift_started", "message": str(e)}
+
+
 def _swap_overlap_detail(e) -> dict:
     """409 body for a trade that would double-book someone. `code` + `who`
     let the portal say it in the staffer's language; `message` is the English
@@ -3619,7 +3631,9 @@ def portal_propose_swap(
     """Staff proposes a swap. The body never carries the staff_id —
     it's bound by the magic-link token."""
     import uuid as _uuid
-    from app.services.shift_swap_service import propose_swap, ShiftSwapError, ShiftSwapOverlap
+    from app.services.shift_swap_service import (
+        propose_swap, ShiftSwapError, ShiftSwapOverlap, ShiftSwapStarted,
+    )
 
     _link, member = _get_staff_from_token(token, db)
     try:
@@ -3641,6 +3655,8 @@ def portal_propose_swap(
         )
     except ShiftSwapOverlap as e:
         raise HTTPException(status_code=409, detail=_swap_overlap_detail(e))
+    except ShiftSwapStarted as e:
+        raise HTTPException(status_code=422, detail=_shift_started_detail(e))
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -3683,7 +3699,7 @@ def portal_respond_to_swap(
     no enumeration)."""
     import uuid as _uuid
     from app.services.shift_swap_service import (
-        respond_to_swap, ShiftSwapError, ShiftSwapOverlap, ShiftSwapStale,
+        respond_to_swap, ShiftSwapError, ShiftSwapOverlap, ShiftSwapStale, ShiftSwapStarted,
     )
 
     _link, member = _get_staff_from_token(token, db)
@@ -3702,6 +3718,9 @@ def portal_respond_to_swap(
         # lets the portal say so in Danish; `message` is the English fallback
         # an older bundle shows through errText.
         raise HTTPException(status_code=422, detail={"code": "swap_stale", "message": str(e)})
+    except ShiftSwapStarted as e:
+        # A shift in the trade has started: the request ended as "expired".
+        raise HTTPException(status_code=422, detail=_shift_started_detail(e))
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

@@ -435,7 +435,20 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // Home v3 review (Nov 2026): the live strip's "på pause siden …" chip
     // (+1 testid, 2 t() keys schedOnBreak/schedOnBreakSince). Nothing removed.
     // Was { testid: 15, tKeys: 460 }.
-    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 50, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 16, Button: 20, button: 66, disabled: 30, to: 5, tKeys: 462 },
+    // DAWA replacement (12 Nov 2026) ADDED, nothing removed: the geofence
+    // Find's two data-credit lines (+2 testid: geo-register-credit,
+    // geo-osm-credit) and 5 t() keys (schedGeoLookupDown, schedGeoStreetOnly,
+    // schedGeoNeedPostcode, addrRegisterCredit, schedGeoOsmCredit). Was
+    // { testid: 13, tKeys: 457 }.
+    // Address-register follow-ups (12 Nov 2026) ADDED, nothing removed: 3 t()
+    // keys for advice that fits what was typed (schedGeoAddrNotFound,
+    // schedGeoPostcodeMismatch, schedGeoOsmAddrCaveat). Every older geofence
+    // key is still called, now from the GEO_MSG table (translated at render).
+    // Was { tKeys: 462 }.
+    // Release merge (12 Nov 2026): home v3 + the address batch above, both
+    // ADDED, nothing removed. Was { testid: 16, tKeys: 462 } (home v3) and
+    // { testid: 15, tKeys: 465 } (address batch) from a common { testid: 13, tKeys: 457 }.
+    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 50, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 18, Button: 20, button: 66, disabled: 30, to: 5, tKeys: 470 },
     "components/ScheduleConfirmationCard.jsx": { role: 1, tKeys: 3 },
     // Home v3 review (Nov 2026): the hours row shows the recorded live pauses
     // — measured / suggested / below the suggestion, and the pause list (+4
