@@ -415,3 +415,27 @@ def test_close_badge_respects_dismissal_and_a_closed_day(client, db):
     db.commit()
     badges = client.get("/api/today", params={"part": "badges"}).json()["badges"]
     assert badges["daily_close"] == 0
+
+
+def test_a_failing_block_rolls_back_so_later_blocks_still_run():
+    """On Postgres a failed statement aborts the transaction; without a rollback
+    every later /today block would come back null (a badge would read 0)."""
+    from app.routers.today import _safe
+
+    class FakeDb:
+        def __init__(self):
+            self.rollbacks = 0
+
+        def rollback(self):
+            self.rollbacks += 1
+
+    db = FakeDb()
+
+    def boom():
+        raise RuntimeError("statement failed")
+
+    assert _safe("x", boom, db=db) is None
+    assert db.rollbacks == 1
+    assert _safe("y", lambda: 42, db=db) == 42
+    assert db.rollbacks == 1          # a good block never rolls back
+    assert _safe("z", boom) is None   # old call shape still works

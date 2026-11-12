@@ -212,11 +212,20 @@ def _local_hhmm(user, dt: Optional[datetime]) -> Optional[str]:
         return None
 
 
-def _safe(block_name: str, fn):
+def _safe(block_name: str, fn, db: Session | None = None):
     try:
         return fn()
     except Exception:  # noqa: BLE001 — one failing block must not blank the page
         log.exception("today: block %s failed", block_name)
+        # On Postgres a failed statement aborts the whole transaction, so every
+        # later block in this request would fail too and come back null. This
+        # endpoint only reads, so rolling back loses nothing and lets the next
+        # block run on a clean transaction.
+        if db is not None:
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                log.exception("today: rollback after block %s failed", block_name)
         return None
 
 
@@ -574,13 +583,13 @@ def _badges(db: Session, user: User, day: date, profile=None, skip=frozenset()) 
 
     now = utc_now()
     out = {"reservations": 0, "schedule": 0, "daily_close": 0}
-    f = _safe("badge_rsvp", lambda: _detect_unconfirmed_reservations(db, user, now))
+    f = _safe("badge_rsvp", lambda: _detect_unconfirmed_reservations(db, user, now), db=db)
     if f:
         out["reservations"] = int((f.get("meta") or {}).get("count") or 0)
-    sch = _safe("badge_schedule", lambda: _schedule_block(db, user, day))
+    sch = _safe("badge_schedule", lambda: _schedule_block(db, user, day), db=db)
     if sch:
         out["schedule"] = int(sch.get("drafts") or 0)
-    cm = _safe("badge_close", lambda: _detect_close_missing(db, user, now, skip))
+    cm = _safe("badge_close", lambda: _detect_close_missing(db, user, now, skip), db=db)
     if cm and not _venue_closed_on(profile, day - timedelta(days=1)):
         out["daily_close"] = 1
     return out
@@ -623,9 +632,9 @@ def get_today(
     hours = _hours_for(profile, day)
     cutoff = _user_cutoff_hour(user)
 
-    sales = _safe("sales", lambda: _sales_block(db, user, day))
+    sales = _safe("sales", lambda: _sales_block(db, user, day), db=db)
     has_activity = bool(sales and (sales["today"] > 0 or sales["today_sale_count"] > 0 or sales["today_closed"]))
-    close = _safe("close", lambda: _close_block(db, user, day, profile))
+    close = _safe("close", lambda: _close_block(db, user, day, profile), db=db)
     if close and close["today"]["status"] != "none":
         has_activity = True
 
@@ -638,11 +647,11 @@ def get_today(
         "hours": hours,
         "day_state": day_state_for(hours, now_min, cutoff, has_activity),
         "sales": sales,
-        "reservations": _safe("reservations", lambda: _reservations_block(db, user, day, hours)),
-        "staff": _safe("staff", lambda: _staff_block(db, user, day)),
+        "reservations": _safe("reservations", lambda: _reservations_block(db, user, day, hours), db=db),
+        "staff": _safe("staff", lambda: _staff_block(db, user, day), db=db),
         "close": close,
-        "schedule": _safe("schedule", lambda: _schedule_block(db, user, day)),
-        "labor": _safe("labor", lambda: _labor_block(db, user, day)),
+        "schedule": _safe("schedule", lambda: _schedule_block(db, user, day), db=db),
+        "labor": _safe("labor", lambda: _labor_block(db, user, day), db=db),
         "revisor": {
             "has_accountant_email": bool(profile is not None and (profile.accountant_email or "").strip()),
             "schedule": getattr(profile, "revisor_package_schedule", None) if profile is not None else None,
