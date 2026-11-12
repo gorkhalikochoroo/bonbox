@@ -186,8 +186,9 @@
    (installed by the page) puts on the touched control: a stand-alone card
    and a grouped row only 70 ms in, so a scroll that starts on them never
    flashes. Mouse and keyboard keep :active. Buttons .97, small icon buttons
-   .94, cards .98; a grouped row (one among others in one card) tints and
-   never shrinks. */
+   .94, stand-alone cards (.vp-row, the hero's tiles) .985; a grouped row
+   (.vp-tint: one among others in one card) tints and never shrinks — the
+   plain-control rules below skip it, as Vagtplan's do. */
 .td-page :is(.td-btn, .td-link, .td-tile, .td-x, .td-seg button) {
   transition:
     scale var(--td-dur-spring) var(--td-spring),
@@ -209,7 +210,7 @@
    and :active also fires as a scroll starts: on this page a finger presses
    only from data-pressed. :where() keeps these two below the rules after. */
 html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"])):active { scale: none; }
-html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"]))[data-pressed]:not(:disabled) { scale: .97; }
+html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"]):not(.vp-tint))[data-pressed]:not(:disabled) { scale: .97; }
 html:not([data-modality="touch"]) .td-page :is(.td-btn, .td-link, .td-seg button):active:not(:disabled),
 html[data-modality="touch"] .td-page :is(.td-btn, .td-link, .td-seg button)[data-pressed]:not(:disabled) {
   scale: .97;
@@ -224,7 +225,7 @@ html[data-modality="touch"] .td-page .td-x[data-pressed]:not(:disabled) {
 }
 html:not([data-modality="touch"]) .td-page .td-tile:active,
 html[data-modality="touch"] .td-page .td-tile[data-pressed] {
-  scale: .98;
+  scale: .985;
   transition-duration: var(--td-dur-press);
   transition-timing-function: var(--td-ease-out);
 }
@@ -285,12 +286,14 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 
 /* ── the visit's one intro (todayMotion.jsx puts td-intro on the page) ─── */
 /* Only while .td-intro is on — the first view of the business day in this
-   session, for 1.6 s — does anything enter: the cards rise, the chart's bars
+   session, for 1.6 s (longer only while a card that arrived late finishes
+   its entrance) — does anything enter. The beat: the hero stands still and
+   its figures rise into place. Around it the cards settle, the chart's bars
    rise left to right and the now-line fades in after them, the week's hour
-   columns grow one by one, the MOMS meter fills, the live dot fades in once.
-   Without the class (a poll, a return, reduced motion) every element simply
-   is where it ends. Transform + opacity only; every one of them ends at the
-   element's own resting state, so the class can go at any moment. */
+   columns grow one by one, the MOMS meter fills. Without the class (a poll,
+   a return, reduced motion) every element simply is where it ends.
+   Transform + opacity only; every one of them ends at the element's own
+   resting state. */
 .td-intro .td-rise { animation: tdRise .5s var(--td-ease-out) backwards; }
 .td-intro .td-bar { animation: tdBarIn var(--td-dur-slow) var(--td-ease-out) backwards; }
 .td-intro .td-shift { animation: tdGrowX var(--td-dur-slow) var(--td-ease-out) backwards; }
@@ -298,7 +301,6 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 .td-intro .td-now-l,
 .td-intro .td-closeline,
 .td-intro .td-closeline-l { animation: tdFade var(--td-dur-base) var(--td-ease-out) 760ms backwards; }
-.td-intro .td-pill-dot { animation: tdFade var(--td-dur-base) var(--td-ease-out) 200ms backwards; }
 .td-intro .td-pending { animation: tdFade var(--td-dur-fast) var(--td-ease-out) backwards; }
 .td-intro .td-week-plan {
   transform-origin: 50% 100%;
@@ -306,26 +308,18 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
   animation-delay: calc(500ms + var(--td-i, 0) * 35ms);
 }
 .td-intro .td-meter > span { animation: tdGrowX 700ms var(--td-ease-out) 460ms backwards; }
+/* The figures: each rises .6em into place once, as ONE piece, on the soft
+   spring — the clock-in figure's entrance (CLOCK-MOTION-SPEC 2.2, vagtplan.css
+   vp-roll-in-up, the same values). Its own final text from the first frame:
+   never a 0, a digit in between or a lone separator. The hero's at 80 ms; a
+   card's once that card has landed (an inline animation-delay). Each one is
+   a block (a flex item or a div), so the transform applies. */
+.td-intro .td-fig { animation: tdRollInUp 460ms var(--td-spring-soft) 80ms backwards; }
 @keyframes tdRise { from { opacity: .35; transform: translateY(8px); } }
 @keyframes tdBarIn { from { transform: scaleY(0); } }
 @keyframes tdGrowX { from { transform: scaleX(0); } }
 @keyframes tdFade { from { opacity: 0; } }
-
-/* The figures' one roll: Vagtplan's RollingDigits (components/staff), drawn
-   here with the same values as its own stylesheet — the changed digit rises
-   .6em on the soft spring, 80 ms behind the old one leaving. */
-.td-page .vp-roll-live { white-space: nowrap; }
-.td-page .vp-roll-cell { position: relative; display: inline-block; }
-.td-page .vp-roll-in { display: inline-block; }
-.td-page .vp-roll-out { position: absolute; left: 0; top: 0; }
-.td-page .vp-roll-up > .vp-roll-out { animation: tdRollOutUp 300ms var(--td-ease-in) forwards; }
-.td-page .vp-roll-up > .vp-roll-in { animation: tdRollInUp 460ms var(--td-spring-soft) 80ms backwards; }
-.td-page .vp-roll-down > .vp-roll-out { animation: tdRollOutDown 300ms var(--td-ease-in) forwards; }
-.td-page .vp-roll-down > .vp-roll-in { animation: tdRollInDown 460ms var(--td-spring-soft) 80ms backwards; }
-@keyframes tdRollOutUp { to { opacity: 0; transform: translateY(-.6em); } }
 @keyframes tdRollInUp { from { opacity: 0; transform: translateY(.6em); } }
-@keyframes tdRollOutDown { to { opacity: 0; transform: translateY(.6em); } }
-@keyframes tdRollInDown { from { opacity: 0; transform: translateY(-.6em); } }
 
 /* ── main grid ──────────────────────────────────────────────────────────── */
 .td-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -436,7 +430,10 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 /* ── the phone tab bar's items (MobileBottomNav) ────────────────────────── */
 /* The dock press (PREMIUM-FEEL-SPEC 1.3, the Orvexlo dock): down to .96 in
    0.11 s, back on the spring. One scale: it replaces index.css's touch
-   press (.97, 60 ms, snap back) instead of stacking on it. */
+   press (.97, 60 ms, snap back) instead of stacking on it. The pressed rule
+   names its own properties: index.css's touch `a:active { transition: scale
+   60ms }` outranks .td-tab and would cut the list to `scale` alone, which
+   then took the first duration here (.18 s) instead of .11 s. */
 .td-tab {
   transition: color var(--td-dur-fast) var(--td-ease-out), scale var(--td-dur-spring) var(--td-spring);
   touch-action: manipulation;
@@ -444,22 +441,22 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 }
 .td-tab:active {
   scale: .96;
+  transition-property: color, scale;
   transition-duration: var(--td-dur-fast), var(--td-dur-press);
   transition-timing-function: var(--td-ease-out), var(--td-ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .td-page *, .td-page *::before, .td-page *::after { animation: none !important; transition: none !important; }
-  /* A press under reduce: no scale, a dim while held (an effect, not motion). */
-  html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"]))[data-pressed]:not(:disabled),
+  /* A press under reduce: no scale, a dim while held (an effect, not motion).
+     A grouped row (.vp-tint) only tints, as with motion (PREMIUM-FEEL-SPEC E). */
+  html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"]):not(.vp-tint))[data-pressed]:not(:disabled),
   html:not([data-modality="touch"]) .td-page :is(.td-btn, .td-link, .td-seg button):active:not(:disabled),
   html[data-modality="touch"] .td-page :is(.td-btn, .td-link, .td-seg button)[data-pressed]:not(:disabled),
   html:not([data-modality="touch"]) .td-page .td-x:active:not(:disabled),
   html[data-modality="touch"] .td-page .td-x[data-pressed]:not(:disabled),
   html:not([data-modality="touch"]) .td-page .td-tile:active,
   html[data-modality="touch"] .td-page .td-tile[data-pressed] { scale: none; opacity: .72; }
-  /* RollIn never rolls here; if a roll were ever drawn, only the new digit shows. */
-  .td-page .vp-roll-out { display: none; }
   .td-tab { transition: none; }
   .td-tab:active { scale: none; opacity: .72; }
 }

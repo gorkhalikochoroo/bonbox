@@ -15,10 +15,12 @@
  * the owner can act on, and every button goes somewhere real.
  *
  * Motion (Vagtplan's feel, todayMotion.jsx + today.css): one intro per visit
- * and business day — cards rise, figures roll up from 0 once, bars grow, the
- * meter fills, the now-line fades in — then nothing moves on a poll. Presses
- * come from pressFeel (a finger never flashes a press while scrolling);
- * primary actions give one light haptic in the iOS app (feel.soft).
+ * and business day — the hero stands still while its figures rise into place
+ * (the beat), the cards settle, bars grow, the meter fills, the now-line
+ * fades in — then nothing moves on a poll. Presses come from pressFeel (a
+ * finger never flashes a press while scrolling). Haptics only on an outcome
+ * (PREMIUM-FEEL-SPEC A.5, 1.4): Skjul (feel.soft) and a real Frokost/Aften
+ * change (feel.tick); navigation is silent.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -38,7 +40,7 @@ import {
   buildNeeds, chartWindow, closeSteps, defaultService, greetingKey, heatCells, hhmm,
   laborLine, minutesOf, plural, relMinutes, salesTile, shiftState, splitService, staffSummary, tonightCovers,
 } from "./todayModel";
-import { RollIn, introStamp, useTodayIntro } from "./todayMotion";
+import { introStamp, useTodayIntro } from "./todayMotion";
 import { feel } from "../staff/feel";
 import { installPressFeel } from "../staff/pressFeel";
 
@@ -74,10 +76,11 @@ function weekdayName(iso) {
     return "";
   }
 }
-// A primary action (start a booking, a walk-in, the close, a Kræver dig
-// answer, Skjul): one light tap in the iOS app; Android and the web stay
-// silent (feel.soft, premium-feel call E), throttled with every other outcome.
-const tapFeel = () => feel.soft();
+// A figure in a card rises once its card has landed (the cards' rise is
+// today.css's tdRise, 0.5 s after the card's own delay), never inside a card
+// that is still fading up.
+const CARD_RISE_MS = 500;
+const figAfterCard = (cardDelayMs) => ({ animationDelay: `${cardDelayMs + CARD_RISE_MS}ms` });
 
 export default function TodayDashboard({ initial = null, initialAt = null, onFresh = null }) {
   const { t } = useLanguage();
@@ -179,9 +182,11 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
     if (data && onFresh) onFresh(data);
   }, [data, onFresh]);
 
-  // The visit's one intro (todayMotion.jsx): on for INTRO_MS the first time
-  // this account sees this business day in this session, never on a poll.
-  const intro = useTodayIntro(data ? introStamp(user?.id, data.business_day) : null);
+  // The visit's one intro (todayMotion.jsx): td-intro on the page element the
+  // first time this account sees this business day in this session, never on
+  // a poll. The DOM's class, not state: its end re-renders nothing.
+  const pageRef = useRef(null);
+  useTodayIntro(data ? introStamp(user?.id, data.business_day) : null, pageRef);
   // Vagtplan's press controller while the page is up: a finger presses from
   // data-pressed (never :active), so starting a scroll on a card never flashes.
   useEffect(() => installPressFeel(), []);
@@ -210,7 +215,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   const summary = headerSummary({ t, before, dayState, rsv: showRsv ? rsv : null, isFood, cutoff });
 
   return (
-    <div className={`td-page${intro ? " td-intro" : ""}`}>
+    <div ref={pageRef} className="td-page">
       <div className="td-wrap">
         <header className="td-head td-rise">
           <div style={{ minWidth: 0 }}>
@@ -228,19 +233,19 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
           <div className="td-head-actions">
             <Link to="/home" className="td-link">{t("tdFullOverview")}</Link>
             {showRsv && (
-              <Link to={newBookingTo} className="td-btn" onClick={tapFeel}><CalendarPlus size={18} aria-hidden="true" />{t("tdNewBooking")}</Link>
+              <Link to={newBookingTo} className="td-btn"><CalendarPlus size={18} aria-hidden="true" />{t("tdNewBooking")}</Link>
             )}
-            <Link to={closeTo} className="td-btn td-btn-brass" onClick={tapFeel}><Moon size={18} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
+            <Link to={closeTo} className="td-btn td-btn-brass"><Moon size={18} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
           </div>
         </header>
 
         <Hero t={t} data={data} money={money} before={before} nowMin={nowMin} cutoff={cutoff}
-          rsv={showRsv ? rsv : null} shifts={shifts} sum={sum} staffOn={staffOn} isAppointments={isAppointments} intro={intro} />
+          rsv={showRsv ? rsv : null} shifts={shifts} sum={sum} staffOn={staffOn} isAppointments={isAppointments} />
 
         <div className="td-quick" role="group" aria-label={t("tdQuickActions")}>
-          {showRsv && <Link to={newBookingTo} className="td-btn" onClick={tapFeel}><CalendarPlus size={16} aria-hidden="true" />{t("tdNewBooking")}</Link>}
-          {canWalkIn && <Link to={walkInTo} className="td-btn" onClick={tapFeel}><UserPlus size={16} aria-hidden="true" />{t("tdWalkIn")}</Link>}
-          <Link to={closeTo} className="td-btn td-btn-brass" onClick={tapFeel}><Moon size={16} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
+          {showRsv && <Link to={newBookingTo} className="td-btn"><CalendarPlus size={16} aria-hidden="true" />{t("tdNewBooking")}</Link>}
+          {canWalkIn && <Link to={walkInTo} className="td-btn"><UserPlus size={16} aria-hidden="true" />{t("tdWalkIn")}</Link>}
+          <Link to={closeTo} className="td-btn td-btn-brass"><Moon size={16} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
         </div>
 
         {/* DOM order is the phone's (canvas: Kræver dig before the book); on a
@@ -259,9 +264,9 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
         <div className="td-bottom">
           <CloseCard t={t} close={data.close} day={data.business_day} money={money} before={before} closeTo={closeTo} />
           <div className="td-minis">
-            {foresight?.available && <MomsCard t={t} fs={foresight} money={money} intro={intro} />}
+            {foresight?.available && <MomsCard t={t} fs={foresight} money={money} />}
             {staffOn && data.labor && (data.labor.planned_total > 0 || data.labor.logged_total > 0) && (
-              <HoursCard t={t} labor={data.labor} day={data.business_day} intro={intro} />
+              <HoursCard t={t} labor={data.labor} day={data.business_day} />
             )}
           </div>
         </div>
@@ -293,7 +298,7 @@ function headerSummary({ t, before, dayState, rsv, isFood, cutoff }) {
 
 /* ── the dark hero ─────────────────────────────────────────────────────── */
 
-function Hero({ t, data, money, before, nowMin, cutoff, rsv, shifts, sum, staffOn, isAppointments, intro }) {
+function Hero({ t, data, money, before, nowMin, cutoff, rsv, shifts, sum, staffOn, isAppointments }) {
   const hours = data.hours;
   const pill = hours && !hours.closed
     ? (before ? t("tdOpensAt", { time: hours.open }) : (data.day_state === "after_close" ? t("tdClosedNow") : t("tdOpenNow")))
@@ -305,8 +310,7 @@ function Hero({ t, data, money, before, nowMin, cutoff, rsv, shifts, sum, staffO
   const st = salesTile(data.sales, data.day_state);
   if (st) {
     const wd = weekdayName(data.business_day);
-    // `from`: the same figure at 0, in the same format — what a roll starts from.
-    let value; let from = null; let sub = null; let word = false; let brass = false;
+    let value; let sub = null; let word = false; let brass = false;
     if (st.mode === "before") {
       value = t("tdNotOpenYet"); word = true;
       if (st.yesterday != null) sub = t("tdYesterdayAmount", { amount: money(st.yesterday) });
@@ -315,13 +319,13 @@ function Hero({ t, data, money, before, nowMin, cutoff, rsv, shifts, sum, staffO
       if (st.lastWeek != null) sub = t("tdLastWeekdayAmount", { weekday: wd, amount: money(st.lastWeek) });
       else if (st.yesterday != null) sub = t("tdYesterdayAmount", { amount: money(st.yesterday) });
     } else {
-      value = money(st.amount); from = money(0);
+      value = money(st.amount);
       if (st.trend) { sub = t(st.trend, { weekday: wd }); brass = true; }
       else if (st.mode === "sofar" && st.lastWeek != null) sub = t("tdLastWeekdayAmount", { weekday: wd, amount: money(st.lastWeek) });
       else if (st.mode === "sofar") sub = t("tdSoFar");
       else if (st.mode === "none") sub = t("tdNoSalesYet");
     }
-    tiles.push({ key: "sales", label: t("tdSalesToday"), value, from, sub, word, brass, to: "/sales" });
+    tiles.push({ key: "sales", label: t("tdSalesToday"), value, sub, word, brass, to: "/sales" });
   }
   // Gæster i aften / Tidsbestillinger i dag
   if (rsv) {
@@ -339,7 +343,6 @@ function Hero({ t, data, money, before, nowMin, cutoff, rsv, shifts, sum, staffO
       key: "guests",
       label: isAppointments ? t("tdApptsToday") : (tc.when === "tonight" ? t("tdGuestsTonight") : t("tdGuestsToday")),
       value: isAppointments ? String(rsv.count) : String(tc.covers),
-      from: "0",
       sub, to: "/reservations",
     });
   }
@@ -350,15 +353,13 @@ function Hero({ t, data, money, before, nowMin, cutoff, rsv, shifts, sum, staffO
     } else {
       const measured = data.staff?.uses_clock && typeof data.staff?.clocked_in_now === "number";
       const value = t("tdXofY", { x: measured ? data.staff.clocked_in_now : sum.onNow, y: sum.total });
-      // Only the count rolls; the plan ("af 5") stands still.
-      const from = t("tdXofY", { x: 0, y: sum.total });
       let sub;
       if (measured) sub = t("tdClockedInOfPlan", { planned: sum.onNow });
       else if (sum.nextStart != null) sub = before && sum.onNow === 0
         ? t("tdFirstInAt", { time: hhmm(sum.nextStart) })
         : t("tdMoreAt", { count: sum.nextCount, time: hhmm(sum.nextStart) });
       else sub = t("tdPerSchedule");
-      tiles.push({ key: "staff", label: t("tdOnShiftNow"), value, from, sub, to: "/staff/schedule" });
+      tiles.push({ key: "staff", label: t("tdOnShiftNow"), value, sub, to: "/staff/schedule" });
     }
   }
   // Kasserapport
@@ -382,7 +383,8 @@ function Hero({ t, data, money, before, nowMin, cutoff, rsv, shifts, sum, staffO
   }
 
   return (
-    <section aria-labelledby="td-hero-h" className="td-hero td-rise" style={{ animationDelay: "70ms" }}>
+    // The hero stands still in the intro: its figures rising is the beat.
+    <section aria-labelledby="td-hero-h" className="td-hero">
       <div className="td-hero-stats">
         <div className="td-hero-top">
           <h2 id="td-hero-h" className="td-hero-h td-h">{t("tdTodayTitle")}</h2>
@@ -399,9 +401,8 @@ function Hero({ t, data, money, before, nowMin, cutoff, rsv, shifts, sum, staffO
             // scroll that starts on it never shows a press.
             <Link key={x.key} to={x.to} className="td-tile vp-row">
               <span className="td-tile-l">{x.label}</span>
-              <span className={`td-tile-v td-num${x.word ? " is-word" : ""}`}>
-                {x.word ? x.value : <RollIn value={x.value} from={x.from} play={intro} />}
-              </span>
+              {/* td-fig: rises into place once, as one piece, in the intro. */}
+              <span className={`td-tile-v td-num td-fig${x.word ? " is-word" : ""}`}>{x.value}</span>
               {x.sub ? <span className={`td-tile-s${x.brass ? " is-brass" : ""}`}>{x.sub}</span> : <span className="td-tile-s" aria-hidden="true">&nbsp;</span>}
             </Link>
           ))}
@@ -567,7 +568,7 @@ function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalk
       {shown.length === 0 ? (
         <div className="td-empty">
           <span>{isAppointments ? t("tdNoApptsYet") : t("tdNoBookingsTonight")}</span>
-          <Link to={newBookingTo} className="td-btn td-btn-sm" onClick={tapFeel}><CalendarPlus size={16} aria-hidden="true" />{t("tdNewBooking")}</Link>
+          <Link to={newBookingTo} className="td-btn td-btn-sm"><CalendarPlus size={16} aria-hidden="true" />{t("tdNewBooking")}</Link>
         </div>
       ) : (
         <div role="table" aria-label={title}>
@@ -609,7 +610,7 @@ function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalk
             {list.length > MAX && rsv.waitlist > 0 ? " · " : ""}
             {rsv.waitlist > 0 ? t("tdOnWaitlist", { count: rsv.waitlist }) : ""}
           </span>
-          {canWalkIn && <Link to={walkInTo} className="td-btn td-btn-sm" onClick={tapFeel}><UserPlus size={16} aria-hidden="true" />{t("tdSeatWalkIn")}</Link>}
+          {canWalkIn && <Link to={walkInTo} className="td-btn td-btn-sm"><UserPlus size={16} aria-hidden="true" />{t("tdSeatWalkIn")}</Link>}
         </div>
       )}
     </section>
@@ -692,13 +693,14 @@ function Needs({ t, needs, known, failed, navigate, onDismiss, isAppointments })
               <span className="td-li-t">{w.title}</span>
               {w.sub && <span className="td-li-s">{w.sub}</span>}
             </span>
-            <button type="button" className="td-btn td-btn-sm td-btn-soft" onClick={() => { tapFeel(); navigate(item.to); }}>
+            <button type="button" className="td-btn td-btn-sm td-btn-soft" onClick={() => navigate(item.to)}>
               {w.action}
             </button>
             {/* The same "Skjul" the old Home's queue has, on the server's
                 findings only (the week and the revisor go away by doing). */}
             {item.kind === "finding" && (
-              <button type="button" className="td-x" onClick={() => { tapFeel(); onDismiss(item); }} aria-label={t("nyqDismiss")} title={t("nyqDismiss")}>
+              // Skjul hides it here and now: an outcome, one light tap (iOS app).
+              <button type="button" className="td-x" onClick={() => { feel.soft(); onDismiss(item); }} aria-label={t("nyqDismiss")} title={t("nyqDismiss")}>
                 <X size={16} aria-hidden="true" />
               </button>
             )}
@@ -828,7 +830,7 @@ function CloseCard({ t, close, day, money, before, closeTo }) {
       </div>
       <div className="td-k-foot">
         <span className="td-sub">{cs.status === "confirmed" ? t("tdCloseDoneFoot") : t("tdCloseFoot")}</span>
-        <Link to={closeTo} className="td-btn td-btn-sm td-btn-brass" onClick={tapFeel}>
+        <Link to={closeTo} className="td-btn td-btn-sm td-btn-brass">
           <Moon size={16} aria-hidden="true" />
           {cs.status === "confirmed" ? t("tdOpenClose") : cs.status === "draft" ? t("tdContinueClose") : t("tdCloseTheDay")}
         </Link>
@@ -839,7 +841,9 @@ function CloseCard({ t, close, day, money, before, closeTo }) {
 
 /* ── Moms ──────────────────────────────────────────────────────────────── */
 
-function MomsCard({ t, fs, money, intro }) {
+const MOMS_DELAY_MS = 340;
+
+function MomsCard({ t, fs, money }) {
   const rate = fs.action && !fs.action.already_covered ? fs.action.weekly_rate : null;
   const realized = fs.moms?.realized;
   const expected = fs.moms?.expected;
@@ -853,7 +857,7 @@ function MomsCard({ t, fs, money, intro }) {
     } catch { dlText = dl.date; }
   }
   return (
-    <section aria-labelledby="td-moms-h" className="td-card td-rise" style={{ animationDelay: "340ms" }}>
+    <section aria-labelledby="td-moms-h" className="td-card td-rise" style={{ animationDelay: `${MOMS_DELAY_MS}ms` }}>
       <div className="td-k-h">
         <div className="td-k-title">
           <span className="td-k-ic"><Receipt size={16} aria-hidden="true" /></span>
@@ -865,7 +869,7 @@ function MomsCard({ t, fs, money, intro }) {
         {rate != null ? (
           <div>
             <span className="td-li-s">{t("tdSetAsideWeekly")}</span>
-            <div className="td-big td-num">~<RollIn value={money(rate)} from={money(0)} play={intro} /></div>
+            <div className="td-big td-num td-fig" style={figAfterCard(MOMS_DELAY_MS)}>~{money(rate)}</div>
           </div>
         ) : fs.action?.already_covered ? (
           <div>
@@ -875,7 +879,7 @@ function MomsCard({ t, fs, money, intro }) {
         ) : (
           <div>
             <span className="td-li-s">{t("tdMomsExpected")}</span>
-            <div className="td-big td-num">~<RollIn value={money(expected)} from={money(0)} play={intro} /></div>
+            <div className="td-big td-num td-fig" style={figAfterCard(MOMS_DELAY_MS)}>~{money(expected)}</div>
           </div>
         )}
         {pct != null && (
@@ -903,7 +907,9 @@ function MomsCard({ t, fs, money, intro }) {
 
 /* ── Timer ─────────────────────────────────────────────────────────────── */
 
-function HoursCard({ t, labor, day, intro }) {
+const HOURS_DELAY_MS = 380;
+
+function HoursCard({ t, labor, day }) {
   const ll = laborLine(labor);
   const planned = labor.planned_by_day || [];
   const done = labor.logged_by_day || [];
@@ -913,7 +919,7 @@ function HoursCard({ t, labor, day, intro }) {
   })();
   const fmtH = (h) => String(Math.round((h || 0) * 10) / 10).replace(".", ",");
   return (
-    <section aria-labelledby="td-hours-h" className="td-card td-rise" style={{ animationDelay: "380ms" }}>
+    <section aria-labelledby="td-hours-h" className="td-card td-rise" style={{ animationDelay: `${HOURS_DELAY_MS}ms` }}>
       <div className="td-k-h">
         <div className="td-k-title">
           <span className="td-k-ic"><Timer size={16} aria-hidden="true" /></span>
@@ -924,8 +930,7 @@ function HoursCard({ t, labor, day, intro }) {
       <div className="td-k-b">
         <div>
           <span className="td-li-s">{t("tdLoggedSoFar")}</span>
-          {/* The registered hours roll; the plan beside them stands still. */}
-          <div className="td-big td-num"><RollIn value={fmtH(labor.logged_total)} from="0" play={intro} /> <small>{t("tdOfPlannedHours", { hours: fmtH(labor.planned_total) })}</small></div>
+          <div className="td-big td-num td-fig" style={figAfterCard(HOURS_DELAY_MS)}>{fmtH(labor.logged_total)} <small>{t("tdOfPlannedHours", { hours: fmtH(labor.planned_total) })}</small></div>
         </div>
         <div className="td-week" role="img" aria-label={t("tdHoursAria", { logged: fmtH(labor.logged_total), planned: fmtH(labor.planned_total) })}>
           {planned.map((p, i) => {
@@ -949,7 +954,7 @@ function HoursCard({ t, labor, day, intro }) {
         <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
           {ll?.pct != null ? (
             <>
-              <span style={{ fontWeight: 600 }}><RollIn value={t("tdLaborPct", { pct: ll.pct })} from={t("tdLaborPct", { pct: 0 })} play={intro} /></span>
+              <span className="td-fig" style={{ fontWeight: 600, ...figAfterCard(HOURS_DELAY_MS) }}>{t("tdLaborPct", { pct: ll.pct })}</span>
               <span className="td-li-s">{t("tdLaborPctSub", { count: ll.days, word: plural(t, ll.days, "tdWDay", "tdWDays") })}</span>
             </>
           ) : ll?.reason === "missingWage" ? (

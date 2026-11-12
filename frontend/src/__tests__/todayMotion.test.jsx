@@ -3,30 +3,32 @@
  * feel on the owner's today page, held to the house rules.
  *
  *   • Reduced motion (or a browser that cannot say): every figure is its
- *     final value from the first paint, nothing carries td-intro, no roll.
- *   • Screen readers get the final value only — never a "0", never a lone
- *     digit — while the figures roll; the drawn roll is aria-hidden.
+ *     final value from the first paint, nothing carries td-intro.
+ *   • The figures rise into place as ONE piece each (the clock-in figure's
+ *     entrance, CLOCK-MOTION-SPEC 2.2): the exact final text from the first
+ *     DOM the page ever has — never a 0, a digit in between or a lone
+ *     separator — and a screen reader hears that same text (nothing
+ *     aria-hidden, no second copy).
+ *   • One beat: the hero stands still while its figures rise; a card's
+ *     figures rise only once that card has landed.
  *   • Once per visit: the intro plays the first time this account sees this
  *     business day in this session (sessionStorage), never on a poll, a
  *     refresh on the freshness bus or a return to the page; a new business
  *     day plays it once.
- *   • The roll starts from 0 (the only digit ever shown besides the final
- *     ones), keeps the Danish format at every frame, and ENDS on exactly the
- *     model's formatted value, as plain text.
- *   • The 0 is never committed at rest: the swap to the real value happens in
- *     the same synchronous commit (so before any paint).
- *   • Press: Vagtplan's controller is installed while the page is up; one
- *     light haptic (feel.soft) on a primary action, a tick on a real segment
- *     change, nothing on navigation rows.
+ *   • The end re-renders nothing (the class is the DOM's), and it waits for a
+ *     card whose data came late to finish its entrance (never past the cap).
+ *   • Press: Vagtplan's controller is installed while the page is up. Haptics
+ *     only on an outcome — Skjul (feel.soft) and a real segment change
+ *     (feel.tick); navigation is silent (PREMIUM-FEEL-SPEC A.5, 1.4).
  *   • today.css: transform/opacity only, no loop, every entrance gated by
- *     .td-intro, the reduce block undoes the press scale.
+ *     .td-intro, Vagtplan's press scales, grouped rows only tint (also under
+ *     reduce), the tab press names its own transition properties.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Profiler } from "react";
 import { act, fireEvent, render } from "@testing-library/react";
-import { createRoot } from "react-dom/client";
-import { flushSync } from "react-dom";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -45,8 +47,7 @@ const feelSpy = vi.hoisted(() => ({ soft: vi.fn(), tick: vi.fn(), warm: vi.fn(),
 vi.mock("../components/staff/feel", () => ({ feel: feelSpy, resetFeelForTests: () => {} }));
 
 import TodayDashboard from "../components/today/TodayDashboard";
-import { INTRO_KEY, INTRO_MS, RollIn, introStamp } from "../components/today/todayMotion";
-import { ROLL_MS } from "../components/staff/RollingDigits";
+import { INTRO_CAP_MS, INTRO_KEY, INTRO_MS, introStamp } from "../components/today/todayMotion";
 import { formatOwnerMoney } from "../utils/currency";
 import { laborLine, salesTile, staffSummary, tonightCovers } from "../components/today/todayModel";
 
@@ -105,11 +106,12 @@ function serve() {
     return Promise.resolve({ data: null });
   });
 }
-function mount(data = today) {
+function mount(data = today, { onCommit = null } = {}) {
+  const page = <TodayDashboard initial={data} initialAt={null} />;
   return render(
     <MemoryRouter initialEntries={["/dashboard"]}>
       <Routes>
-        <Route path="*" element={<TodayDashboard initial={data} initialAt={null} />} />
+        <Route path="*" element={onCommit ? <Profiler id="today" onRender={onCommit}>{page}</Profiler> : page} />
       </Routes>
     </MemoryRouter>,
   );
@@ -134,19 +136,13 @@ const momsBig = () => document.querySelector('section[aria-labelledby="td-moms-h
 const hoursBig = () => document.querySelector('section[aria-labelledby="td-hours-h"] .td-big');
 const laborLineEl = () => document.querySelector('section[aria-labelledby="td-hours-h"] .td-k-foot span > span');
 const page = () => document.querySelector(".td-page");
+const intro = () => page().classList.contains("td-intro");
 // What a screen reader gets: every text node outside an aria-hidden subtree.
 const spoken = (node) => {
   if (node.nodeType === Node.TEXT_NODE) return node.nodeValue;
   if (node.nodeType !== Node.ELEMENT_NODE || node.getAttribute("aria-hidden") === "true") return "";
   return [...node.childNodes].map(spoken).join("");
 };
-// What the eye gets: the drawn roll without the outgoing digits.
-const seen = (fig) => {
-  const live = fig.querySelector(".vp-roll").cloneNode(true);
-  live.querySelectorAll(".sr-only, .vp-roll-out").forEach((n) => n.remove());
-  return live.textContent;
-};
-const outgoing = (fig) => [...fig.querySelectorAll(".vp-roll-out")].map((n) => n.textContent);
 
 // The model's own answers, formatted the way the page formats them.
 function expected(data = today) {
@@ -163,12 +159,17 @@ function expected(data = today) {
     labor: t("tdLaborPct", { pct: laborLine(data.labor).pct }),
   };
 }
+const figures = () => ({
+  sales: tileV("/sales"), covers: tileV("/reservations"), staff: tileV("/staff/schedule"),
+  moms: momsBig(), labor: laborLineEl(),
+});
 
 beforeEach(() => {
   vi.useFakeTimers();
   get.mockReset();
   today = payload();
   serve();
+  sessionStorage.clear();
   Object.values(feelSpy).forEach((f) => f.mockReset());
 });
 afterEach(() => {
@@ -177,12 +178,11 @@ afterEach(() => {
 });
 
 describe("reduced motion: the final values at once", () => {
-  it("prefers-reduced-motion → no intro, no roll, every figure final from the first paint", async () => {
+  it("prefers-reduced-motion → no intro, every figure final (one plain text) from the first paint", async () => {
     motionPref({ reduce: true });
     mount();
     // Before any read has answered: already the exact values.
-    expect(page().classList.contains("td-intro")).toBe(false);
-    expect(document.querySelector(".vp-roll-cell, .vp-roll")).toBeNull();
+    expect(intro()).toBe(false);
     expect(tileV("/sales").textContent).toBe(expected().sales);
     expect(tileV("/reservations").textContent).toBe(expected().covers);
     expect(tileV("/staff/schedule").textContent).toBe(expected().staff);
@@ -190,75 +190,138 @@ describe("reduced motion: the final values at once", () => {
     expect(momsBig().textContent).toBe(expected().moms);
     expect(hoursBig().childNodes[0].nodeValue).toBe(expected().hours);
     expect(laborLineEl().textContent).toBe(expected().labor);
-    expect(document.querySelector(".vp-roll-cell, .vp-roll")).toBeNull();
-    // Nothing is remembered as "played" that never played … but nothing plays later either.
-    await flush(INTRO_MS + ROLL_MS);
-    expect(page().classList.contains("td-intro")).toBe(false);
+    for (const [k, fig] of Object.entries(figures())) expect(fig.childElementCount, k).toBe(0);
+    await flush(INTRO_MS + 100);
+    expect(intro()).toBe(false);
   });
 
   it("a browser that cannot say (no matchMedia) is treated as reduced", () => {
     mount();
-    expect(page().classList.contains("td-intro")).toBe(false);
+    expect(intro()).toBe(false);
     expect(tileV("/sales").textContent).toBe(expected().sales);
-    expect(document.querySelector(".vp-roll")).toBeNull();
   });
 });
 
-describe("the intro: figures roll up from 0 once; aria hears the final value", () => {
-  it("rolls every figure from 0, keeps the format at every frame, and a screen reader only ever gets the final text", async () => {
+describe("the intro: the figures rise into place, each the exact value from its first frame", () => {
+  it("a figure never shows anything but its final text: no 0, no digit in between, no lone separator — and aria hears the same", async () => {
     motionPref({ reduce: false });
-    mount();
-    await flush(1);
-    expect(page().classList.contains("td-intro")).toBe(true);
-    const want = expected();
-    const figs = {
-      sales: tileV("/sales"), covers: tileV("/reservations"), staff: tileV("/staff/schedule"),
-      moms: momsBig(), labor: laborLineEl(),
-    };
-    for (const [k, fig] of Object.entries(figs)) {
-      // A roll is drawn …
-      expect(fig.querySelector(".vp-roll-cell"), k).not.toBeNull();
-      // … aria-hidden, with ONE visually hidden copy that is the final text.
-      expect(fig.querySelector(".vp-roll").getAttribute("aria-hidden"), k).toBe("true");
-      expect(spoken(fig), k).toBe(want[k]);
-      // The eye: the final string's own separators and units, at every frame.
-      expect(k === "moms" ? `~${seen(fig)}` : seen(fig), k).toBe(want[k]);
-      // From 0 only: no digit in between is ever drawn.
-      expect(outgoing(fig).every((d) => d === "0" || /\D/.test(d)), k).toBe(true);
+    // Every text any figure ever has, from the very first DOM on (a
+    // MutationObserver sees each commit before the browser could paint it).
+    const seen = new Set();
+    const look = () => document.querySelectorAll(".td-fig").forEach((n) => seen.add(n.textContent));
+    const mo = new MutationObserver(look);
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    try {
+      mount();
+      look();
+      expect(intro()).toBe(true);
+      await flush(1);
+      await flush(INTRO_MS + 100);
+      look();
+    } finally {
+      mo.disconnect();
     }
-    // The hours figure: "84,5" rolls; the plan beside it stands still.
-    const hours = hoursBig();
-    expect(spoken(hours).startsWith(`${want.hours} `)).toBe(true);
-    expect(hours.querySelector("small").textContent).toBe("tdOfPlannedHours(hours=243)");
-    // Only the count rolls in "1 af 2": the plan (2) is no cell.
-    const staffIn = [...figs.staff.querySelectorAll(".vp-roll-in")].map((n) => n.textContent);
-    expect(staffIn).toEqual(["1"]);
-    // Sales "9.840 kr." from "0 kr.": the units column already reads 0 and
-    // stays; 9, 8 and 4 rise into place around the standing "." and " kr.".
-    expect(outgoing(figs.sales)).toEqual([]);
-    expect([...figs.sales.querySelectorAll(".vp-roll-in")].map((n) => n.textContent).join("")).toBe("984");
-  });
-
-  it("ends on exactly the model's formatted value, as plain text, and the page is still", async () => {
-    motionPref({ reduce: false });
-    mount();
-    await flush(1);
-    await flush(INTRO_MS + ROLL_MS);
     const want = expected();
-    expect(page().classList.contains("td-intro")).toBe(false);
-    expect(document.querySelector(".vp-roll, .vp-roll-cell, .sr-only.vp-roll")).toBeNull();
-    for (const [k, fig] of Object.entries({ sales: tileV("/sales"), covers: tileV("/reservations"), staff: tileV("/staff/schedule") })) {
+    const finals = new Set([...document.querySelectorAll(".td-fig")].map((n) => n.textContent));
+    expect([...seen].filter((s) => !finals.has(s))).toEqual([]);
+    for (const [k, fig] of Object.entries(figures())) {
+      expect(fig.classList.contains("td-fig"), k).toBe(true);
       expect(fig.textContent, k).toBe(want[k]);
-      expect(fig.childElementCount, k).toBe(0);       // one plain text node
+      expect(spoken(fig), k).toBe(want[k]);
+      expect(fig.querySelector("[aria-hidden], .sr-only"), k).toBeNull();
     }
-    expect(momsBig().textContent).toBe(want.moms);
-    expect(momsBig().childElementCount).toBe(0);
     expect(hoursBig().childNodes[0].nodeValue).toBe(want.hours);
-    expect(laborLineEl().textContent).toBe(want.labor);
-    expect(laborLineEl().childElementCount).toBe(0);
+    expect(hoursBig().querySelector("small").textContent).toBe("tdOfPlannedHours(hours=243)");
     // Danish format, unmistakably: the dot thousands separator and " kr.".
     expect(want.sales).toBe("9.840 kr.");
     expect(want.moms).toBe("~230.063 kr.");
+    expect(document.querySelector(".vp-roll, .vp-roll-cell")).toBeNull();
+  });
+
+  it("one beat: the hero stands still (no rise of its own); a card's figures rise once their card has landed", async () => {
+    motionPref({ reduce: false });
+    mount();
+    await flush(1);
+    const hero = document.querySelector("section.td-hero");
+    expect(hero.classList.contains("td-rise")).toBe(false);
+    expect(hero.style.animationDelay).toBe("");
+    // The hero's figures carry no delay of their own: today.css's 80 ms.
+    for (const href of ["/sales", "/reservations", "/staff/schedule"]) expect(tileV(href).style.animationDelay).toBe("");
+    // A card's figure starts when its card's tdRise (0.5 s) has ended.
+    const riseS = Number(BARE.match(/\.td-intro \.td-rise \{ animation: tdRise ([\d.]+)s /)[1]);
+    const landed = (sec) => `${parseInt(sec.style.animationDelay, 10) + riseS * 1000}ms`;
+    const moms = document.querySelector('section[aria-labelledby="td-moms-h"]');
+    const hours = document.querySelector('section[aria-labelledby="td-hours-h"]');
+    expect(momsBig().style.animationDelay).toBe(landed(moms));
+    expect(hoursBig().style.animationDelay).toBe(landed(hours));
+    expect(laborLineEl().style.animationDelay).toBe(landed(hours));
+    expect(landed(moms)).toBe("840ms");
+    // …and that is inside the intro: the card's figure has landed by its end.
+    expect(840 + 460).toBeLessThan(INTRO_MS);
+  });
+});
+
+describe("the end of the intro", () => {
+  it("comes at INTRO_MS by itself and re-renders nothing (the class is the DOM's)", async () => {
+    motionPref({ reduce: false });
+    let commits = 0;
+    mount(today, { onCommit: () => { commits += 1; } });
+    await flush(1);
+    expect(intro()).toBe(true);
+    const fig = tileV("/sales");
+    const before = commits;
+    await flush(INTRO_MS - 10);
+    expect(intro()).toBe(true);
+    await flush(20);
+    expect(intro()).toBe(false);
+    expect(commits).toBe(before);
+    // The very same node, the very same text.
+    expect(tileV("/sales")).toBe(fig);
+    expect(fig.textContent).toBe(expected().sales);
+  });
+
+  it("waits for a card that is still entering (its data came late), then goes; never past the cap", async () => {
+    motionPref({ reduce: false });
+    mount();
+    await flush(1);
+    let finish;
+    const late = {
+      animationName: "tdGrowX", playState: "running",
+      effect: { getTiming: () => ({ iterations: 1 }) },
+      finished: new Promise((res) => { finish = res; }),
+    };
+    // A loader's loop and a press transition never hold it.
+    const spin = { animationName: "spin", playState: "running", effect: { getTiming: () => ({ iterations: Infinity }) }, finished: new Promise(() => {}) };
+    const press = { transitionProperty: "scale", playState: "running", effect: { getTiming: () => ({ iterations: 1 }) }, finished: new Promise(() => {}) };
+    let running = [late, spin, press];
+    page().getAnimations = () => running;
+    await flush(INTRO_MS + 10);
+    expect(intro()).toBe(true);           // the MOMS meter is still filling
+    late.playState = "finished";
+    running = [spin, press];
+    await act(async () => { finish(); });
+    await flush(1);
+    expect(intro()).toBe(false);
+  });
+
+  it("an entrance that never ends is cut at the cap, and only there", async () => {
+    motionPref({ reduce: false });
+    mount();
+    await flush(1);
+    page().getAnimations = () => [{ animationName: "tdRise", playState: "running", effect: { getTiming: () => ({ iterations: 1 }) }, finished: new Promise(() => {}) }];
+    await flush(INTRO_CAP_MS - 20);
+    expect(intro()).toBe(true);
+    await flush(30);
+    expect(intro()).toBe(false);
+  });
+
+  it("only the page's own entrances count: nothing running but a loader → it goes at INTRO_MS", async () => {
+    motionPref({ reduce: false });
+    mount();
+    await flush(1);
+    page().getAnimations = () => [{ animationName: "spin", playState: "running", effect: { getTiming: () => ({ iterations: Infinity }) }, finished: new Promise(() => {}) }];
+    await flush(INTRO_MS + 10);
+    expect(intro()).toBe(false);
   });
 });
 
@@ -266,25 +329,36 @@ describe("once per visit", () => {
   it("is remembered for the account + business day at the start, and a poll or the freshness bus never replays it", async () => {
     motionPref({ reduce: false });
     mount();
-    await flush(1);
-    expect(page().classList.contains("td-intro")).toBe(true);
+    expect(intro()).toBe(true);
     expect(sessionStorage.getItem(INTRO_KEY)).toBe(introStamp("u1", "2026-11-12"));
-    await flush(INTRO_MS + ROLL_MS);
-    expect(page().classList.contains("td-intro")).toBe(false);
+    await flush(1);
+    await flush(INTRO_MS + 100);
+    expect(intro()).toBe(false);
 
     // A refresh with a new figure: it simply IS the new figure.
     today = payload({ sales: { ...payload().sales, today: 10500 } });
     await act(async () => { window.dispatchEvent(new Event("bonbox-data-changed")); });
     await flush(1);
     expect(tileV("/sales").textContent).toBe(formatOwnerMoney(10500, "DKK"));
-    expect(document.querySelector(".vp-roll-cell")).toBeNull();
-    expect(page().classList.contains("td-intro")).toBe(false);
+    expect(intro()).toBe(false);
 
     // The five-minute poll: same.
     today = payload({ sales: { ...payload().sales, today: 11200 } });
     await flush(5 * 60 * 1000);
     expect(tileV("/sales").textContent).toBe(formatOwnerMoney(11200, "DKK"));
-    expect(document.querySelector(".vp-roll-cell")).toBeNull();
+    expect(intro()).toBe(false);
+  });
+
+  it("a day that rolls over under a poll on the same mount never plays; it is only remembered", async () => {
+    motionPref({ reduce: false });
+    mount();
+    await flush(1);
+    await flush(INTRO_MS + 100);
+    today = payload({ business_day: "2026-11-13" });
+    await act(async () => { window.dispatchEvent(new Event("bonbox-data-changed")); });
+    await flush(1);
+    expect(intro()).toBe(false);
+    expect(sessionStorage.getItem(INTRO_KEY)).toBe(introStamp("u1", "2026-11-13"));
   });
 
   it("back on the page (a new mount) the same day: no intro, final values at once", async () => {
@@ -293,8 +367,7 @@ describe("once per visit", () => {
     await flush(200);                       // leaves mid-intro
     first.unmount();
     mount();
-    expect(page().classList.contains("td-intro")).toBe(false);
-    expect(document.querySelector(".vp-roll")).toBeNull();
+    expect(intro()).toBe(false);
     expect(tileV("/sales").textContent).toBe(expected().sales);
   });
 
@@ -305,95 +378,21 @@ describe("once per visit", () => {
     first.unmount();
     today = payload({ business_day: "2026-11-13" });
     mount(today);
-    expect(page().classList.contains("td-intro")).toBe(true);
+    expect(intro()).toBe(true);
     expect(sessionStorage.getItem(INTRO_KEY)).toBe(introStamp("u1", "2026-11-13"));
   });
 
   it("sessionStorage that throws never breaks the page (it just plays, and shows the truth)", async () => {
     motionPref({ reduce: false });
-    const spy = vi.spyOn(window.sessionStorage, "getItem").mockImplementation(() => { throw new Error("blocked"); });
-    const spy2 = vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => { throw new Error("blocked"); });
-    mount();
-    expect(spoken(tileV("/sales"))).toBe(expected().sales);
-    spy.mockRestore(); spy2.mockRestore();
-  });
-});
-
-describe("RollIn", () => {
-  const seenOf = (host) => {
-    const live = host.querySelector(".vp-roll").cloneNode(true);
-    live.querySelectorAll(".sr-only, .vp-roll-out").forEach((n) => n.remove());
-    return live.textContent;
-  };
-
-  it("never commits the 0 at rest: the swap lands in the same synchronous commit (before any paint)", () => {
-    motionPref({ reduce: false });
-    const was = globalThis.IS_REACT_ACT_ENVIRONMENT;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = false;
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
+    const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    const spy2 = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
     try {
-      flushSync(() => root.render(<RollIn value="12.345 kr." from="0 kr." play />));
-      // Synchronously after the first commit: already rolling TO the value.
-      expect(host.querySelector(".vp-roll-cell")).not.toBeNull();
-      expect(seenOf(host)).toBe("12.345 kr.");
-      expect(host.querySelector(".vp-roll").getAttribute("data-value")).toBe("12.345 kr.");
-      expect(spoken(host)).toBe("12.345 kr.");
+      mount();
+      expect(intro()).toBe(true);
+      expect(spoken(tileV("/sales"))).toBe(expected().sales);
     } finally {
-      flushSync(() => root.unmount());
-      host.remove();
-      globalThis.IS_REACT_ACT_ENVIRONMENT = was;
+      spy.mockRestore(); spy2.mockRestore();
     }
-  });
-
-  it("…and in a normal (non-sync) render too: the first look at the DOM after that task is already the roll", async () => {
-    // A MutationObserver callback is a microtask: it runs right after the
-    // task that committed, before the next task — and a browser never paints
-    // in the middle of a task. Had the swap waited for a later task (a
-    // passive effect, a rAF), this first look would find "0 kr." at rest.
-    vi.useRealTimers();
-    motionPref({ reduce: false });
-    const was = globalThis.IS_REACT_ACT_ENVIRONMENT;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = false;
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    try {
-      const firstLook = new Promise((done) => {
-        const mo = new MutationObserver(() => {
-          mo.disconnect();
-          done({ rolling: !!host.querySelector(".vp-roll-cell"), seen: host.querySelector(".vp-roll") && seenOf(host), spoken: spoken(host) });
-        });
-        mo.observe(host, { childList: true, subtree: true, characterData: true });
-      });
-      root.render(<RollIn value="230.063 kr." from="0 kr." play />);
-      const look = await firstLook;
-      expect(look).toEqual({ rolling: true, seen: "230.063 kr.", spoken: "230.063 kr." });
-    } finally {
-      root.unmount();
-      host.remove();
-      globalThis.IS_REACT_ACT_ENVIRONMENT = was;
-    }
-  });
-
-  it("play off: the plain text; a figure with no digit or equal to its 0 never rolls", () => {
-    const { container, rerender } = render(<p><RollIn value="9.840 kr." from="0 kr." play={false} /></p>);
-    expect(container.firstChild.innerHTML).toBe("9.840 kr.");
-    rerender(<p><RollIn key="b" value="0 kr." from="0 kr." play /></p>);
-    expect(container.querySelector(".vp-roll-cell")).toBeNull();
-    expect(spoken(container.firstChild)).toBe("0 kr.");
-  });
-
-  it("a value that changes during the intro rolls from the previous REAL value, never from 0 again", () => {
-    motionPref({ reduce: false });
-    const { container, rerender } = render(<p><RollIn value="9.840 kr." from="0 kr." play /></p>);
-    act(() => { vi.advanceTimersByTime(ROLL_MS + 10); });
-    rerender(<p><RollIn value="9.850 kr." from="0 kr." play /></p>);
-    expect([...container.querySelectorAll(".vp-roll-out")].map((n) => n.textContent)).toEqual(["4"]);
-    expect(spoken(container.firstChild)).toBe("9.850 kr.");
-    rerender(<p><RollIn value="9.850 kr." from="0 kr." play={false} /></p>);
-    expect(container.firstChild.innerHTML).toBe("9.850 kr.");
   });
 });
 
@@ -425,17 +424,28 @@ describe("press + haptics", () => {
     expect(document.documentElement.dataset.modality).toBeUndefined();
   });
 
-  it("one light haptic on a primary action; none on a navigation row; a tick only on a real segment change", async () => {
+  it("navigation is silent: no haptic on any link or on Kræver dig's answer (it only opens a page)", async () => {
     mount();
     await flush(1);
-    fireEvent.click(document.querySelector(".td-head-actions .td-btn-brass"));
+    const navs = [
+      ...document.querySelectorAll(".td-head-actions a, .td-quick a, a.td-brow, a.td-tile, a.td-step, .td-k-foot a.td-btn"),
+      ...document.querySelectorAll("#td-needs .td-btn"),
+    ];
+    expect(navs.length).toBeGreaterThan(8);
+    for (const el of navs) fireEvent.click(el);
+    expect(feelSpy.soft).not.toHaveBeenCalled();
+    expect(feelSpy.tick).not.toHaveBeenCalled();
+    // The source keeps it that way: feel.soft appears once, on Skjul.
+    const src = fs.readFileSync(path.join(SRC, "components/today/TodayDashboard.jsx"), "utf8");
+    expect(src.match(/feel\.soft\(\)/g)).toHaveLength(1);
+    expect(src).toMatch(/className="td-x" onClick=\{\(\) => \{ feel\.soft\(\); onDismiss\(item\); \}\}/);
+  });
+
+  it("Skjul (an outcome, here and now) gives one light tap; a tick only on a real segment change", async () => {
+    mount();
+    await flush(1);
+    fireEvent.click(document.querySelector("#td-needs .td-x"));
     expect(feelSpy.soft).toHaveBeenCalledTimes(1);
-    fireEvent.click(document.querySelector("a.td-brow"));
-    fireEvent.click(document.querySelector("a.td-tile"));
-    expect(feelSpy.soft).toHaveBeenCalledTimes(1);
-    // Kræver dig's answer button
-    fireEvent.click(document.querySelector("#td-needs .td-btn"));
-    expect(feelSpy.soft).toHaveBeenCalledTimes(2);
     // Lunch (12:00) + dinner (18:00): the segment shows; tapping the chosen one is no change.
     const seg = document.querySelector(".td-seg");
     const [lunch, dinner] = seg.querySelectorAll("button");
@@ -445,6 +455,7 @@ describe("press + haptics", () => {
     expect(feelSpy.tick).not.toHaveBeenCalled();
     fireEvent.click(other);
     expect(feelSpy.tick).toHaveBeenCalledTimes(1);
+    expect(feelSpy.soft).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -452,7 +463,7 @@ describe("today.css: calm by construction", () => {
   const keyframes = [...CSS.matchAll(/@keyframes\s+([\w-]+)\s*\{([\s\S]*?\})\s*\}/g)];
 
   it("every keyframe moves transform and opacity only, and nothing loops", () => {
-    expect(keyframes.length).toBeGreaterThan(5);
+    expect(keyframes.length).toBeGreaterThanOrEqual(5);
     for (const [, name, body] of keyframes) {
       const props = [...body.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
       for (const p of props) expect(["transform", "opacity"], `${name}: ${p}`).toContain(p);
@@ -461,23 +472,42 @@ describe("today.css: calm by construction", () => {
     expect(CSS).not.toMatch(/animation[^;]*\b(pulse|breathe|ping|glow)/i);
   });
 
-  it("every entrance plays only under .td-intro; the roll runs on Vagtplan's values", () => {
-    const animated = [...BARE.matchAll(/^([^@{}\n][^{}]*)\{[^}]*\banimation:\s*td(Rise|BarIn|GrowX|Fade)\b/gm)].map((m) => m[1].trim());
-    expect(animated.length).toBeGreaterThanOrEqual(6);
+  it("every entrance plays only under .td-intro; the figure's rise is Vagtplan's vp-roll-in-up, as one piece", () => {
+    const animated = [...BARE.matchAll(/^([^@{}\n][^{}]*)\{[^}]*\banimation:\s*td\w+/gm)].map((m) => m[1].trim());
+    expect(animated.length).toBeGreaterThanOrEqual(7);
     for (const sel of animated) for (const part of sel.split(",")) expect(part.trim()).toMatch(/^\.td-intro /);
-    expect(CSS).toMatch(/\.td-page \.vp-roll-up > \.vp-roll-in \{ animation: tdRollInUp 460ms var\(--td-spring-soft\) 80ms backwards; \}/);
+    expect(BARE).toMatch(/\.td-intro \.td-fig \{ animation: tdRollInUp 460ms var\(--td-spring-soft\) 80ms backwards; \}/);
+    expect(BARE).toMatch(/@keyframes tdRollInUp \{ from \{ opacity: 0; transform: translateY\(\.6em\); \} \}/);
+    // The digit-by-digit roll (and its lone separators) is gone; the hero has no entrance of its own.
+    expect(BARE).not.toMatch(/vp-roll/);
+    expect(BARE).not.toMatch(/\.td-pill-dot \{[^}]*animation/);
     expect(CSS).toMatch(/--td-dur-press: 0\.11s;/);
     expect(CSS).toMatch(/--td-spring: cubic-bezier\(\.34, 1\.4, \.64, 1\);/);
   });
 
-  it("the press: .97 buttons, .94 the small ✕, .98 cards, a tint for grouped rows; reduce dims instead of scaling", () => {
+  it("the press: .97 buttons, .94 the small ✕, .985 stand-alone cards, a tint for grouped rows; reduce dims instead of scaling", () => {
     expect(CSS).toMatch(/\.td-page :is\(\.td-btn, \.td-link, \.td-seg button\)\[data-pressed\]:not\(:disabled\) \{\s*scale: \.97;/);
     expect(CSS).toMatch(/\.td-page \.td-x\[data-pressed\]:not\(:disabled\) \{\s*scale: \.94;/);
-    expect(CSS).toMatch(/\.td-page \.td-tile\[data-pressed\] \{\s*scale: \.98;/);
+    expect(CSS).toMatch(/\.td-page \.td-tile\[data-pressed\] \{\s*scale: \.985;/);
     expect(CSS).toMatch(/\.td-row\.vp-tint\[data-pressed\] \{\s*scale: none;\s*background-color: var\(--td-press-tint\);/);
     const reduce = CSS.slice(CSS.indexOf("@media (prefers-reduced-motion: reduce)"));
     expect(CSS.match(/@media \(prefers-reduced-motion: reduce\)/g)).toHaveLength(1);
     expect(reduce).toMatch(/html\[data-modality="touch"\] \.td-page \.td-tile\[data-pressed\] \{ scale: none; opacity: \.72; \}/);
     expect(reduce).toMatch(/\.td-tab:active \{ scale: none; opacity: \.72; \}/);
+  });
+
+  it("a grouped row only tints, with motion and under reduce: the plain-control press (and its dim) skips .vp-tint", () => {
+    const plain = 'html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"]):not(.vp-tint))[data-pressed]:not(:disabled)';
+    const at = CSS.indexOf("@media (prefers-reduced-motion: reduce)");
+    expect(CSS.slice(0, at)).toContain(`${plain} { scale: .97; }`);
+    expect(CSS.slice(at)).toContain(plain);           // the mirror, with the same selector text
+    expect(BARE).not.toMatch(/:where\(\.td-page :is\(button, a, \[role="button"\]\)\)\[data-pressed\]/);
+  });
+
+  it("the tab press names its own properties, so index.css's touch `a:active { transition: scale 60ms }` cannot cut the list", () => {
+    const rule = BARE.match(/\.td-tab:active \{([^}]*)\}/)[1];
+    expect(rule).toMatch(/scale: \.96;/);
+    expect(rule).toMatch(/transition-property: color, scale;/);
+    expect(rule).toMatch(/transition-duration: var\(--td-dur-fast\), var\(--td-dur-press\);/);
   });
 });
