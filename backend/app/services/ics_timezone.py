@@ -152,6 +152,12 @@ _COUNTRY_ZONES = {
 _DK_COUNTRIES = frozenset({"", "DK", "DNK"})
 
 
+def is_dkk_owner(currency: str | None) -> bool:
+    """A DKK (or unset-currency) owner: Copenhagen, whatever the country.
+    tz_utils asks this first so a Danish owner never costs a country lookup."""
+    return (currency or "DKK").strip().upper() == "DKK"
+
+
 def feed_zone(country: str | None, currency: str | None,
               stored_tz: str | None) -> str | None:
     """The zone a venue's staff calendar is written in. None = the
@@ -167,9 +173,9 @@ def feed_zone(country: str | None, currency: str | None,
         Madeira, Azores), otherwise Europe/Lisbon;
       - any other country -> the stored zone (venue_vtimezone still falls
         back to Copenhagen if it can't be written safely).
+    The business day (tz_utils.venue_tz_name) uses this same rule.
     """
-    cur = (currency or "DKK").strip().upper()
-    if cur == "DKK":
+    if is_dkk_owner(currency):
         return None
     code = (country or "").strip().upper()
     if code in _DK_COUNTRIES:

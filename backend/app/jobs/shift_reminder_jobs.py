@@ -46,12 +46,13 @@ WINDOW_MINUTES = 20
 
 
 def _local_now(user: User) -> datetime:
-    """Now, in the owner's business timezone, naive for comparison."""
+    """Now, in the VENUE's timezone (not the owner's browser zone), naive for
+    comparison with Schedule.date + start_time."""
+    from zoneinfo import ZoneInfo
     try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo(user.timezone or "Europe/Copenhagen")
-    except Exception:  # noqa: BLE001 — a bad tz string must not kill the sweep
-        from zoneinfo import ZoneInfo
+        from app.services.tz_utils import venue_zone
+        tz = venue_zone(user)
+    except Exception:  # noqa: BLE001 — a bad zone must not kill the sweep
         tz = ZoneInfo("Europe/Copenhagen")
     return datetime.now(tz).replace(tzinfo=None)
 

@@ -151,7 +151,7 @@ _MAX_EARLY_CLOCK_IN_MIN = 240
 
 
 def _venue_now(db: Session, owner_id: uuid.UUID) -> datetime:
-    """Now in the venue's timezone (the owner's User.timezone), naive — the
+    """Now in the venue's timezone (tz_utils.venue_zone), naive — the
     same wall clock Schedule.date + start_time are written in. `fold` is kept
     (1 on the second pass of the hour the clocks go back)."""
     from app.models.user import User

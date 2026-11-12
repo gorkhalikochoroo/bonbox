@@ -114,22 +114,29 @@ FEED_SALE_PREFIXES = ("bank_", "mobilepay_", "pay_")
 
 
 def _tz_user(db: Session, user_or_id) -> SimpleNamespace:
-    """A light user-like object carrying timezone + the owner's day cutoff
-    (BusinessProfile.day_cutoff_hour, default 06:00) for tz_utils."""
+    """A light user-like object carrying what tz_utils needs for the VENUE's
+    business day: the owner's stored zone + currency, the business country
+    (so a Danish venue is Copenhagen whatever the owner's browser said) and
+    the day cutoff (BusinessProfile.day_cutoff_hour, default 06:00)."""
     user = user_or_id
     if not isinstance(user_or_id, User):
         user = db.query(User).filter(User.id == user_or_id).first()
     tz = getattr(user, "timezone", None) if user is not None else None
+    currency = getattr(user, "currency", None) if user is not None else None
     cutoff = getattr(user, "day_cutoff_hour", None) if user is not None else None
-    if cutoff is None and user is not None:
+    country = ""
+    if user is not None:
         prof = (
-            db.query(BusinessProfile.day_cutoff_hour)
+            db.query(BusinessProfile.day_cutoff_hour, BusinessProfile.country)
             .filter(BusinessProfile.user_id == user.id)
             .first()
         )
         if prof is not None:
-            cutoff = prof[0]
-    return SimpleNamespace(timezone=tz, day_cutoff_hour=cutoff)
+            if cutoff is None:
+                cutoff = prof[0]
+            country = prof[1] or ""
+    return SimpleNamespace(timezone=tz, currency=currency, business_country=country,
+                           day_cutoff_hour=cutoff)
 
 
 def business_date_of(tz_user, utc_dt: datetime | None) -> date | None:

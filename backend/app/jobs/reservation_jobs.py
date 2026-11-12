@@ -124,6 +124,10 @@ def send_reservation_reminders() -> int:
                         .filter(BusinessProfile.user_id == r.user_id)
                         .first()
                     )
+                    if owners[r.user_id] is not None:
+                        # The venue's zone needs the country — already in hand.
+                        owners[r.user_id].business_country = (
+                            getattr(profiles[r.user_id], "country", None) or "")
                 owner = owners[r.user_id]
                 profile = profiles[r.user_id]
                 if owner is None:
