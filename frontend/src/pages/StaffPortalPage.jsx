@@ -65,7 +65,7 @@ import { errText } from "../utils/errText";
 import { portalErrText } from "../utils/portalErrText";
 import { formatClockDistance } from "../utils/clockDistance";
 import { roleName } from "../utils/roleNames";
-import { usePadLayout, matchesPad, PAD_WIDE_QUERY } from "../lib/padLayout";
+import { usePadLayout, matchesPad, PAD_WIDE_QUERY, TABLET_QUERY } from "../lib/padLayout";
 import { recordReading, restoreReading, quietReading } from "../lib/readingPlace";
 import { isNativeApp, platform } from "../utils/platform";
 import { applyVagtplanIcons } from "../lib/vagtplanIcons";
@@ -10127,6 +10127,9 @@ export default function StaffPortalPage() {
   // iPad). JS decides only what CSS cannot. A phone is never isPad.
   const isPad = usePadLayout();
   const isPadWide = usePadLayout(PAD_WIDE_QUERY);
+  // Any iPad-sized window (Split View 1/2 and up). A phone is never one, so a
+  // phone pays nothing for the reading-place bookkeeping below.
+  const isTabletWindow = usePadLayout(TABLET_QUERY);
   // The scroller and its sticky header, as elements (they mount after the
   // first fetch, so the effects below need to see them arrive).
   const [scrollerEl, setScrollerEl] = useState(null);
@@ -10167,9 +10170,11 @@ export default function StaffPortalPage() {
   }, [layoutMode, scrollerEl, headerEl, isPad]);
   // A place the staffer has scrolled away from is no longer their place — a
   // rotation must not yank them back to it. A scroll that comes with a window
-  // size change is the layout moving, not the staffer, and is ignored.
+  // size change is the layout moving, not the staffer, and is ignored. Only
+  // in an iPad-sized window: a phone never changes layout, and a read per
+  // scroll frame (elementFromPoint) is not free.
   useEffect(() => {
-    if (!scrollerEl) return undefined;
+    if (!scrollerEl || !isTabletWindow) return undefined;
     let frame = 0;
     const check = () => {
       frame = 0;
@@ -10196,7 +10201,7 @@ export default function StaffPortalPage() {
       scrollerEl.removeEventListener("scroll", onScroll);
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [scrollerEl, headerEl]);
+  }, [scrollerEl, headerEl, isTabletWindow]);
   // iPad in a browser: the cookie banner must start right of the sidebar
   // (vagtplanPad.css reads html[data-vp-rail]). Set only while the sidebar is
   // on screen.
@@ -11955,7 +11960,7 @@ export default function StaffPortalPage() {
                     strokeWidth={active ? 2.25 : 2}
                     aria-hidden
                   />
-                  {item.key === "messages" && chatUnread > 0 && (
+                  {item.key === "messages" && chatUnread > 0 && !active && (
                     <span
                       className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[14px] text-center"
                       aria-label={t("staffChatUnreadBadge", "Unread messages")}
