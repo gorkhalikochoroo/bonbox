@@ -134,12 +134,14 @@ class BusinessProfile(Base):
     # Which source vouched for this profile last time:
     # "cvrapi" | "datafordeleren" | "virk" | "manual" | "companies_house"
     cvr_verified_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    # DAWA (Danmarks Adressers Web API) canonical address UUID, set
-    # when the address has been cross-checked against the official
-    # postal register. Different from a CVR address: CVR holds the
-    # business's registered address, DAWA holds the canonical postal
-    # address the property has. They usually match but sometimes the
-    # CVR value is stale or abbreviated.
+    # Danmarks Adresseregister (DAR) UUID of the business address, set ONLY
+    # by the server (routers/business_profile: PUT /business, re-verify)
+    # after a verified wash against KDS Adressevask (DAWA, which set it
+    # before, closed on 1 Oct 2026; the DAR UUIDs are the same). It holds a
+    # DAR adresse UUID (unit level) OR a husnummer UUID (building level, a
+    # shop whose floor CVR leaves out): anything that looks it up later must
+    # try both. A client value is never stored — the market-comparison gate
+    # (services/smart_pricing) trusts it. The column keeps its old name.
     dawa_address_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Whether the company is currently MOMS-registered (CVR field
     # vatregistered). Affects whether kasserapport applies VAT to

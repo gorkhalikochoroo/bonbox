@@ -13,11 +13,14 @@ import { errText } from "../utils/errText";
  *   L4 — confidence badges per result (verified | likely | guess)
  *   L5 — status warnings (konkurs / ophørt / protected / no MOMS)
  *   L6 — branchekode-driven business_type suggestion banner
- *   L7 — DAWA address cross-check after a result is selected
+ *   L7 — address check against Danmarks Adresseregister after a result
+ *        is selected (KDS Adressevask on our server; DAWA closed 1 Oct 2026)
  *
  * Falls open at every layer:
  *   • Lookup error → inline manual form
- *   • No DAWA match → keep CVR address as-is
+ *   • Address not in the register, or the check is down → a quiet line;
+ *     the CVR address is kept and saving is never blocked
+ *   • The server decides the register id (dawa_address_id) itself
  *   • Branchekode unmapped → no banner, owner picks business_type later
  */
 
@@ -201,46 +204,82 @@ function BranchekodeBanner({ inference, currentBusinessType, onApply }) {
 }
 
 
-// ── DAWA address-mismatch picker ─────────────────────────────────────
+// ── Address check: Danmarks Adresseregister ─────────────────────────
 //
-// Shown after a CVR result is selected, if DAWA returns a canonical
-// address that differs from CVR's. The owner picks which to keep.
+// Shown after a CVR result is selected. Four answers from
+// POST /business/verify-address (status: found | not_found | unavailable):
+//   • verified + matches_input → the tick
+//   • verified, not matching    → the picker: the register writes it a
+//     little differently; the owner picks which to keep
+//   • not_found                 → a quiet note, never a block
+//   • unavailable               → a grey "couldn't check right now" line
+// Data credit (CC BY 4.0): "Adressedata: Klimadatastyrelsen".
+
+function AddrCredit() {
+  const { t } = useLanguage();
+  return (
+    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1" data-testid="addr-register-credit">
+      {t("addrRegisterCredit", "Address data: Klimadatastyrelsen")}
+    </p>
+  );
+}
 
 function AddressVerifyPicker({ cvrAddress, dawa, onPick }) {
   const { t } = useLanguage();
   if (!dawa) return null;
+  // An older server answers only {verified: false} — for a miss AND for an
+  // outage, and since DAWA closed it was always the outage — so no status
+  // reads as "couldn't check", never as "not in the register".
+  if (dawa.status === "unavailable" || (!dawa.verified && !dawa.status)) {
+    return (
+      <p className="text-[11px] text-gray-400 dark:text-gray-500" data-testid="addr-check-unavailable">
+        {t("addrCheckUnavailable", "Couldn't check the address right now. You can still save it.")}
+      </p>
+    );
+  }
+  if (!dawa.verified) {
+    return (
+      <p className="text-[11px] text-gray-500 dark:text-gray-400" data-testid="addr-not-in-register">
+        {t("addrNotInRegister", "We couldn't find this address in Danmarks Adresseregister. Check it, or save it as it is.")}
+      </p>
+    );
+  }
   if (dawa.matches_input) {
     return (
-      <div className="px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 text-xs flex items-center gap-2">
-        <span>✓</span>
-        <span className="text-gray-700 dark:text-gray-300">
-          {t("dawaAddressVerified") || "Address verified against DAWA postal register"}
-        </span>
+      <div className="px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 text-xs">
+        <div className="flex items-center gap-2">
+          <span>✓</span>
+          <span className="text-gray-700 dark:text-gray-300">
+            {t("dawaAddressVerified", "Address found in Danmarks Adresseregister")}
+          </span>
+        </div>
+        <AddrCredit />
       </div>
     );
   }
-  // Mismatch — show both and let owner pick
+  // Near match — show both and let owner pick
   return (
     <div className="px-3 py-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs">
       <p className="font-semibold text-amber-700 dark:text-amber-300 mb-2">
-        {t("dawaMismatchTitle") || "DAWA suggests a slightly different canonical address:"}
+        {t("dawaMismatchTitle", "The address register writes it a little differently:")}
       </p>
       <div className="space-y-2">
         <button
-          onClick={() => onPick(cvrAddress)}
+          onClick={() => onPick(null)}
           className="block w-full text-left px-3 py-2 rounded bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700 hover:border-amber-500 transition"
         >
-          <p className="text-[10px] uppercase text-amber-500">{t("dawaFromCvrLabel") || "From CVR"}</p>
+          <p className="text-[10px] uppercase text-amber-500">{t("dawaFromCvrLabel", "From CVR")}</p>
           <p className="text-gray-700 dark:text-gray-200">{cvrAddress}</p>
         </button>
         <button
-          onClick={() => onPick(dawa.betegnelse, dawa.id)}
+          onClick={() => onPick(dawa)}
           className="block w-full text-left px-3 py-2 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-gray-300 transition"
         >
-          <p className="text-[10px] uppercase text-gray-500 dark:text-gray-400">{t("dawaFromDawaLabel") || "From DAWA postal register (recommended)"}</p>
+          <p className="text-[10px] uppercase text-gray-500 dark:text-gray-400">{t("dawaFromDawaLabel", "From the address register (recommended)")}</p>
           <p className="text-gray-700 dark:text-gray-200">{dawa.betegnelse}</p>
         </button>
       </div>
+      <AddrCredit />
     </div>
   );
 }
@@ -260,7 +299,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
   const [saved, setSaved] = useState(false);
   const [manual, setManual] = useState(!AUTO_LOOKUP_COUNTRIES.has(initialProfile?.country || "DK"));
   const [lookupError, setLookupError] = useState("");
-  const [dawa, setDawa] = useState(null);                  // DAWA verify result
+  const [dawa, setDawa] = useState(null);                  // address-register check result
   const [verifyingAddress, setVerifyingAddress] = useState(false);
   const [appliedBusinessType, setAppliedBusinessType] = useState(null);
   const searchTimer = useRef(null);
@@ -313,9 +352,11 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
     return () => clearTimeout(searchTimer.current);
   }, [query, country, manual]);
 
-  /** Cross-check the chosen CVR address against DAWA. Best-effort —
-   * silent failure means we just don't show the verify badge. */
-  const verifyAddressDawa = async (addr, zipcode, city) => {
+  /** Check the chosen CVR address against Danmarks Adresseregister.
+   * Best-effort and never blocking: "not found" and "couldn't check right
+   * now" are two different quiet lines (an older server answers only
+   * verified true/false; false then reads as not found). */
+  const verifyAddress = async (addr, zipcode, city) => {
     if (country !== "DK" || !addr) {
       setDawa(null);
       return;
@@ -323,11 +364,11 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
     setVerifyingAddress(true);
     try {
       const res = await api.post("/business/verify-address", {
-        address: addr, zipcode, city,
-      });
-      setDawa(res.data?.verified ? res.data : null);
+        address: addr, zipcode, city, country,
+      }, { _noRetry: true });
+      setDawa(res.data || null);
     } catch {
-      setDawa(null);
+      setDawa({ verified: false, status: "unavailable" });
     } finally {
       setVerifyingAddress(false);
     }
@@ -348,8 +389,8 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
     });
     setResults([]);
     setQuery(r.name);
-    // Kick off DAWA verification in the background
-    verifyAddressDawa(r.address, r.zipcode, r.city);
+    // Kick off the address check in the background
+    verifyAddress(r.address, r.zipcode, r.city);
   };
 
   /** Apply business_type defaults from the branchekode inference. */
@@ -362,12 +403,26 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
     } catch { /* ignore — owner can change manually */ }
   };
 
-  const useDawaCanonical = (newAddress, dawaId) => {
-    setForm(f => ({ ...f, address: newAddress.split(",")[0] }));
-    // Persist DAWA id so we can detect future changes precisely
-    setSelected(s => ({ ...(s || {}), dawa_address_id: dawaId }));
-    // Mark as verified now (matches_input becomes true with the new addr)
-    setDawa({ verified: true, matches_input: true, betegnelse: newAddress, id: dawaId });
+  /** The owner picked an address in the near-match picker. `rec` is the
+   * register's record, or null for "keep the CVR one". Picking the register's
+   * version copies its street part AND its postcode and town: the server
+   * re-checks the saved address strictly (street + number + postcode), so a
+   * postcode the register changed but the form kept would fail that check
+   * and lock the owner out of market comparison. The server decides the
+   * register id itself on save. */
+  const useDawaCanonical = (rec) => {
+    if (!rec) {
+      setDawa(null);
+      return;
+    }
+    const line = rec.address_line || String(rec.betegnelse || "").split(",")[0];
+    setForm(f => ({
+      ...f,
+      address: line || f.address,
+      zipcode: rec.postnr || f.zipcode,
+      city: rec.postnrnavn || f.city,
+    }));
+    setDawa({ ...rec, verified: true, matches_input: true });
   };
 
   const handleSave = async () => {
@@ -387,8 +442,9 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
         source: selected?.source || "manual",
         company_type: selected?.company_type || "",
         founded: selected?.founded || "",
-        // Verification trail — passed through if present
-        dawa_address_id: selected?.dawa_address_id || dawa?.id || null,
+        // Verification trail. dawa_address_id is NOT sent: the server sets
+        // it from its own check of the saved address (a client value was a
+        // trust hole in the market-comparison gate).
         vat_registered: selected?.vat_registered ?? null,
         status_flags: toFlagList(selected?.status_flags).join("|") || null,
       };
@@ -528,7 +584,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
                 />
               )}
               {verifyingAddress && (
-                <p className="text-[11px] text-gray-400">{t("blVerifyingAddress", "Verifying address with DAWA…")}</p>
+                <p className="text-[11px] text-gray-400">{t("blVerifyingAddress", "Checking the address…")}</p>
               )}
             </div>
           )}

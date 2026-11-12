@@ -56,6 +56,17 @@ services:
         sync: false
       - key: GOOGLE_PLACES_API_KEY
         sync: false
+      # Danmarks Adresseregister (KDS Adressevælger/Adressevask) token; empty
+      # = "couldn't check" + OpenStreetMap pins. Value from KDS's Brugerstyring
+      # page, pasted in Render only.
+      - key: ADDRESS_REGISTER_TOKEN
+        sync: false
+      # OpenStreetMap Nominatim backup for venue pins; unset = on (code
+      # default). Set "false" in Render to stop it (OSMF policy: we must be
+      # able to stop without an app update). sync: false, not a value: a
+      # Blueprint sync must never switch a kill switch back on.
+      - key: GEO_OSM_ENABLED
+        sync: false
       - key: COMPANIES_HOUSE_API_KEY
         sync: false
       # Production marker so security headers + log filtering activate

@@ -427,7 +427,12 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // (schedSectionShiftsOne/Many/Title). ShiftMarkers' two titles moved into
     // SeenMark/NoteMark unchanged. Was { ariaLabel: 40, role: 12, title: 52,
     // tKeys: 454 }.
-    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 49, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 13, Button: 20, button: 66, disabled: 29, to: 5, tKeys: 457 },
+    // DAWA replacement (12 Nov 2026) ADDED, nothing removed: the geofence
+    // Find's two data-credit lines (+2 testid: geo-register-credit,
+    // geo-osm-credit) and 5 t() keys (schedGeoLookupDown, schedGeoStreetOnly,
+    // schedGeoNeedPostcode, addrRegisterCredit, schedGeoOsmCredit). Was
+    // { testid: 13, tKeys: 457 }.
+    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 49, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 15, Button: 20, button: 66, disabled: 29, to: 5, tKeys: 462 },
     "components/ScheduleConfirmationCard.jsx": { role: 1, tKeys: 3 },
     "pages/StaffHoursPage.jsx": { onClick: 36, onChange: 21, onSubmit: 6, ariaLabel: 4, ariaExpanded: 1, ariaPressed: 4, role: 13, title: 14, id: 8, testid: 1, Button: 18, button: 22, Link: 4, disabled: 20, to: 6, tKeys: 230 },
     // R1 (24 Oct 2026) ADDED to ReservationsPage, nothing removed: the owner

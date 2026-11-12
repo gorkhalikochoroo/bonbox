@@ -4664,7 +4664,8 @@ def _load_clock_settings(profile):
         "lng": d.get("lng"),
         "radius_m": int(d.get("radius_m") or 150),
         # HOW the anchor was set: "gps" (owner stood at the venue), "address"
-        # (resolved from a Danish address via DAWA) or "map_link" (a pasted
+        # (resolved from a Danish address via Danmarks Adresseregister),
+        # "place_name" (found on OpenStreetMap) or "map_link" (a pasted
         # pin). Recorded so the panel can never tell an owner a DERIVED point
         # was measured on site — an address resolves to the building's access
         # point, which in a large venue sits 20-40 m from where staff actually
@@ -4714,7 +4715,7 @@ class VenueLocateRequest(BaseModel):
 def resolve_venue_location(
     payload: VenueLocateRequest,
     request: Request,
-    db: Session = Depends(get_db),          # noqa: ARG001 — owner scope via user
+    db: Session = Depends(get_db),          # committed before the outbound call
     user: User = Depends(get_current_user),
 ):
     """Turn a Danish address or a pasted map link into venue coordinates.
@@ -4731,27 +4732,45 @@ def resolve_venue_location(
     "look up" from "commit" means a wrong address never silently re-points a
     live payroll control.
 
-    Rate-limited because it makes an outbound request (DAWA, or following a
-    maps short-link). Owner-only, and the link host is allowlisted in
-    services/venue_locate — an authenticated owner is still not a reason to
-    fetch an arbitrary URL from our network.
+    Rate-limited because it makes an outbound request (Danmarks
+    Adresseregister via KDS Adressevælger, OpenStreetMap's Nominatim, or
+    following a maps short-link). Owner-only, and every host is allowlisted
+    (services/address_lookup, services/venue_locate) — an authenticated owner
+    is still not a reason to fetch an arbitrary URL from our network.
+
+    Answers:
+      200 the candidate {lat, lng, label, source, provider[, dawa_id]};
+          source "place_name" for an OpenStreetMap hit, so old builds keep
+          their "check it's yours" caveat.
+      404 {"error": "not_found", "reason": null | "street_only" |
+          "postcode_mismatch" | "need_postcode"} — a street-only,
+          wrong-postcode or ambiguous pin is refused, never offered: a wrong
+          anchor can lock staff out of clock-in.
+      424 {"error": "lookup_unavailable"} — the lookup is down. NOT 503:
+          services/api.js replays a POST that gets 503 up to 4 times (one
+          lookup would become five, with a minute-long spinner, on old and new
+          builds); a 4xx is never replayed and never becomes an error_logs row.
     """
     from app.services import venue_locate
+    from app.services.venue_locate import Outcome
 
     q = (payload.query or "").strip()
     if len(q) < 4:
         raise HTTPException(status_code=422, detail={"error": "too_short"})
 
-    found = venue_locate.resolve(q)
-    if not found:
-        # Deliberately one generic code: the owner's next move is the same
-        # whether DAWA had no match, was unreachable, or the link carried no
-        # pin — retype it, or fall back to standing at the venue.
-        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    user_key = str(user.id)
+    # The session opened by get_current_user holds a pooled connection; give
+    # it back before the outbound calls (up to 10 s).
+    db.commit()
+    outcome, found, reason = venue_locate.resolve_outcome(q, user_key=user_key)
+    if outcome == Outcome.UNAVAILABLE:
+        raise HTTPException(status_code=424, detail={"error": "lookup_unavailable"})
+    if outcome != Outcome.FOUND or not found:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "reason": reason})
 
     import logging  # module-local, matching this file's existing pattern
     logging.getLogger(__name__).info(
-        "venue anchor resolved for user=%s via %s", user.id, found.get("source"),
+        "venue anchor resolved for user=%s via %s", user_key, found.get("source"),
     )
     return found
 
@@ -4780,7 +4799,7 @@ def set_clock_geofence(
     win_minutes = payload.window_minutes if payload.window_minutes is not None else cur["window_minutes"]
     win_minutes = max(0, min(240, int(win_minutes or 0)))  # cap at 4h before start
 
-    # Provenance. Only three values may ever reach the UI, and the label is
+    # Provenance. Only four values may ever reach the UI, and the label is
     # length-capped — it is echoed back into the panel, so an unbounded
     # client-supplied string is a stored-text vector, not just untidy.
     # A save that MOVES the anchor must carry its own provenance: otherwise a
@@ -4788,7 +4807,9 @@ def set_clock_geofence(
     # line under coordinates that were since re-anchored by GPS.
     moved = payload.lat is not None or payload.lng is not None
     if moved:
-        src = payload.anchor_source if payload.anchor_source in ("gps", "address", "map_link") else None
+        # "place_name" = found on OpenStreetMap (plan 3.4): it was dropped as
+        # unknown, so those anchors were stored with no provenance at all.
+        src = payload.anchor_source if payload.anchor_source in ("gps", "address", "map_link", "place_name") else None
         label = (payload.anchor_label or "").strip()[:120] or None
     else:
         src = cur.get("anchor_source")

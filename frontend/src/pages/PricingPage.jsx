@@ -2,6 +2,7 @@
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -390,13 +391,24 @@ function SmartPricingSection({ data, loading, currencyCode }) {
   if (!data) return null;
 
   if (data.needs_setup) {
+    // setup_hint "address_unverified": the postcode and cuisine ARE set, but
+    // the address is not checked in Danmarks Adresseregister (or the CVR
+    // stamp is missing). "Add your postal code…" was a dead end for them.
+    const addressHint = data.setup_hint === "address_unverified";
     return (
       <SectionBanner
         severity="info"
         icon="Globe"
-        title={t("smartPricingTitle") || "Market comparison"}
+        title={t("smartPricingTitle", "Market comparison")}
       >
-        {t("smartPricingNeedsSetup") || "Set your postal code and cuisine in Profile to unlock neighborhood price comparisons."}
+        {addressHint
+          ? t("pricingAddressUnverified", "Market comparison needs your address checked in Danmarks Adresseregister. Open Profile and pick your company again.")
+          : t("smartPricingNeedsSetup", "Add your postal code and cuisine in Profile to see market comparisons.")}
+        {addressHint && (
+          <Link to="/profile" className="ml-1 font-semibold underline" data-testid="pricing-address-hint-link">
+            {t("openProfile", "Open Profile →")}
+          </Link>
+        )}
       </SectionBanner>
     );
   }

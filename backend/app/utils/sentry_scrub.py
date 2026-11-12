@@ -19,17 +19,71 @@ scrub_event (before_send and before_send_transaction) drops request.data and
 frame variables again and redacts tokens in every string, whatever an
 integration adds. If scrubbing fails, the event is dropped, not sent raw.
 Pinned by tests/test_sentry_scrub.py.
+
+Address lookups (services/address_lookup.py): Sentry's httpx integration
+records each outbound call as a breadcrumb / span whose `http.query` is the
+raw query string — the owner's address, and KDS's token. The token there is
+the FIRST parameter of nothing we control, so `http.query` is scrubbed with a
+leading "?" (redact_text only matches "?token=" / "&token="), and for the two
+geo hosts the address values (adresse, tekst, vejnavn, husnummer,
+postnummer, q, street, postalcode, city) are dropped wherever a URL or query
+to them appears.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from app.utils.log_redact import redact_text
+
+_GEO_HOSTS = frozenset({"adressevaelger.dk", "nominatim.openstreetmap.org"})
+_GEO_PARAMS = frozenset({"adresse", "tekst", "vejnavn", "husnummer", "postnummer",
+                         "q", "street", "postalcode", "city"})
+_GEO_URL = re.compile(
+    r"(?i)(https?://(?:adressevaelger\.dk|nominatim\.openstreetmap\.org)[^\s?#\"']*\?)([^\s#\"']*)"
+)
+
+
+def _drop_geo_values(query: str) -> str:
+    """"adresse=Vestergade+1&token=x" -> "adresse=:redacted&token=x"."""
+    out = []
+    for part in query.split("&"):
+        key, sep, _val = part.partition("=")
+        out.append(f"{key}=:redacted" if sep and key.lower() in _GEO_PARAMS else part)
+    return "&".join(out)
+
+
+def _scrub_geo_text(text: str) -> str:
+    return _GEO_URL.sub(lambda m: m.group(1) + _drop_geo_values(m.group(2)), text)
+
+
+def _is_geo_url(url: Any) -> bool:
+    try:
+        return (urlparse(str(url or "")).hostname or "").lower() in _GEO_HOSTS
+    except ValueError:
+        return False
+
+
+def _scrub_http_query(value: Any) -> None:
+    """Breadcrumb / span data dicts: `http.query` carries no "?", so a token
+    in first place escaped redact_text; and a geo host's query is an address."""
+    if isinstance(value, dict):
+        q = value.get("http.query")
+        if isinstance(q, str) and q:
+            if _is_geo_url(value.get("url")):
+                q = _drop_geo_values(q)
+            value["http.query"] = redact_text("?" + q)[1:]
+        for v in value.values():
+            _scrub_http_query(v)
+    elif isinstance(value, list):
+        for v in value:
+            _scrub_http_query(v)
 
 
 def _redact_strings(value: Any) -> Any:
     if isinstance(value, str):
-        return redact_text(value)
+        return redact_text(_scrub_geo_text(value))
     if isinstance(value, dict):
         return {k: _redact_strings(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -65,6 +119,7 @@ def scrub_event(event: dict, hint: dict | None = None) -> dict | None:
             if isinstance(qs, str) and qs:  # "t=<token>&x=1", no leading "?"
                 request["query_string"] = redact_text("?" + qs)[1:]
         _drop_frame_vars(event)
+        _scrub_http_query(event)
         return _redact_strings(event)
     except Exception:  # noqa: BLE001 — never send an event we could not scrub
         return None

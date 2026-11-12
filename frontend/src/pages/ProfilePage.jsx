@@ -2937,7 +2937,7 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
             </p>
             {profile.dawa_address_id && (
               <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
-                {t("profVerifyDawaChecked", "Address cross-checked with DAWA postal register")}
+                {t("profVerifyDawaChecked", "Address checked against Danmarks Adresseregister")}
               </p>
             )}
           </div>

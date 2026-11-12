@@ -44,9 +44,13 @@ BANK = ["GOCARDLESS_SECRET_ID", "GOCARDLESS_SECRET_KEY", "AIIA_CLIENT_ID", "AIIA
         "YAPILY_APPLICATION_SECRET", "MOBILEPAY_CLIENT_ID", "MOBILEPAY_CLIENT_SECRET",
         "MOBILEPAY_ENV", "WHATSAPP_ENABLED"]
 OWNER = ["ADMIN_EMAIL", "SUPER_ADMIN_EMAILS"]
+# Address register (DAWA replacement, 12 Nov 2026): the KDS token is treated as
+# a secret; the OSM kill switch is sync: false so a Blueprint sync can never
+# switch it back on. Added to this test on purpose.
+GEO = ["ADDRESS_REGISTER_TOKEN", "GEO_OSM_ENABLED"]
 
-REQUIRED = SECRETS + STORAGE + BACKUP + MAIL_OPS + STRIPE + PUSH + APPLE + URLS + SMS + OCR + INBOX + FLAGS + BANK + OWNER
-SECRET_GROUPS = SECRETS + STORAGE + BACKUP + MAIL_OPS + STRIPE + PUSH + SMS + OCR + INBOX + BANK + OWNER
+REQUIRED = SECRETS + STORAGE + BACKUP + MAIL_OPS + STRIPE + PUSH + APPLE + URLS + SMS + OCR + INBOX + FLAGS + BANK + OWNER + GEO
+SECRET_GROUPS = SECRETS + STORAGE + BACKUP + MAIL_OPS + STRIPE + PUSH + SMS + OCR + INBOX + BANK + OWNER + GEO
 
 # Not secrets, must survive a rebuild — the only keys allowed a value.
 VALUE_ALLOWED = {"ENVIRONMENT": "production", "USE_CLAUDE_API": "true"}

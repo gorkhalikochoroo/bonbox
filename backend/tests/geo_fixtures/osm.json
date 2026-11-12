@@ -1,0 +1,634 @@
+{
+ "_about": "Recorded real replies, 11 Nov 2026 (Step 0, DAWA replacement plan). Generic public addresses only. Token removed from every request.",
+ "cases": {
+  "aalborg_algade_1__q": {
+   "body": "[{\"place_id\":163893237,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":816694341,\"lat\":\"57.0480510\",\"lon\":\"9.9177592\",\"class\":\"highway\",\"type\":\"living_street\",\"place_rank\":26,\"importance\":0.1679799034751623,\"addresstype\":\"living_street\",\"name\":\"Algade\",\"display_name\":\"Algade, Havnefronten, Vestbyen, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Vestbyen\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0479743\",\"57.0481754\",\"9.9172927\",\"9.9182433\"]},{\"place_id\":164338545,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":816694340,\"lat\":\"57.0478622\",\"lon\":\"9.9185148\",\"class\":\"highway\",\"type\":\"pedestrian\",\"place_rank\":26,\"importance\":0.1679799034751623,\"addresstype\":\"pedestrian\",\"name\":\"Algade\",\"display_name\":\"Algade, Havnefronten, Vestbyen, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Vestbyen\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0478136\",\"57.0479743\",\"9.9182433\",\"9.9188196\"]},{\"place_id\":163993456,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":816694417,\"lat\":\"57.0475268\",\"lon\":\"9.9203979\",\"class\":\"highway\",\"type\":\"living_street\",\"place_rank\":26,\"importance\":0.1679799034751623,\"addresstype\":\"living_street\",\"name\":\"Algade\",\"display_name\":\"Algade, Havnefronten, Kærby, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Kærby\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0474964\",\"57.0475571\",\"9.9201987\",\"9.9205970\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Algade 1, 9000 Aalborg"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aalborg_algade_1__structured": {
+   "body": "[{\"place_id\":163893237,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":816694341,\"lat\":\"57.0480510\",\"lon\":\"9.9177592\",\"class\":\"highway\",\"type\":\"living_street\",\"place_rank\":26,\"importance\":0.1679799034751623,\"addresstype\":\"living_street\",\"name\":\"Algade\",\"display_name\":\"Algade, Havnefronten, Vestbyen, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Vestbyen\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0479743\",\"57.0481754\",\"9.9172927\",\"9.9182433\"]},{\"place_id\":164338545,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":816694340,\"lat\":\"57.0478622\",\"lon\":\"9.9185148\",\"class\":\"highway\",\"type\":\"pedestrian\",\"place_rank\":26,\"importance\":0.1679799034751623,\"addresstype\":\"pedestrian\",\"name\":\"Algade\",\"display_name\":\"Algade, Havnefronten, Vestbyen, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Vestbyen\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0478136\",\"57.0479743\",\"9.9182433\",\"9.9188196\"]},{\"place_id\":163993456,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":816694417,\"lat\":\"57.0475268\",\"lon\":\"9.9203979\",\"class\":\"highway\",\"type\":\"living_street\",\"place_rank\":26,\"importance\":0.1679799034751623,\"addresstype\":\"living_street\",\"name\":\"Algade\",\"display_name\":\"Algade, Havnefronten, Kærby, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Kærby\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0474964\",\"57.0475571\",\"9.9201987\",\"9.9205970\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Aalborg",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "9000",
+    "street": "1 Algade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aalborg_algade_1_nocity__structured_nocity": {
+   "body": "[{\"place_id\":164565713,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":932757098,\"lat\":\"57.2695220\",\"lon\":\"9.9457570\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.3483634698970284e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Algade, Valby, Brønderslev, Brønderslev Kommune, Region Nordjylland, 9700, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Algade\",\"quarter\":\"Valby\",\"town\":\"Brønderslev\",\"municipality\":\"Brønderslev Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9700\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.2694720\",\"57.2695720\",\"9.9457070\",\"9.9458070\"]},{\"place_id\":163906216,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":964160280,\"lat\":\"56.8861860\",\"lon\":\"9.5714480\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.39551384755782e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Algade, Nibe, Vesthimmerlands Kommune, Region Nordjylland, 9240, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Algade\",\"village\":\"Nibe\",\"municipality\":\"Vesthimmerlands Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9240\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"56.8861360\",\"56.8862360\",\"9.5713980\",\"9.5714980\"]},{\"place_id\":163905046,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":1309481031,\"lat\":\"57.0479520\",\"lon\":\"9.9183675\",\"class\":\"highway\",\"type\":\"pedestrian\",\"place_rank\":26,\"importance\":0.1679799034751623,\"addresstype\":\"pedestrian\",\"name\":\"Algade\",\"display_name\":\"Algade, Havnefronten, Vestbyen, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Vestbyen\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0477351\",\"57.0481783\",\"9.9173404\",\"9.9190567\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "9000",
+    "street": "1 Algade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aalborg_algade_3__q": {
+   "body": "[{\"place_id\":164169225,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342990276,\"lat\":\"57.0468260\",\"lon\":\"9.9231290\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.652399481188704e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"3, Algade, Havnefronten, Eternitten, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"house_number\":\"3\",\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Eternitten\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0467760\",\"57.0468760\",\"9.9230790\",\"9.9231790\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Algade 3, 9000 Aalborg"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aalborg_algade_3__structured": {
+   "body": "[{\"place_id\":164650813,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342990276,\"lat\":\"57.0468260\",\"lon\":\"9.9231290\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.652399481188704e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"3, Algade, Havnefronten, Eternitten, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"house_number\":\"3\",\"road\":\"Algade\",\"quarter\":\"Havnefronten\",\"suburb\":\"Eternitten\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0467760\",\"57.0468760\",\"9.9230790\",\"9.9231790\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Aalborg",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "9000",
+    "street": "3 Algade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aalborg_raadhus__q": {
+   "body": "[{\"place_id\":161834026,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":343007791,\"lat\":\"57.0482380\",\"lon\":\"9.9207360\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.652399481188704e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Gammeltorv, Havnefronten, Vestbyen, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Gammeltorv\",\"quarter\":\"Havnefronten\",\"suburb\":\"Vestbyen\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0481880\",\"57.0482880\",\"9.9206860\",\"9.9207860\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Gammeltorv 2, 9000 Aalborg"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aalborg_raadhus__structured": {
+   "body": "[{\"place_id\":164764479,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":343007791,\"lat\":\"57.0482380\",\"lon\":\"9.9207360\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.652399481188704e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Gammeltorv, Havnefronten, Vestbyen, Aalborg, Aalborg Kommune, Region Nordjylland, 9000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Gammeltorv\",\"quarter\":\"Havnefronten\",\"suburb\":\"Vestbyen\",\"city\":\"Aalborg\",\"municipality\":\"Aalborg Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.0481880\",\"57.0482880\",\"9.9206860\",\"9.9207860\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Aalborg",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "9000",
+    "street": "2 Gammeltorv"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aarhus_raadhus__q": {
+   "body": "[{\"place_id\":164773513,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342058310,\"lat\":\"56.1526310\",\"lon\":\"10.2032060\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.953307392991559e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Rådhuspladsen, Midtbyen, Frederiksbjerg, Aarhus, Aarhus Kommune, Region Midtjylland, 8000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Rådhuspladsen\",\"neighbourhood\":\"Midtbyen\",\"suburb\":\"Frederiksbjerg\",\"city\":\"Aarhus\",\"municipality\":\"Aarhus Kommune\",\"state\":\"Region Midtjylland\",\"ISO3166-2-lvl4\":\"DK-82\",\"postcode\":\"8000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"56.1525810\",\"56.1526810\",\"10.2031560\",\"10.2032560\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Rådhuspladsen 2, 8000 Aarhus C"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aarhus_raadhus__structured": {
+   "body": "[{\"place_id\":162971642,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342058310,\"lat\":\"56.1526310\",\"lon\":\"10.2032060\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.953307392991559e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Rådhuspladsen, Midtbyen, Frederiksbjerg, Aarhus, Aarhus Kommune, Region Midtjylland, 8000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Rådhuspladsen\",\"neighbourhood\":\"Midtbyen\",\"suburb\":\"Frederiksbjerg\",\"city\":\"Aarhus\",\"municipality\":\"Aarhus Kommune\",\"state\":\"Region Midtjylland\",\"ISO3166-2-lvl4\":\"DK-82\",\"postcode\":\"8000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"56.1525810\",\"56.1526810\",\"10.2031560\",\"10.2032560\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Aarhus C",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "8000",
+    "street": "2 Rådhuspladsen"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aarhus_soendergade_1__q": {
+   "body": "[]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Søndergade 1, 8000 Aarhus C"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aarhus_soendergade_1__structured": {
+   "body": "[]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Aarhus C",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "8000",
+    "street": "1 Søndergade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aarhus_soendergade_1_nocity__structured_nocity": {
+   "body": "[{\"place_id\":163775977,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":963943088,\"lat\":\"56.2632580\",\"lon\":\"10.0618510\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.422980086971874e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Søndergade, Gammel Hinnerup, Hinnerup, Favrskov Kommune, Region Midtjylland, 8382, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Søndergade\",\"quarter\":\"Gammel Hinnerup\",\"town\":\"Hinnerup\",\"municipality\":\"Favrskov Kommune\",\"state\":\"Region Midtjylland\",\"ISO3166-2-lvl4\":\"DK-82\",\"postcode\":\"8382\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"56.2632080\",\"56.2633080\",\"10.0618010\",\"10.0619010\"]},{\"place_id\":163083356,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":955229042,\"lat\":\"56.3275480\",\"lon\":\"10.0458140\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.117418173490528e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Søndergade, Vinterslev, Hadsten, Favrskov Kommune, Region Midtjylland, 8370, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Søndergade\",\"quarter\":\"Vinterslev\",\"town\":\"Hadsten\",\"municipality\":\"Favrskov Kommune\",\"state\":\"Region Midtjylland\",\"ISO3166-2-lvl4\":\"DK-82\",\"postcode\":\"8370\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"56.3274980\",\"56.3275980\",\"10.0457640\",\"10.0458640\"]},{\"place_id\":163816070,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":955544670,\"lat\":\"56.4397370\",\"lon\":\"10.1452370\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.117418173490528e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Søndergade, Randers, Randers Kommune, Region Midtjylland, 8960, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Søndergade\",\"city\":\"Randers\",\"municipality\":\"Randers Kommune\",\"state\":\"Region Midtjylland\",\"ISO3166-2-lvl4\":\"DK-82\",\"postcode\":\"8960\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"56.4396870\",\"56.4397870\",\"10.1451870\",\"10.1452870\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "8000",
+    "street": "1 Søndergade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aarhus_soendergade_2__q": {
+   "body": "[{\"place_id\":165352142,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342074816,\"lat\":\"56.1556320\",\"lon\":\"10.2077950\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.953307392991559e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Søndergade, Midtbyen, Frederiksbjerg, Aarhus, Aarhus Kommune, Region Midtjylland, 8000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Søndergade\",\"neighbourhood\":\"Midtbyen\",\"suburb\":\"Frederiksbjerg\",\"city\":\"Aarhus\",\"municipality\":\"Aarhus Kommune\",\"state\":\"Region Midtjylland\",\"ISO3166-2-lvl4\":\"DK-82\",\"postcode\":\"8000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"56.1555820\",\"56.1556820\",\"10.2077450\",\"10.2078450\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Søndergade 2, 8000 Aarhus C"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "aarhus_soendergade_2__structured": {
+   "body": "[{\"place_id\":165352142,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342074816,\"lat\":\"56.1556320\",\"lon\":\"10.2077950\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.953307392991559e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Søndergade, Midtbyen, Frederiksbjerg, Aarhus, Aarhus Kommune, Region Midtjylland, 8000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Søndergade\",\"neighbourhood\":\"Midtbyen\",\"suburb\":\"Frederiksbjerg\",\"city\":\"Aarhus\",\"municipality\":\"Aarhus Kommune\",\"state\":\"Region Midtjylland\",\"ISO3166-2-lvl4\":\"DK-82\",\"postcode\":\"8000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"56.1555820\",\"56.1556820\",\"10.2077450\",\"10.2078450\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Aarhus C",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "8000",
+    "street": "2 Søndergade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "cph_raadhus__q": {
+   "body": "[{\"place_id\":148600825,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":736017389,\"lat\":\"55.6756280\",\"lon\":\"12.5695780\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":8.19920653085682e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Rådhuspladsen, Vestervold, Kødbyen, København, Københavns Kommune, Region Hovedstaden, 1550, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Rådhuspladsen\",\"quarter\":\"Vestervold\",\"suburb\":\"Kødbyen\",\"city\":\"København\",\"municipality\":\"Københavns Kommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"1550\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.6755780\",\"55.6756780\",\"12.5695280\",\"12.5696280\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Rådhuspladsen 1, 1550 København V"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "cph_raadhus__structured": {
+   "body": "[{\"place_id\":148380432,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":736017389,\"lat\":\"55.6756280\",\"lon\":\"12.5695780\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":8.19920653085682e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Rådhuspladsen, Vestervold, Kødbyen, København, Københavns Kommune, Region Hovedstaden, 1550, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Rådhuspladsen\",\"quarter\":\"Vestervold\",\"suburb\":\"Kødbyen\",\"city\":\"København\",\"municipality\":\"Københavns Kommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"1550\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.6755780\",\"55.6756780\",\"12.5695280\",\"12.5696280\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "København V",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "1550",
+    "street": "1 Rådhuspladsen"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "digit_street_kolding__q": {
+   "body": "[{\"place_id\":150455075,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342553323,\"lat\":\"55.4842010\",\"lon\":\"9.4760150\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.041275654226013e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Christian 10 Gade, Søndervang, Kolding, Kolding Kommune, Region Syddanmark, 6000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Christian 10 Gade\",\"suburb\":\"Søndervang\",\"city\":\"Kolding\",\"municipality\":\"Kolding Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"6000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.4841510\",\"55.4842510\",\"9.4759650\",\"9.4760650\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Christian 10 Gade 2, 6000 Kolding"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "digit_street_kolding__structured": {
+   "body": "[{\"place_id\":149624741,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342553323,\"lat\":\"55.4842010\",\"lon\":\"9.4760150\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.041275654226013e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Christian 10 Gade, Søndervang, Kolding, Kolding Kommune, Region Syddanmark, 6000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Christian 10 Gade\",\"suburb\":\"Søndervang\",\"city\":\"Kolding\",\"municipality\":\"Kolding Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"6000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.4841510\",\"55.4842510\",\"9.4759650\",\"9.4760650\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Kolding",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "6000",
+    "street": "2 Christian 10 Gade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "esbjerg_raadhus__q": {
+   "body": "[{\"place_id\":150269201,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342361854,\"lat\":\"55.4722980\",\"lon\":\"8.4531350\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.245288776984844e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"74, Torvegade, Boldesager, Esbjerg, Esbjerg Kommune, Region Syddanmark, 6700, Danmark\",\"address\":{\"house_number\":\"74\",\"road\":\"Torvegade\",\"suburb\":\"Boldesager\",\"city\":\"Esbjerg\",\"municipality\":\"Esbjerg Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"6700\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.4722480\",\"55.4723480\",\"8.4530850\",\"8.4531850\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Torvegade 74, 6700 Esbjerg"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "esbjerg_raadhus__structured": {
+   "body": "[{\"place_id\":150269039,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342361854,\"lat\":\"55.4722980\",\"lon\":\"8.4531350\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.245288776984844e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"74, Torvegade, Boldesager, Esbjerg, Esbjerg Kommune, Region Syddanmark, 6700, Danmark\",\"address\":{\"house_number\":\"74\",\"road\":\"Torvegade\",\"suburb\":\"Boldesager\",\"city\":\"Esbjerg\",\"municipality\":\"Esbjerg Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"6700\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.4722480\",\"55.4723480\",\"8.4530850\",\"8.4531850\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Esbjerg",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "6700",
+    "street": "74 Torvegade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "fanoe_raadhus__q": {
+   "body": "[{\"place_id\":150372580,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342372480,\"lat\":\"55.4461600\",\"lon\":\"8.4025360\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.245288776984844e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"5, Skolevej, Nørby, Nørre Bjerge, Nordby, Fanø Kommune, Region Syddanmark, 6720, Danmark\",\"address\":{\"house_number\":\"5\",\"road\":\"Skolevej\",\"quarter\":\"Nørby\",\"hamlet\":\"Nørre Bjerge\",\"village\":\"Nordby\",\"municipality\":\"Fanø Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"6720\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.4461100\",\"55.4462100\",\"8.4024860\",\"8.4025860\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Skolevej 5, 6720 Fanø"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "fanoe_raadhus__structured": {
+   "body": "[{\"place_id\":150450953,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342372480,\"lat\":\"55.4461600\",\"lon\":\"8.4025360\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.245288776984844e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"5, Skolevej, Nørby, Nørre Bjerge, Nordby, Fanø Kommune, Region Syddanmark, 6720, Danmark\",\"address\":{\"house_number\":\"5\",\"road\":\"Skolevej\",\"quarter\":\"Nørby\",\"hamlet\":\"Nørre Bjerge\",\"village\":\"Nordby\",\"municipality\":\"Fanø Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"6720\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.4461100\",\"55.4462100\",\"8.4024860\",\"8.4025860\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Fanø",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "6720",
+    "street": "5 Skolevej"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "hoejgaardsvej_3b__q": {
+   "body": "[{\"place_id\":147705332,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":7112576591,\"lat\":\"54.9972730\",\"lon\":\"12.0057670\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.5441367208316434e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"3B, Højgaardsvej, Bakkebølle, Vordingborg, Vordingborg Kommune, Region Sjælland, 4760, Danmark\",\"address\":{\"house_number\":\"3B\",\"road\":\"Højgaardsvej\",\"hamlet\":\"Bakkebølle\",\"town\":\"Vordingborg\",\"municipality\":\"Vordingborg Kommune\",\"state\":\"Region Sjælland\",\"ISO3166-2-lvl4\":\"DK-85\",\"postcode\":\"4760\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"54.9972230\",\"54.9973230\",\"12.0057170\",\"12.0058170\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Højgaardsvej 3B, 4760 Vordingborg"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "hoejgaardsvej_3b__structured": {
+   "body": "[{\"place_id\":147725290,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":7112576591,\"lat\":\"54.9972730\",\"lon\":\"12.0057670\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.5441367208316434e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"3B, Højgaardsvej, Bakkebølle, Vordingborg, Vordingborg Kommune, Region Sjælland, 4760, Danmark\",\"address\":{\"house_number\":\"3B\",\"road\":\"Højgaardsvej\",\"hamlet\":\"Bakkebølle\",\"town\":\"Vordingborg\",\"municipality\":\"Vordingborg Kommune\",\"state\":\"Region Sjælland\",\"ISO3166-2-lvl4\":\"DK-85\",\"postcode\":\"4760\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"54.9972230\",\"54.9973230\",\"12.0057170\",\"12.0058170\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Vordingborg",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "4760",
+    "street": "3B Højgaardsvej"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "kds_exact__q": {
+   "body": "[{\"place_id\":146790909,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":340544492,\"lat\":\"55.7108200\",\"lon\":\"12.5644360\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":8.19920653085682e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"11, Sankt Kjelds Plads, Lyngbyvejskvarteret, Østerbro, København, Københavns Kommune, Region Hovedstaden, 2100, Danmark\",\"address\":{\"house_number\":\"11\",\"road\":\"Sankt Kjelds Plads\",\"quarter\":\"Lyngbyvejskvarteret\",\"suburb\":\"Østerbro\",\"city\":\"København\",\"municipality\":\"Københavns Kommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"2100\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.7107700\",\"55.7108700\",\"12.5643860\",\"12.5644860\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Sankt Kjelds Plads 11, 2100 København Ø"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "kds_exact__structured": {
+   "body": "[{\"place_id\":146790909,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":340544492,\"lat\":\"55.7108200\",\"lon\":\"12.5644360\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":8.19920653085682e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"11, Sankt Kjelds Plads, Lyngbyvejskvarteret, Østerbro, København, Københavns Kommune, Region Hovedstaden, 2100, Danmark\",\"address\":{\"house_number\":\"11\",\"road\":\"Sankt Kjelds Plads\",\"quarter\":\"Lyngbyvejskvarteret\",\"suburb\":\"Østerbro\",\"city\":\"København\",\"municipality\":\"Københavns Kommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"2100\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.7107700\",\"55.7108700\",\"12.5643860\",\"12.5644860\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "København Ø",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "2100",
+    "street": "11 Sankt Kjelds Plads"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "laesoe_raadhus__q": {
+   "body": "[{\"place_id\":163853259,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342870254,\"lat\":\"57.2562840\",\"lon\":\"10.9994040\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":4.996643015178176e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Doktorvejen, Byrum, Læsø Kommune, Region Nordjylland, 9940, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Doktorvejen\",\"village\":\"Byrum\",\"municipality\":\"Læsø Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9940\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.2562340\",\"57.2563340\",\"10.9993540\",\"10.9994540\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Doktorvejen 2, 9940 Læsø"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "laesoe_raadhus__structured": {
+   "body": "[{\"place_id\":163747261,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":342870254,\"lat\":\"57.2562840\",\"lon\":\"10.9994040\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":4.996643015178176e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Doktorvejen, Byrum, Læsø Kommune, Region Nordjylland, 9940, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Doktorvejen\",\"village\":\"Byrum\",\"municipality\":\"Læsø Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9940\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.2562340\",\"57.2563340\",\"10.9993540\",\"10.9994540\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Læsø",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "9940",
+    "street": "2 Doktorvejen"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "marstal_museum__q": {
+   "body": "[{\"place_id\":150235090,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":963709383,\"lat\":\"54.8540250\",\"lon\":\"10.5211350\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.292210269317186e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Prinsensgade, Bondebyen, Marstal, Ærø Kommune, Region Syddanmark, 5960, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Prinsensgade\",\"quarter\":\"Bondebyen\",\"town\":\"Marstal\",\"municipality\":\"Ærø Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"5960\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"54.8539750\",\"54.8540750\",\"10.5210850\",\"10.5211850\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Prinsensgade 1, 5960 Marstal"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "marstal_museum__structured": {
+   "body": "[{\"place_id\":149879614,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":963709383,\"lat\":\"54.8540250\",\"lon\":\"10.5211350\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.292210269317186e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Prinsensgade, Bondebyen, Marstal, Ærø Kommune, Region Syddanmark, 5960, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Prinsensgade\",\"quarter\":\"Bondebyen\",\"town\":\"Marstal\",\"municipality\":\"Ærø Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"5960\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"54.8539750\",\"54.8540750\",\"10.5210850\",\"10.5211850\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Marstal",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "5960",
+    "street": "1 Prinsensgade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "misspelled_flakhavn__q": {
+   "body": "[]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Flakhavn 2, 5000 Odense C"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "misspelled_flakhavn__structured": {
+   "body": "[]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Odense C",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "5000",
+    "street": "2 Flakhavn"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "odense_raadhus__q": {
+   "body": "[{\"place_id\":150047072,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":341639836,\"lat\":\"55.3960210\",\"lon\":\"10.3885780\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.776302738989879e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Flakhaven, City Campus, Odense, Odense Kommune, Region Syddanmark, 5000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Flakhaven\",\"suburb\":\"City Campus\",\"city\":\"Odense\",\"municipality\":\"Odense Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"5000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.3959710\",\"55.3960710\",\"10.3885280\",\"10.3886280\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Flakhaven 2, 5000 Odense C"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "odense_raadhus__structured": {
+   "body": "[{\"place_id\":149057448,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":341639836,\"lat\":\"55.3960210\",\"lon\":\"10.3885780\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":6.776302738989879e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"2, Flakhaven, City Campus, Odense, Odense Kommune, Region Syddanmark, 5000, Danmark\",\"address\":{\"house_number\":\"2\",\"road\":\"Flakhaven\",\"suburb\":\"City Campus\",\"city\":\"Odense\",\"municipality\":\"Odense Kommune\",\"state\":\"Region Syddanmark\",\"ISO3166-2-lvl4\":\"DK-83\",\"postcode\":\"5000\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.3959710\",\"55.3960710\",\"10.3885280\",\"10.3886280\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Odense C",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "5000",
+    "street": "2 Flakhaven"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "oe_for_oe_soendergade_2__q": {
+   "body": "[]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Soendergade 2, 8000 Aarhus C"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "oe_for_oe_soendergade_2__structured": {
+   "body": "[]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Aarhus C",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "8000",
+    "street": "2 Soendergade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "praestoe_adelgade__q": {
+   "body": "[{\"place_id\":147286461,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":3186886635,\"lat\":\"55.1206900\",\"lon\":\"12.0374660\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.5441367208316434e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Adelgade, Præstemark, Nysø, Vordingborg, Vordingborg Kommune, Region Sjælland, 4720, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Adelgade\",\"neighbourhood\":\"Præstemark\",\"hamlet\":\"Nysø\",\"town\":\"Vordingborg\",\"municipality\":\"Vordingborg Kommune\",\"state\":\"Region Sjælland\",\"ISO3166-2-lvl4\":\"DK-85\",\"postcode\":\"4720\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.1206400\",\"55.1207400\",\"12.0374160\",\"12.0375160\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Adelgade 1, 4720 Præstø"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "praestoe_adelgade__structured": {
+   "body": "[{\"place_id\":148841257,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":3186886635,\"lat\":\"55.1206900\",\"lon\":\"12.0374660\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.5441367208316434e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"1, Adelgade, Præstemark, Nysø, Vordingborg, Vordingborg Kommune, Region Sjælland, 4720, Danmark\",\"address\":{\"house_number\":\"1\",\"road\":\"Adelgade\",\"neighbourhood\":\"Præstemark\",\"hamlet\":\"Nysø\",\"town\":\"Vordingborg\",\"municipality\":\"Vordingborg Kommune\",\"state\":\"Region Sjælland\",\"ISO3166-2-lvl4\":\"DK-85\",\"postcode\":\"4720\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.1206400\",\"55.1207400\",\"12.0374160\",\"12.0375160\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Præstø",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "4720",
+    "street": "1 Adelgade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "roenne_raadhus__q": {
+   "body": "[{\"place_id\":147255118,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":955609916,\"lat\":\"55.0925030\",\"lon\":\"14.7087040\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.675974670019101e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"23, Ullasvej, Rønne, Bornholms Regionskommune, Region Hovedstaden, 3700, Danmark\",\"address\":{\"house_number\":\"23\",\"road\":\"Ullasvej\",\"town\":\"Rønne\",\"municipality\":\"Bornholms Regionskommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"3700\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.0924530\",\"55.0925530\",\"14.7086540\",\"14.7087540\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Ullasvej 23, 3700 Rønne"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "roenne_raadhus__structured": {
+   "body": "[{\"place_id\":147255118,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":955609916,\"lat\":\"55.0925030\",\"lon\":\"14.7087040\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.675974670019101e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"23, Ullasvej, Rønne, Bornholms Regionskommune, Region Hovedstaden, 3700, Danmark\",\"address\":{\"house_number\":\"23\",\"road\":\"Ullasvej\",\"town\":\"Rønne\",\"municipality\":\"Bornholms Regionskommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"3700\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.0924530\",\"55.0925530\",\"14.7086540\",\"14.7087540\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Rønne",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "3700",
+    "street": "23 Ullasvej"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "skagen_museum__q": {
+   "body": "[{\"place_id\":164088430,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":2965887261,\"lat\":\"57.7244680\",\"lon\":\"10.5972150\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.770275425340684e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"4, Brøndumsvej, Østerby, Skagen, Frederikshavn Kommune, Region Nordjylland, 9990, Danmark\",\"address\":{\"house_number\":\"4\",\"road\":\"Brøndumsvej\",\"suburb\":\"Østerby\",\"town\":\"Skagen\",\"municipality\":\"Frederikshavn Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9990\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.7244180\",\"57.7245180\",\"10.5971650\",\"10.5972650\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Brøndumsvej 4, 9990 Skagen"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "skagen_museum__structured": {
+   "body": "[{\"place_id\":162849667,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":2965887261,\"lat\":\"57.7244680\",\"lon\":\"10.5972150\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":5.770275425340684e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"4, Brøndumsvej, Østerby, Skagen, Frederikshavn Kommune, Region Nordjylland, 9990, Danmark\",\"address\":{\"house_number\":\"4\",\"road\":\"Brøndumsvej\",\"suburb\":\"Østerby\",\"town\":\"Skagen\",\"municipality\":\"Frederikshavn Kommune\",\"state\":\"Region Nordjylland\",\"ISO3166-2-lvl4\":\"DK-81\",\"postcode\":\"9990\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"57.7244180\",\"57.7245180\",\"10.5971650\",\"10.5972650\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Skagen",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "9990",
+    "street": "4 Brøndumsvej"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "tivoli_kbh_abbrev__q": {
+   "body": "[{\"place_id\":147665152,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":5641830722,\"lat\":\"55.6746540\",\"lon\":\"12.5656590\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":8.19920653085682e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"3, Vesterbrogade, Vestervold, Kødbyen, København, Københavns Kommune, Region Hovedstaden, 1620, Danmark\",\"address\":{\"house_number\":\"3\",\"road\":\"Vesterbrogade\",\"quarter\":\"Vestervold\",\"suburb\":\"Kødbyen\",\"city\":\"København\",\"municipality\":\"Københavns Kommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"1620\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.6746040\",\"55.6747040\",\"12.5656090\",\"12.5657090\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Vesterbrogade 3, 1620 Kbh V"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "tivoli_kbh_abbrev__structured": {
+   "body": "[{\"place_id\":148559981,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":5641830722,\"lat\":\"55.6746540\",\"lon\":\"12.5656590\",\"class\":\"place\",\"type\":\"house\",\"place_rank\":30,\"importance\":8.19920653085682e-05,\"addresstype\":\"place\",\"name\":\"\",\"display_name\":\"3, Vesterbrogade, Vestervold, Kødbyen, København, Københavns Kommune, Region Hovedstaden, 1620, Danmark\",\"address\":{\"house_number\":\"3\",\"road\":\"Vesterbrogade\",\"quarter\":\"Vestervold\",\"suburb\":\"Kødbyen\",\"city\":\"København\",\"municipality\":\"Københavns Kommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"1620\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.6746040\",\"55.6747040\",\"12.5656090\",\"12.5657090\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "city": "Kbh V",
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "1620",
+    "street": "3 Vesterbrogade"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "venue_name_tivoli__q": {
+   "body": "[{\"place_id\":148493599,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":314752241,\"lat\":\"55.6734161\",\"lon\":\"12.5691819\",\"class\":\"tourism\",\"type\":\"theme_park\",\"place_rank\":30,\"importance\":0.5091519342459956,\"addresstype\":\"tourism\",\"name\":\"Tivoli\",\"display_name\":\"Tivoli, Vesterbrogade, Vestervold, Kødbyen, København, Københavns Kommune, Region Hovedstaden, 1609, Danmark\",\"address\":{\"tourism\":\"Tivoli\",\"road\":\"Vesterbrogade\",\"quarter\":\"Vestervold\",\"suburb\":\"Kødbyen\",\"city\":\"København\",\"municipality\":\"Københavns Kommune\",\"state\":\"Region Hovedstaden\",\"ISO3166-2-lvl4\":\"DK-84\",\"postcode\":\"1609\",\"country\":\"Danmark\",\"country_code\":\"dk\"},\"boundingbox\":[\"55.6717870\",\"55.6750680\",\"12.5653522\",\"12.5718032\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Tivoli, København"
+   },
+   "path": "/search",
+   "status": 200
+  }
+ }
+}

@@ -125,7 +125,7 @@ export default function CustomersPage() {
           {
             title: t("customersStep1Title", "1. B2B clients — search by CVR"),
             body:
-              t("customersStep1Body", "Type a Danish CVR number (8 digits). We auto-fill the company name, address, and postal code from the public CVR + DAWA registers — saves you from typos that nullify a faktura."),
+              t("customersStep1Body", "Type a Danish CVR number (8 digits). We auto-fill the company name, address, and postal code from the public CVR register — saves you from typos that nullify a faktura."),
           },
           {
             title: t("customersStep2Title", "2. Private clients — no CVR"),
@@ -144,7 +144,7 @@ export default function CustomersPage() {
           },
         ]}
         footer={
-          t("customersHowFooter", "CVR numbers are checked against CVR-registeret (Erhvervsstyrelsen). Addresses come from DAWA — Denmark's official address register.")
+          t("customersHowFooter", "CVR numbers are checked against CVR-registeret (Erhvervsstyrelsen). Addresses come from the CVR register too.")
         }
       />
 

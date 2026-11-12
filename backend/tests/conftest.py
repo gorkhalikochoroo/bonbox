@@ -28,9 +28,29 @@ limit still makes its own requests inside the test and still sees its 429.
 The router-level limiters (for example daily_close._limiter) are reset by the
 files that use them, as before.
 """
+import os
 import sys
 
 import pytest
+
+# Address lookups (services/address_lookup.py) fail CLOSED in tests: no
+# register token and OpenStreetMap off, so a test without a stub gets
+# "couldn't check" (UNAVAILABLE) instead of calling the internet. Many PUT
+# /business tests change addresses; they take this no-network path. Set
+# before any test module imports app.config. The opt-in live contract test
+# (test_address_lookup_live.py) gets the real token through the
+# `live_geo_token` fixture below, never through the environment.
+_LIVE_GEO_TOKEN = (
+    os.environ.get("ADDRESS_REGISTER_TOKEN", "")
+    if os.environ.get("BONBOX_LIVE_GEO") == "1" else ""
+)
+os.environ["ADDRESS_REGISTER_TOKEN"] = ""
+os.environ["GEO_OSM_ENABLED"] = "false"
+
+
+@pytest.fixture
+def live_geo_token() -> str:
+    return _LIVE_GEO_TOKEN
 
 
 # Jobs taken off the scheduler in a test run (see _pause_abuse_monitor).
@@ -60,6 +80,10 @@ def _pause_abuse_monitor(main) -> None:
 
 
 def _reset_app_rate_limits() -> None:
+    lookup = sys.modules.get("app.services.address_lookup")
+    if lookup is not None:  # breakers, cache, per-user budget, OSM spacing
+        lookup.reset_state()
+        lookup.set_transport(None)
     signals = sys.modules.get("app.utils.abuse_signals")
     if signals is not None:  # in-process abuse counters (the abuse monitor drains them)
         signals.reset()

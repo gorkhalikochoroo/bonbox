@@ -88,6 +88,19 @@ class Settings(BaseSettings):
     APPLE_CLIENT_ID: str = ""
     APPLE_TEAM_ID: str = ""
     GOOGLE_PLACES_API_KEY: str = ""  # Google Places API (nearby competitor discovery)
+    # Danmarks Adresseregister via Klimadatastyrelsen's Adressevælger /
+    # Adressevask (services/address_lookup.py; DAWA closed 1 Oct 2026). Every
+    # call carries a token. Today KDS publishes one shared token; it is still
+    # treated as a secret (Render env only, never in git, a bundle or a log),
+    # so the registered token KDS will require is only a value change.
+    # Empty = "not configured": the address check answers "couldn't check
+    # right now" and venue pins fall back to OpenStreetMap — safe before the
+    # value is set.
+    ADDRESS_REGISTER_TOKEN: str = ""
+    # OpenStreetMap Nominatim as the venue-pin backup. OSMF's usage policy
+    # requires that we can stop at their request without an app update: set
+    # false in Render.
+    GEO_OSM_ENABLED: bool = True
     ADMIN_EMAIL: str = ""  # Get notified on new signups
     # Operator ops alerts (R-i, services/ops_alert.py): one capped,
     # deduplicated, customer-data-free alert path. Sent only when

@@ -1000,7 +1000,8 @@ function ClockedInStrip() {
 // current location" while standing at the venue to set the anchor; staff
 // clock-in then verifies device distance. Staff location is checked only at
 // the punch, never stored (GDPR) — the staff card shows that notice.
-function ClockGeofenceSettings({ className = "" }) {
+// Exported for its tests (__tests__/addressRegisterFind.test.jsx).
+export function ClockGeofenceSettings({ className = "" }) {
   const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -1079,14 +1080,27 @@ function ClockGeofenceSettings({ className = "" }) {
     setSavedMsg("");
     setFound(null);
     try {
-      const res = await api.post("/staff/clock-geofence/resolve", { query: q });
+      // _noRetry: a lookup is one question, never replayed (api.js would
+      // re-send a 5xx/timed-out POST up to 4 times — a minute-long spinner).
+      const res = await api.post("/staff/clock-geofence/resolve", { query: q }, { _noRetry: true });
       setFound(res.data);
     } catch (err) {
-      setMsg(
-        err?.response?.status === 404
-          ? t("schedGeoNotFound", "Couldn't find that. Try a full address, or paste a map link.")
-          : t("schedGeoErr", "Couldn't save. Try again."),
-      );
+      // 424 = the lookup is down; 404 carries why a vague pin was refused
+      // (street_only / need_postcode / postcode_mismatch). Never "Couldn't
+      // save" — nothing was being saved.
+      const status = err?.response?.status;
+      const reason = err?.response?.data?.detail?.reason;
+      if (status === 424) {
+        setMsg(t("schedGeoLookupDown", "The address lookup isn't answering right now. Try again in a few minutes, or paste a map link."));
+      } else if (status === 404 && reason === "street_only") {
+        setMsg(t("schedGeoStreetOnly", "We found the street, but not that house number. Paste a map link, or stand at the venue and use your location."));
+      } else if (status === 404 && reason === "need_postcode") {
+        setMsg(t("schedGeoNeedPostcode", "That address exists in more than one town. Add the postcode."));
+      } else if (status === 404) {
+        setMsg(t("schedGeoNotFound", "Couldn't find that. Not every venue is on the map — type your street address instead, or paste a map link."));
+      } else {
+        setMsg(t("schedGeoLookupDown", "The address lookup isn't answering right now. Try again in a few minutes, or paste a map link."));
+      }
     } finally {
       setBusy(false);
     }
@@ -1248,6 +1262,18 @@ function ClockGeofenceSettings({ className = "" }) {
                 { m: cfg.radius_m },
               )}
           </p>
+          {/* Data credits (CC BY 4.0 for the register; ODbL for OpenStreetMap,
+              which also asks for visible attribution). */}
+          {found.source === "address" && (
+            <p className="w-full text-[10px] text-gray-400 dark:text-gray-500" data-testid="geo-register-credit">
+              {t("addrRegisterCredit", "Address data: Klimadatastyrelsen")}
+            </p>
+          )}
+          {found.source === "place_name" && (
+            <p className="w-full text-[10px] text-gray-400 dark:text-gray-500" data-testid="geo-osm-credit">
+              {t("schedGeoOsmCredit", "Map data © OpenStreetMap contributors")}
+            </p>
+          )}
         </div>
       )}
       {/* Clock-in TIME window — one toggle, no knobs. Flip it on and staff can't
