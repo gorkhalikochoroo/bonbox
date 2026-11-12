@@ -19,8 +19,10 @@
  *
  * Layout: landscape iPad (≥ 1024 px, landscape) = list left, "Registrér"
  * right (sticky). Portrait / narrow = the list, and a tap opens the panel in
- * ui/Sheet. Tap targets ≥ 56 px, keypad keys ≥ 64 px, 16 px gutter, no
- * sideways scroll. Colours only through ui/CheckStatusPill.
+ * ui/Sheet, TOP-anchored (desktop="top"): the panel grows downward as the
+ * deviation questions appear, so the keypad never moves mid-entry. Tap
+ * targets ≥ 56 px, keypad keys ≥ 64 px, 16 px gutter, no sideways scroll.
+ * Colours only through ui/CheckStatusPill.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -40,7 +42,7 @@ import { MeasurerBar } from "../components/egenkontrol/NamePicker";
 import useNameRound from "../components/egenkontrol/useNameRound";
 import usePendingEntries, { useRecentSaves } from "../components/egenkontrol/usePendingEntries";
 import useScreenWakeLock from "../components/egenkontrol/useScreenWakeLock";
-import { errorCode, formatTemp, longDate } from "../components/egenkontrol/ekLogic";
+import { errorCode, firstReadingLine, formatTemp, longDate } from "../components/egenkontrol/ekLogic";
 import kitchenApi, {
   KITCHEN_TOKEN_RE,
   forgetKitchenToken,
@@ -429,7 +431,7 @@ function KitchenScreen({ token }) {
     checks.length === 0
       ? t("ekKitchenNoChecks")
       : !summary.total
-        ? t("ekKitchenNoScheduled")
+        ? firstReadingLine(checks, today?.business_date, t, lang) || t("ekKitchenNoScheduled")
         : [
             t("ekKitchenProgress", { done: summary.done || 0, total: summary.total }),
             summary.missing ? t("ekKitchenMissing", { count: summary.missing }) : null,
@@ -604,6 +606,7 @@ function KitchenScreen({ token }) {
       {!landscape && sheet && byId[sheet.checkId] ? (
         <Sheet
           onClose={() => setSheet(null)}
+          desktop="top"
           ariaLabel={t("ekRecord")}
           panelClassName="bg-white dark:bg-gray-900 border-t sm:border border-gray-200 dark:border-gray-700"
         >

@@ -10,11 +10,21 @@
  * note → (follow-up on an open deviation) closing fates only → "Hvem målte?"
  * → ONE button whose words say what is still missing (ekLogic.ctaFor).
  *
+ * NOTHING ABOVE THE KEYPAD MOVES WHILE TYPING. The out-of-limit questions
+ * appear BELOW the keys, the "For varmt" line is reserved (Keypad), and the
+ * kitchen and owner Sheets are top-anchored (ui/Sheet desktop="top") — a
+ * centred sheet re-centred as "7" added the questions, and the keys moved
+ * ~200 pt under the cook's finger ("7,1" became "77").
+ *
+ * The button is never a dead end: while it says what is missing it is
+ * aria-disabled, not disabled, and a tap on it scrolls to that step inside
+ * the panel and focuses it (action → food fate → name; also product, value).
+ *
  * The in/out-of-limit colour while typing is a hint; the server decides.
  * A value that is unusual for the check ("51" on a fridge) is asked about
  * once, through useConfirm — never window.confirm.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import Button from "../ui/Button";
 import Chip from "../ui/Chip";
@@ -22,6 +32,7 @@ import CheckStatusPill from "../ui/CheckStatusPill";
 import { useConfirm } from "../../hooks/useConfirm";
 import Keypad from "./Keypad";
 import NamePicker from "./NamePicker";
+import { focusTargetIn, revealField } from "./reveal";
 import {
   ACTION_NOTE_MAX,
   EK_ACTION_KEYS,
@@ -48,6 +59,11 @@ import {
 } from "./ekLogic";
 
 const BIG = "min-h-14! px-4 text-base";
+// The "not ready yet" look of ui/Button's main variant (its disabled: grey),
+// on aria-disabled: the button stays tappable, and a tap goes to what is missing.
+const NOT_READY =
+  "aria-disabled:bg-gray-200 aria-disabled:text-gray-600 aria-disabled:hover:bg-gray-200 " +
+  "dark:aria-disabled:bg-gray-700 dark:aria-disabled:text-gray-300 dark:aria-disabled:hover:bg-gray-700";
 const INPUT =
   "w-full min-h-14! rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 text-base " +
   "text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400";
@@ -55,7 +71,7 @@ const INPUT =
 function ChoiceRow({ legend, codes, keys, value, onChange, other, onOther, otherPlaceholder, highlight, t, idPrefix, name }) {
   const otherId = `${idPrefix}-${name}-other`;
   return (
-    <fieldset className="min-w-0" data-testid={`ek-${name}-row`}>
+    <fieldset className="min-w-0" data-testid={`ek-${name}-row`} data-ek-step={name}>
       <legend className={`text-[15px] font-semibold mb-2 ${highlight ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}`}>
         {legend}
       </legend>
@@ -118,6 +134,10 @@ export default function RecordPanel({
   const [retryClientId, setRetryClientId] = useState(draft?.clientId || null);
   const [confirmedValue, setConfirmedValue] = useState(null);
   const [pickerKey, setPickerKey] = useState(0);
+  // The step a tap on the not-yet-ready button pointed at: its heading turns
+  // red until that step is done (it then no longer equals cta.step).
+  const [nudge, setNudge] = useState(null);
+  const scrollRef = useRef(null);
 
   const receiving = check?.kind === "receiving" || check?.template_key === "receiving";
   const value = parseEntry(entry);
@@ -151,6 +171,14 @@ export default function RecordPanel({
   const missing = new Set(error?.missing || []);
   if (error?.code === "followup_fate_required") missing.add("fate");
   if (error?.code === "name_required" || error?.code === "name_invalid" || error?.code === "staff_gone") missing.add("name");
+  if (nudge && nudge === cta.step) missing.add(nudge);
+
+  // A tap on the button while it says what is missing: go to that step.
+  const guide = (step) => {
+    setNudge(step);
+    const section = scrollRef.current?.querySelector(`[data-ek-step="${step}"]`);
+    if (section) revealField(focusTargetIn(section), section);
+  };
 
   const reset = () => {
     setEntry("");
@@ -168,6 +196,7 @@ export default function RecordPanel({
     setRetryClientId(null);
     setConfirmedValue(null);
     setPickerKey((k) => k + 1);
+    setNudge(null);
   };
 
   const submit = async () => {
@@ -248,7 +277,7 @@ export default function RecordPanel({
   const source = receiving ? (limit ? sourceLine(limit, t) : receivingSourceLine(check, t)) : sourceLine(check.limit, t);
 
   return (
-    <div className="flex flex-col min-h-0" data-testid="ek-record-panel">
+    <div className="flex flex-col grow min-h-0" data-testid="ek-record-panel">
       <div className="flex items-start gap-3 px-4 sm:px-5 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("ekRecord")}</p>
@@ -281,11 +310,13 @@ export default function RecordPanel({
         ) : null}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 py-4 space-y-5">
+      <div ref={scrollRef} data-ek-scroll="" className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 py-4 space-y-5">
         {receiving ? (
           <div className="space-y-3">
-            <fieldset className="min-w-0">
-              <legend className="text-[15px] font-semibold mb-2 text-gray-900 dark:text-gray-100">{t("ekChooseProduct")}</legend>
+            <fieldset className="min-w-0" data-ek-step="product">
+              <legend className={`text-[15px] font-semibold mb-2 ${missing.has("product") ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}`}>
+                {t("ekChooseProduct")}
+              </legend>
               <div className="flex flex-wrap gap-2">
                 {(check.product_limits || []).map((p) => (
                   <Chip
@@ -319,17 +350,19 @@ export default function RecordPanel({
           </div>
         ) : null}
 
-        <Keypad
-          entry={entry}
-          onKey={(k) => {
-            setEntry((e) => nextEntry(e, k));
-            if (error?.code === "value_out_of_range" || error?.code === "too_many_decimals") setError(null);
-          }}
-          lang={lang}
-          t={t}
-          hint={hint}
-          idPrefix={idPrefix}
-        />
+        <div data-ek-step="value">
+          <Keypad
+            entry={entry}
+            onKey={(k) => {
+              setEntry((e) => nextEntry(e, k));
+              if (error?.code === "value_out_of_range" || error?.code === "too_many_decimals") setError(null);
+            }}
+            lang={lang}
+            t={t}
+            hint={hint}
+            idPrefix={idPrefix}
+          />
+        </div>
 
         {out ? (
           <>
@@ -411,10 +444,15 @@ export default function RecordPanel({
         ) : null}
         <Button
           variant="main"
-          className="w-full min-h-14! text-[17px]"
-          disabled={cta.disabled}
+          className={"w-full min-h-14! text-[17px] " + NOT_READY}
+          disabled={saving}
+          aria-disabled={cta.disabled && !saving ? "true" : undefined}
           aria-busy={saving || undefined}
-          onClick={submit}
+          onClick={() => {
+            if (saving) return;
+            if (cta.disabled) guide(cta.step);
+            else submit();
+          }}
           data-testid="ek-save"
         >
           {t(cta.key, cta.vars || undefined)}

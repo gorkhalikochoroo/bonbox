@@ -152,7 +152,7 @@ describe("Hvem målte? — no default, a 2-minute round", () => {
     fireEvent.click(ali());                                    // a temp worker: "not me"
     expect(ali()).toHaveAttribute("aria-pressed", "false");
     expect(cta()).toHaveTextContent(da.ekCtaChooseName);
-    expect(cta()).toBeDisabled();
+    expect(cta()).toHaveAttribute("aria-disabled", "true"); // not ready: a tap goes to the name
     // Picking someone else, then deselecting them, does not bring Ali back either.
     fireEvent.click(screen.getByRole("button", { name: /Bo L\./ }));
     fireEvent.click(screen.getByRole("button", { name: /Bo L\./ }));
@@ -169,7 +169,7 @@ describe("Hvem målte? — no default, a 2-minute round", () => {
     fireEvent.click(screen.getByRole("button", { name: da.ekOtherName }));
     expect(ali()).toHaveAttribute("aria-pressed", "false");
     expect(cta()).toHaveTextContent(da.ekCtaChooseName);
-    expect(cta()).toBeDisabled();
+    expect(cta()).toHaveAttribute("aria-disabled", "true"); // not ready: a tap goes to the name
     await save();
     expect(saves).toHaveLength(1);
     fireEvent.change(screen.getByPlaceholderText(da.ekOtherNamePlaceholder), { target: { value: "Sofie" } });

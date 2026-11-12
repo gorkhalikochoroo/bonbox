@@ -6,6 +6,10 @@
  * The value is held canonically with a comma ("-3,5"); the decimal key reads
  * "," in Danish and "." in English and the display follows. The rules for the
  * next entry live in ekLogic.nextEntry (unit-tested).
+ *
+ * NOTHING ABOVE THE KEYS MOVES WHILE TYPING: the display is one fixed row and
+ * the "For varmt" / "Inden for grænsen" line is reserved before the first
+ * digit (egenkontrol.keypadStill.test.jsx).
  */
 import { Delete } from "lucide-react";
 import { haptic } from "../../utils/haptics";
@@ -29,7 +33,7 @@ export default function Keypad({ entry, onKey, lang = "da", t, disabled = false,
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "0", ","];
   const shown = displayEntry(entry, lang);
   return (
-    <div className="w-full">
+    <div className="w-full" data-testid="ek-keypad">
       <div className="flex items-stretch gap-2 mb-2">
         <div
           id={`${idPrefix}-keypad-display`}
@@ -52,8 +56,14 @@ export default function Keypad({ entry, onKey, lang = "da", t, disabled = false,
           <Delete className="w-7 h-7" strokeWidth={1.75} aria-hidden="true" />
         </button>
       </div>
-      {hint ? <div className="min-h-6 mb-2 text-[15px] leading-snug">{hint}</div> : null}
-      <div className="grid grid-cols-3 gap-2" role="group" aria-label={t("ekRecord")}>
+      {/* The hint line is ALWAYS there, one fixed line high, empty until the
+          first digit: "7" on a 5 °C fridge must not push the keys down under
+          the finger (the second tap then hits the key below — "7,1" became
+          "77"). Never let it wrap: a second line would be the same jump. */}
+      <div className="h-6 mb-2 text-[15px] leading-6 truncate" data-testid="ek-keypad-hint" aria-live="polite">
+        {hint}
+      </div>
+      <div className="grid grid-cols-3 gap-2" role="group" aria-label={t("ekRecord")} data-testid="ek-keypad-keys">
         {keys.map((k) => (
           <button
             key={k}

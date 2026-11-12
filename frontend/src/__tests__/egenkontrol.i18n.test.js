@@ -57,7 +57,7 @@ const KEYS = [
   "ekDeviceRevokeConfirmTitle", "ekDeviceRevokeConfirmBody", "ekDeviceDefaultLabel", "nyqEkMissingOne",
   "nyqEkMissingMany", "nyqEkDeviationOne", "nyqEkDeviationMany", "nyqEkAction", "ekBadgeMissing",
   "ekDeleteNotice", "ekDeleteDownload", "ekErrStaffGone", "ekErrOpenDeviation", "ekFolderFollowupFate",
-  "ekFolderFollowupNote",
+  "ekFolderFollowupNote", "ekFirstReadingTomorrow", "ekFirstReadingOn",
 ];
 
 const MAPS = [

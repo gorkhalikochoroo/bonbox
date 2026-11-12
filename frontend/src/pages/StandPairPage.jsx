@@ -2,8 +2,11 @@
  * Pair this device — the screen you hand someone in a restaurant.
  *
  * Type the six-character code the owner reads out, and this device becomes a
- * host stand bound to their book, with reservations-only reach. No email, no
- * password, nothing typed in front of a prospect.
+ * host stand bound to their book, with reservations-only reach — or, for a
+ * kitchen iPad's code, the egenkontrol screen. So the words under the title
+ * say "only what the owner chose", true for both (never "reservations only"
+ * on a kitchen iPad). No email, no password, nothing typed in front of a
+ * prospect.
  *
  * FINISH. This is the first screen a stranger sees on their own tablet, so it
  * carries the gloss recipe from the design handoff rather than the owner app's
@@ -146,7 +149,7 @@ export default function StandPairPage() {
         <p className="mt-1.5 text-[14px] leading-relaxed text-slate-500">
           {t(
             "standPairBody",
-            "Indtast koden fra ejeren. Enheden viser kun reservationer — aldrig regnskab eller løn.",
+            "Indtast koden fra ejeren. Enheden viser kun det, ejeren har valgt — aldrig regnskab eller løn.",
           )}
         </p>
 

@@ -406,6 +406,47 @@ export function longDate(isoDate, lang = "da") {
   }
 }
 
+/** Whole days from one YYYY-MM-DD business date to another (null if either is bad). */
+function businessDayDiff(from, to) {
+  const ok = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  if (!ok(from) || !ok(to)) return null;
+  const ms = (v) => {
+    const [y, m, d] = v.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((ms(to) - ms(from)) / 86400000);
+}
+
+/**
+ * The header line on a day with no scheduled reading (summary.total 0) when a
+ * check's first reading is on a LATER business day: set up at 20:36, the
+ * daily 08:00 fridge has no slot today (its due time had passed), and "Ingen
+ * faste målinger i dag" read as if nothing were ever due. The server sends
+ * that next slot (status_today's upcoming, slot_is_today false); this says
+ * "Første måling i morgen kl. 08:00" / "Første måling mandag kl. 08:00" from
+ * the earliest one. Business days (the venue's 06:00 day), like the header's
+ * "I dag". Null when no check has one — the caller keeps "Ingen faste
+ * målinger i dag", which is then true.
+ */
+export function firstReadingLine(checks, businessDate, t, lang = "da") {
+  const next = (Array.isArray(checks) ? checks : [])
+    .filter((c) => c?.slot && c.slot_is_today === false && c.slot.due_local && Number.isFinite(Date.parse(c.slot.due_at)))
+    .map((c) => ({ slot: c.slot, days: businessDayDiff(businessDate, c.slot.business_date) }))
+    .filter((x) => Number.isInteger(x.days) && x.days >= 1)
+    .sort((a, b) => Date.parse(a.slot.due_at) - Date.parse(b.slot.due_at))[0];
+  if (!next) return null;
+  const time = next.slot.due_local;
+  if (next.days === 1) return t("ekFirstReadingTomorrow", { time });
+  let day;
+  if (next.days <= 6) {
+    const [y, m, d] = next.slot.business_date.split("-").map(Number);
+    day = weekdayName((new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7, lang);
+  } else {
+    day = longDate(next.slot.business_date, lang);
+  }
+  return day ? t("ekFirstReadingOn", { day, time }) : null;
+}
+
 /** The row's limit words: "5,0 °C eller koldere" / "Kølevare ≤ 5,0 °C · Fisk ≤ 2,0 °C · …". */
 export function limitLine(check, t, lang) {
   if (!check) return "";

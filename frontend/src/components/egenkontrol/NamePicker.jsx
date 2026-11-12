@@ -4,10 +4,16 @@
  * Nothing is pre-selected: the value comes from the parent, which starts at
  * none (useNameRound). The line under it says the name is saved with the
  * reading — it is a record, not a login.
+ *
+ * "Andet navn" opens the name field already focused and scrolled into view
+ * (in the tap's own handler, so the iPad raises its keyboard): on the kitchen
+ * iPad it opened half hidden and unfocused, and the typed letters went nowhere.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import Chip from "../ui/Chip";
 import { TYPED_NAME_MAX } from "./ekLogic";
+import { revealField } from "./reveal";
 import { whoLabel } from "./useNameRound";
 
 const BIG = "min-h-14! px-4 text-base";
@@ -19,9 +25,10 @@ export default function NamePicker({ staff = [], value = null, onChange, t, disa
   const otherOpen = localOpen || typed;
   const text = typed ? value.name : localText;
   const inputId = `${idPrefix}-other-name`;
+  const inputRef = useRef(null);
 
   return (
-    <fieldset className="min-w-0" data-testid="ek-name-picker">
+    <fieldset className="min-w-0" data-testid="ek-name-picker" data-ek-step="name">
       <legend className={`text-[15px] font-semibold mb-2 ${highlight ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}`}>
         {t("ekWhoMeasured")}
       </legend>
@@ -58,8 +65,12 @@ export default function NamePicker({ staff = [], value = null, onChange, t, disa
               setLocalText("");
               if (typed) onChange(null);
             } else {
-              setLocalOpen(true);
-              if (value) onChange(null);
+              // Render the field NOW, then focus it inside this same tap.
+              flushSync(() => {
+                setLocalOpen(true);
+                if (value) onChange(null);
+              });
+              revealField(inputRef.current);
             }
           }}
         >
@@ -70,6 +81,7 @@ export default function NamePicker({ staff = [], value = null, onChange, t, disa
         <div className="mt-2">
           <label htmlFor={inputId} className="sr-only">{t("ekOtherName")}</label>
           <input
+            ref={inputRef}
             id={inputId}
             type="text"
             value={text}

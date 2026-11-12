@@ -48,6 +48,7 @@ import usePendingEntries, { useRecentSaves } from "../components/egenkontrol/use
 import {
   EK_TEMPLATE_KEYS,
   errorCode,
+  firstReadingLine,
   formatTemp,
   limitLine,
   receivingSourceLine,
@@ -343,7 +344,7 @@ export default function EgenkontrolPage() {
 
   const summary = today?.summary || {};
   const progress = !summary.total
-    ? t("ekKitchenNoScheduled")
+    ? firstReadingLine(checks, today?.business_date, t, lang) || t("ekKitchenNoScheduled")
     : [
         t("ekKitchenProgress", { done: summary.done || 0, total: summary.total }),
         summary.missing ? t("ekKitchenMissing", { count: summary.missing }) : null,
@@ -543,6 +544,7 @@ export default function EgenkontrolPage() {
       {!wide && isOwner && panelCheck ? (
         <Sheet
           onClose={() => setPanel(null)}
+          desktop="top"
           ariaLabel={t("ekRecord")}
           panelClassName="bg-white dark:bg-gray-900 border-t sm:border border-gray-200 dark:border-gray-700"
         >

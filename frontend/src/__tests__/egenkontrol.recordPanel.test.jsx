@@ -85,20 +85,21 @@ describe("the save button says what is still missing", () => {
   it("plan sequence on a 5 °C fridge: Indtast → Vælg hvad du gjorde → Hvad skete der med maden? → Gem 7,1 °C", () => {
     renderPanel();
     expect(saveButton()).toHaveTextContent("Indtast temperatur");
-    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toHaveAttribute("aria-disabled", "true"); // not ready: a tap goes to the missing step
 
     keys("7", ",", "1");
     expect(saveButton()).toHaveTextContent("Vælg hvad du gjorde");
-    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toHaveAttribute("aria-disabled", "true"); // not ready: a tap goes to the missing step
     expect(screen.getByText(da.ekTooWarm)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: da.ekActThermostatAdjusted }));
     expect(saveButton()).toHaveTextContent("Hvad skete der med maden?");
-    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toHaveAttribute("aria-disabled", "true"); // not ready: a tap goes to the missing step
 
     fireEvent.click(screen.getByRole("button", { name: da.ekFateMoved }));
     expect(saveButton()).toHaveTextContent("Gem 7,1 °C");
     expect(saveButton()).toBeEnabled();
+    expect(saveButton()).not.toHaveAttribute("aria-disabled");
   });
 
   it("in limit: straight to 'Gem 3,1 °C' with no action rows", () => {
@@ -113,7 +114,7 @@ describe("the save button says what is still missing", () => {
     renderPanel({ heldWho: null });
     keys("3", ",", "1");
     expect(saveButton()).toHaveTextContent("Vælg hvem der målte");
-    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toHaveAttribute("aria-disabled", "true"); // not ready: a tap goes to the missing step
     expect(screen.getByRole("button", { name: /Ali K\./ })).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(screen.getByRole("button", { name: /Ali K\./ }));
     expect(saveButton()).toHaveTextContent("Gem 3,1 °C");
