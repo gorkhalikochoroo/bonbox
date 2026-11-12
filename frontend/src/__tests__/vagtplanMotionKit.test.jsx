@@ -60,7 +60,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal (and the reservations surface and the v7 landing) only", () => {
+describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal (and the reservations surface, the v7 landing and the owner app's I dag) only", () => {
   const files = walk(SRC);
   const importers = (pkg) => files
     .filter((f) => read(path.relative(SRC, f)).includes(pkg))
@@ -69,13 +69,18 @@ describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal (and th
 
   // Landing v7 (12 Nov 2026): the v7 landing draws in the same house family, from its own lazy chunk
   // (components/landing/v7/styles.js); still never the app entry.
-  it("only the portal entry (the page + its vagtplan.css), the reservations surface and the v7 landing's chunk reference them; main.jsx does not", () => {
-    // Reservations v2 (12 Nov 2026): the owner reservations page and the host
-    // stand wear the same Orvexlo type, through their own scoped stylesheet
-    // (components/reservations/rv2.css, imported by ReservationsPage only —
-    // a lazy chunk, never main.jsx or the landing).
-    expect(importers("@fontsource/sora")).toEqual(["components/landing/v7/styles.js", "components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
-    expect(importers("@fontsource/dm-sans")).toEqual(["components/landing/v7/styles.js", "components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+  // Reservations v2 (12 Nov 2026): the owner reservations page and the host
+  // stand wear the same Orvexlo type, through their own scoped stylesheet
+  // (components/reservations/rv2.css, imported by ReservationsPage only —
+  // a lazy chunk, never main.jsx or the landing).
+  // I dag (Nov 2026): the I dag rail + page bring the house family to the
+  // owner app — Manoj's type rule — through ONE module,
+  // components/today/houseFonts.js (+ its today.css latin-ext rules).
+  it("only the portal entry (the page + its vagtplan.css), the reservations surface, the v7 landing's chunk and the owner app's I dag type (houseFonts + today.css) reference them; main.jsx does not", () => {
+    const OWNER = ["components/today/houseFonts.js", "components/today/today.css"];
+    const HOUSE = [...OWNER, "components/landing/v7/styles.js", "components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"].sort();
+    expect(importers("@fontsource/sora")).toEqual(HOUSE);
+    expect(importers("@fontsource/dm-sans")).toEqual(HOUSE);
     expect(importers("reservations/rv2.css")).toEqual(["pages/ReservationsPage.jsx"]);
     expect(read("main.jsx")).not.toMatch(/sora|dm-sans/i);
     // The stylesheet itself is imported by the portal page and nowhere else.

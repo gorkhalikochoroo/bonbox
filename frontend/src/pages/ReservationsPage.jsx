@@ -4959,6 +4959,26 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     setSeatTarget(SEAT_WALK_IN_PICK);
   };
 
+  // ── Deep-link: /reservations?new=1 | ?walkin=1 (the I dag page, Nov 2026) ─
+  // "Ny booking" and "Walk-in" on I dag open the SAME sheets the header's own
+  // buttons open, then drop the flag so a reload or Back never re-opens them.
+  // Owner book only — the host stand has its own controls.
+  const quickOpenDone = useRef(false);
+  useEffect(() => {
+    if (standalone || quickOpenDone.current) return;
+    const wantsNew = searchParams.get("new") === "1";
+    const wantsWalkIn = searchParams.get("walkin") === "1";
+    if (!wantsNew && !wantsWalkIn) return;
+    quickOpenDone.current = true;
+    if (wantsNew) openNewBooking();
+    else openSeatWalkIn();
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    next.delete("walkin");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, standalone]);
+
   // Assign / move / clear the booking's table from the detail drawer.
   // PATCH then refetch (no in-place object patching — the memo-on-identity
   // trap) and re-point the drawer at the fresh row so it shows the new table.

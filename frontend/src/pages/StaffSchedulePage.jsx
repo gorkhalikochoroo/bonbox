@@ -84,7 +84,7 @@ const TOOL_PHONE = PHONE_CTRL + " max-sm:px-1.5 max-sm:min-w-10";
 // the top and Tilføj vagt sat below the fold with nothing to scroll.
 // Sheet gives the bottom sheet, the cap, the scroll and the pinned footer.
 import Sheet from "../components/ui/Sheet";
-import { useLocation, Link as RouterLink } from "react-router-dom";
+import { useLocation, useNavigate, Link as RouterLink } from "react-router-dom";
 import { bookingModeFor } from "../config/venueProfiles";
 import ClaimQuestionResend from "../components/ClaimQuestionResend";
 import { heldReasonForUser, heldReasonFromError, HELD_CLAIM_OPEN } from "../utils/senderGate";
@@ -2373,6 +2373,29 @@ export default function StaffSchedulePage() {
     setPublishing(false);
   };
 
+  // I dag's "Kræver dig → Udgiv" lands here as ?week=YYYY-MM-DD&publish=1.
+  // It opens THIS page's publish sheet for that week — the Shield 11h/48h
+  // warnings, who has no e-mail, a held mail — once the week and the roster
+  // have been read; I dag never publishes blind. Once per arrival, and the
+  // flag leaves the URL (a reload or Back does not ask again). A week that
+  // could not be read, or has nothing in draft, just shows the week.
+  const navigate = useNavigate();
+  const publishAskedRef = useRef(false);
+  const wantsPublish = new URLSearchParams(location.search).get("publish") === "1";
+  useEffect(() => {
+    if (!wantsPublish || publishAskedRef.current) return;
+    if (loading || staffQ.loading || shiftsQ.loading) return;
+    publishAskedRef.current = true;
+    const q = new URLSearchParams(location.search);
+    q.delete("publish");
+    const rest = q.toString();
+    navigate({ pathname: location.pathname, search: rest ? `?${rest}` : "" }, { replace: true });
+    if (!loadFailed && draftCount > 0) requestPublish();
+    // requestPublish is read at the moment the week is in — the deps below
+    // are exactly the "is it in" facts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsPublish, loading, staffQ.loading, shiftsQ.loading, loadFailed, draftCount]);
+
   const [exporting, setExporting] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailToast, setEmailToast] = useState("");
@@ -4145,7 +4168,11 @@ export default function StaffSchedulePage() {
               <div className="text-right border-l border-gray-200 dark:border-gray-700 pl-5">
                 <div className="flex items-center justify-end gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                   <Icon name="TrendingUp" size={13} />
-                  <span>{t("schedLaborPct")}</span>
+                  {/* The basis, said: this week-cost figure still divides by
+                      revenue INCLUDING MOMS, while I dag's Timer card shows
+                      Manoj's ex-MOMS lønprocent (20 Oct). Two numbers for one
+                      week must say why they differ until week-cost moves. */}
+                  <span>{t("schedLaborPct")} · {t("schedLaborPctInclMoms")}</span>
                 </div>
                 {weekSummary.hasRevenue && weekSummary.laborPct != null ? (
                   <>
@@ -6743,7 +6770,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
             <span className="ml-auto flex items-center gap-1 pl-1 flex-shrink-0">
               {/* 11px floor. The strip is still one line at 320px: the "N på
                   vagt" span carries min-w-0 truncate and absorbs the ~5px. */}
-              <span className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              <span className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500" title={`${t("schedLaborPct")} ${t("schedLaborPctInclMoms")}`}>
                 {t("schedLaborPct")}
               </span>
               {dayStats.hasRevenue && dayStats.laborPct != null ? (

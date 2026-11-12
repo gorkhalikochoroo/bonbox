@@ -469,3 +469,38 @@ describe("no e-mail on file: the sheet before publishing and the result after sa
     expect(within(after).queryByText(/får besked i appen/)).toBeNull();
   }, 15000);
 });
+
+describe("I dag's Udgiv lands on this sheet, never on a blind publish", () => {
+  const monday = (() => {
+    const d = new Date();
+    const back = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - back);
+    return iso(d);
+  })();
+  async function arrive(search) {
+    localStorage.setItem("lang", "da");
+    refreshUser.mockResolvedValue(ME.confirmed);
+    await act(async () => {
+      render(
+        <MemoryRouter initialEntries={[`/staff/schedule${search}`]}>
+          <LanguageProvider>
+            <StaffSchedulePage />
+          </LanguageProvider>
+        </MemoryRouter>,
+      );
+    });
+    await screen.findAllByText(TIME.da, {}, { timeout: 8000 });
+  }
+
+  it("?week=…&publish=1 opens 'Udgiv denne uge?' with its own warnings — and publishes nothing by itself", async () => {
+    await arrive(`?week=${monday}&publish=1`);
+    const sheet = await screen.findByRole("dialog", { name: SHEET_NAME.da }, { timeout: 8000 });
+    expect(noteIn(sheet).textContent).toBe(DA.todayNoPush);
+    expect(api.post.mock.calls.filter(([u]) => String(u).includes("/staff/schedules/publish"))).toHaveLength(0);
+  }, 15000);
+
+  it("without the flag the week just shows", async () => {
+    await arrive(`?week=${monday}`);
+    expect(screen.queryByRole("dialog", { name: SHEET_NAME.da })).toBeNull();
+  }, 15000);
+});

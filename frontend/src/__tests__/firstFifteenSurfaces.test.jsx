@@ -101,7 +101,11 @@ describe("Kom i gang — switched-on features are offered first, under their pag
     const setupAt = layout.indexOf('<PillarDiscovery variant="sidebar" only="setup"');
     expect(setupAt).toBeGreaterThan(-1);
     // Inside the core spine: before the first collapsible group's header.
-    expect(setupAt).toBeLessThan(layout.indexOf("onClick={() => toggleGroup(group.id)}"));
+    // (Nov 2026, the I dag rail: the collapsible header's toggle now passes
+    // the section's default — same anchor, new text.)
+    const firstToggle = layout.indexOf("onClick={() => setOpenGroups((prev) => toggleNavGroup(prev, group.id, defaultOpen))}");
+    expect(firstToggle).toBeGreaterThan(-1);
+    expect(setupAt).toBeLessThan(firstToggle);
   });
 });
 

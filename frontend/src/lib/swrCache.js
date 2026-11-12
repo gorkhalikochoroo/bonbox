@@ -60,6 +60,8 @@ export const GET_ALLOW = new Set([
   // venue is "Sidste lukning" from this list. Not kept, a return to Home drew
   // "I dag indtil nu 0 kr." until it answered (rev-1/rev-2, 16 Oct).
   "/daily-close",
+  // The I dag page (Nov 2026) — owner-only, same account/shared-device rules.
+  "/today",
 ]);
 
 // POSTs that change no figure Home shows: analytics and crash beacons, and
@@ -178,6 +180,21 @@ export function noteWrite(url) {
   const p = _path(url);
   if (WRITE_IGNORE.some((re) => re.test(p))) return;
   _clear();
+  for (const fn of _writeListeners) {
+    try { fn(p); } catch { /* a listener never fails the request */ }
+  }
+}
+
+// Who wants to know that a write answered (the same writes that throw the
+// copy away). The I dag rail's badges (hooks/useNavBadges) re-read on it, so
+// answering a booking or publishing the week clears "Reservationer 1" /
+// "Vagtplan 6" at once — no page has to remember to say so.
+const _writeListeners = new Set();
+/** Subscribe to answered writes; returns the unsubscribe. */
+export function onWrite(fn) {
+  if (typeof fn !== "function") return () => {};
+  _writeListeners.add(fn);
+  return () => { _writeListeners.delete(fn); };
 }
 
 // The app's freshness bus: whoever changed data says so, and Home's copy is

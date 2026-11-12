@@ -423,6 +423,8 @@ const CookiePolicyPage = lazyRetry(() => import("./pages/CookiePolicyPage"));
 const Layout = lazyRetry(() => import("./components/Layout"));
 const ForgotPasswordPage = lazyRetry(() => import("./pages/ForgotPasswordPage"));
 const DashboardPage = lazyRetry(() => import("./pages/DashboardPage"));
+// /dashboard is the I dag page (Nov 2026); the previous Home is /home ("Fuldt overblik").
+const TodayPage = lazyRetry(() => import("./pages/TodayPage"));
 // D (speed push, 15 Oct) — a returning owner opening Home: start fetching the
 // app shell and Home's own code NOW, alongside the session check, instead of
 // after it has answered (on a phone over 4G that was a second serial wait).
@@ -438,7 +440,7 @@ if (import.meta.env.VITE_APP_MODE !== "scheduler") {
       /^\/(dashboard\/?)?$/.test(window.location.pathname)
     ) {
       import("./components/Layout").catch(() => {});
-      import("./pages/DashboardPage").catch(() => {});
+      import("./pages/TodayPage").catch(() => {});
     }
   } catch {
     /* storage blocked — no head start, nothing else changes */
@@ -972,7 +974,8 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         >
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard" element={<TodayPage />} />
+          <Route path="/home" element={<DashboardPage />} />
           <Route path="/sales" element={<SalesPage />} />
           {/* EVENTS pillar. A hidden pillar shows the PillarGate interstitial
               (one tap to re-enable) instead of the page. */}

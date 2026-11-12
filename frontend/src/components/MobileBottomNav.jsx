@@ -40,7 +40,7 @@ const CENTER_FALLBACK = { business: "/sales", personal: "/personal" };
  *   vertical modules from Layout's /modules read — null until it has answered
  *   (unknown never switches a tab off).
  */
-export default function MobileBottomNav({ enabledModules = null } = {}) {
+export default function MobileBottomNav({ enabledModules = null, badges = null } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { branchType } = useBranch();
@@ -146,7 +146,8 @@ export default function MobileBottomNav({ enabledModules = null } = {}) {
               end={tab.to === "/dashboard"}
               aria-current={isActive ? "page" : undefined}
               aria-label={label}
-              className={`flex flex-col items-center justify-center w-16 h-14 transition
+              /* td-tab: the dock press (today.css) — .96 down, spring back. */
+              className={`td-tab flex flex-col items-center justify-center w-16 h-14 transition
                 focus-visible:outline-none focus-visible:ring-2
                 focus-visible:ring-gray-400 focus-visible:ring-inset
                 ${isActive
@@ -155,7 +156,15 @@ export default function MobileBottomNav({ enabledModules = null } = {}) {
                   // gray-500 is 4.39:1 under a 10px label. Dark unchanged.
                   : "text-gray-600 dark:text-gray-400"}`}
             >
-              <Icon name={tab.icon} size={20} strokeWidth={1.75} />
+              <span className="relative inline-flex">
+                <Icon name={tab.icon} size={20} strokeWidth={1.75} />
+                {/* An ACTIONABLE count only (useNavBadges, Layout): bookings
+                    waiting for an answer, draft shifts, a missing
+                    kasserapport — a dot, the number is on the rail and page. */}
+                {badges && badges[tab.to] && (
+                  <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-gray-900" aria-hidden="true" />
+                )}
+              </span>
               <span className="text-[10px] mt-0.5 font-medium" aria-hidden="true">
                 {label}
               </span>

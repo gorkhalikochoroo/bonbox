@@ -1,0 +1,554 @@
+/* I dag (Nov 2026 redesign) — the house type on the owner app + the page's
+ * own tokens. Imported by components/today/houseFonts.js, which Layout and the
+ * I dag page import (one rule set; the rail and the page share it).
+ *
+ * Type: Sora (headings, numbers) + DM Sans (body) — the Orvexlo house family,
+ * self-hosted (CSP font-src 'self'). The latin file per weight comes from
+ * houseFonts.js; the extended-Latin faces below carry a unicode-range, so they
+ * download only when a name needs them (same rules as vagtplan.css).
+ *
+ * Colour: the canvas's warm neutrals as tokens, light + dark. Status hues are
+ * hex, never Tailwind green-* (index.css remaps green to the brand accent).
+ * Layout: CONTAINER queries on .td-page, so the page answers to the width it
+ * actually has (rail open or hidden, iPad either way), not the window's.
+ */
+@font-face {
+  font-family: 'Sora';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/sora/files/sora-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Sora';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/sora/files/sora-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/dm-sans/files/dm-sans-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/dm-sans/files/dm-sans-latin-ext-500-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/dm-sans/files/dm-sans-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/dm-sans/files/dm-sans-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+.td-page, .td-rail {
+  --td-ink: #1A1917;
+  --td-ink-2: #4A4640;
+  --td-muted: #6F6A63;
+  --td-faint: #A9A39A;
+  --td-card: #FFFFFF;
+  --td-line: #E6E2DA;
+  --td-line-2: #EFECE5;
+  --td-chip: #EFECE5;
+  --td-head: #F7F5F0;
+  --td-hover: #FBF8F1;
+  --td-green: #3F7A5C;
+  --td-green-dot: #2F7A55;
+  --td-green-soft: #EDF1EC;
+  --td-amber: #8A6A2E;
+  --td-amber-dot: #B88A3B;
+  --td-amber-soft: #F4EEE1;
+  --td-red: #B5523A;
+  --td-red-ink: #8E3A26;
+  --td-red-soft: #F6E8E3;
+  --td-brass: #C8A464;
+  --td-brass-line: #B08A45;
+  --td-hero: #1A1917;
+  --td-hero-ink: #F7F5F0;
+  --td-heat-1: #D7E3DA;
+  --td-heat-2: #A9C4B4;
+  --td-heat-3: #3F7A5C;
+  --td-rail-bg: #EFECE5;
+  font-family: "DM Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.dark .td-page, .dark .td-rail {
+  --td-ink: #F3F2EE;
+  --td-ink-2: #D6D3CC;
+  --td-muted: #A8A39A;
+  --td-faint: #8C877E;
+  --td-card: #1F2937;
+  --td-line: #374151;
+  --td-line-2: #2B3544;
+  --td-chip: #2B3544;
+  --td-head: #18212F;
+  --td-hover: #243042;
+  --td-green: #7CC9A0;
+  --td-green-dot: #7CC9A0;
+  --td-green-soft: rgba(124, 201, 160, 0.14);
+  --td-amber: #E3C98F;
+  --td-amber-dot: #E3C98F;
+  --td-amber-soft: rgba(227, 201, 143, 0.13);
+  --td-red: #F0A08A;
+  --td-red-ink: #F0A08A;
+  --td-red-soft: rgba(240, 160, 138, 0.13);
+  --td-hero: #0E1116;
+  --td-heat-1: #2E4A3C;
+  --td-heat-2: #3F7A5C;
+  --td-heat-3: #7CC9A0;
+  --td-rail-bg: #1F2937;
+}
+.td-num, .td-h { font-family: "Sora", "DM Sans", "Inter", system-ui, sans-serif; }
+.td-num { font-variant-numeric: tabular-nums; }
+
+/* Motion tokens: the Orvexlo kit's values, the same numbers Vagtplan carries
+   (ORVEXLO-MOTION-KIT.md). The page, the rail and the phone tab bar's items. */
+.td-page, .td-rail, .td-tab {
+  --td-dur-press: 0.11s;
+  --td-dur-fast: 0.18s;
+  --td-dur-base: 0.32s;
+  --td-dur-slow: 0.64s;
+  --td-dur-spring: 0.5s;
+  --td-ease-out: cubic-bezier(.2, .8, .2, 1);
+  --td-ease-in: cubic-bezier(.4, 0, 1, 1);
+  /* Springs: cubic-bezier where linear() is not understood (iOS < 17.2) … */
+  --td-spring: cubic-bezier(.34, 1.4, .64, 1);
+  --td-spring-soft: cubic-bezier(.3, 1.15, .5, 1);
+  --td-press-tint: rgba(26, 25, 23, .06);
+}
+.dark .td-page, .dark .td-rail { --td-press-tint: rgba(255, 255, 255, .06); }
+/* … and the real curve where it is. */
+@supports (transition-timing-function: linear(0, 1)) {
+  .td-page, .td-rail, .td-tab {
+    --td-spring: linear(0, .014 1.8%, .061 3.8%, .151 6.3%, .327 10%, .65 16.5%, .808 20.3%, .926 23.8%, 1.012 27.3%, 1.071 31%, 1.103 35%, 1.109 40%, 1.076 48%, 1.011 61.3%, .989 72.5%, 1);
+    --td-spring-soft: linear(0, .017 2%, .067 4.3%, .169 7.2%, .583 17.3%, .73 21.5%, .84 25.5%, .925 29.8%, .986 34.5%, 1.024 40%, 1.038 47.5%, 1.001 81.3%, 1);
+  }
+}
+
+/* ── page frame ─────────────────────────────────────────────────────────── */
+.td-page {
+  container-type: inline-size;
+  color: var(--td-ink);
+  padding: 8px clamp(16px, 3vw, 40px) 48px;
+}
+.td-wrap { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.td-card {
+  background: var(--td-card);
+  border: 1px solid var(--td-line);
+  border-radius: 14px;
+  overflow: hidden;
+  min-width: 0;
+}
+.td-card-h { padding: 16px 20px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.td-card-title { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.td-sub { margin: 0; font-size: 13px; color: var(--td-muted); }
+.td-link { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 4px; color: var(--td-green); font-size: 13.5px; font-weight: 600; text-decoration: none; border-radius: 10px; }
+.td-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.td-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 16px; border-radius: 12px;
+  border: 1px solid var(--td-line); background: var(--td-card); color: var(--td-ink);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  text-decoration: none;
+}
+.td-btn:hover { background: var(--td-hover); }
+.td-btn-brass { border-color: var(--td-brass-line); color: var(--td-amber); background: transparent; font-weight: 700; }
+.td-btn-sm { height: 40px; padding: 0 14px; font-size: 13px; border-radius: 10px; }
+.td-btn-soft { background: var(--td-green-soft); border-color: var(--td-green-soft); }
+.td-btn:focus-visible, .td-link:focus-visible, .td-row:focus-visible, .td-seg button:focus-visible, .td-step:focus-visible {
+  outline: 2px solid var(--td-brass); outline-offset: 2px;
+}
+.td-row:hover { background: var(--td-hover); }
+
+/* ── press (Vagtplan's feel, PREMIUM-FEEL-SPEC 1.3) ────────────────────── */
+/* Down in 0.11 s, back on the spring with a little overshoot (BeloBag's
+   pressable). `scale`, never `transform`, so it composes with a translate.
+   A finger presses from data-pressed, which components/staff/pressFeel.js
+   (installed by the page) puts on the touched control: a stand-alone card
+   and a grouped row only 70 ms in, so a scroll that starts on them never
+   flashes. Mouse and keyboard keep :active. Buttons .97, small icon buttons
+   .94, stand-alone cards (.vp-row, the hero's tiles) .985; a grouped row
+   (.vp-tint: one among others in one card) tints and never shrinks — the
+   plain-control rules below skip it, as Vagtplan's do. */
+.td-page :is(.td-btn, .td-link, .td-tile, .td-x, .td-seg button) {
+  transition:
+    scale var(--td-dur-spring) var(--td-spring),
+    opacity var(--td-dur-press) var(--td-ease-out),
+    background-color var(--td-dur-fast) var(--td-ease-out),
+    color var(--td-dur-fast) var(--td-ease-out),
+    box-shadow var(--td-dur-fast) var(--td-ease-out);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.td-page .td-row {
+  transition: background-color var(--td-dur-fast) var(--td-ease-out);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+}
+/* index.css presses every button and link on :active under pointer: coarse,
+   and :active also fires as a scroll starts: on this page a finger presses
+   only from data-pressed. :where() keeps these two below the rules after. */
+html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"])):active { scale: none; }
+html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"]):not(.vp-tint))[data-pressed]:not(:disabled) { scale: .97; }
+html:not([data-modality="touch"]) .td-page :is(.td-btn, .td-link, .td-seg button):active:not(:disabled),
+html[data-modality="touch"] .td-page :is(.td-btn, .td-link, .td-seg button)[data-pressed]:not(:disabled) {
+  scale: .97;
+  transition-duration: var(--td-dur-press);
+  transition-timing-function: var(--td-ease-out);
+}
+html:not([data-modality="touch"]) .td-page .td-x:active:not(:disabled),
+html[data-modality="touch"] .td-page .td-x[data-pressed]:not(:disabled) {
+  scale: .94;
+  transition-duration: var(--td-dur-press);
+  transition-timing-function: var(--td-ease-out);
+}
+html:not([data-modality="touch"]) .td-page .td-tile:active,
+html[data-modality="touch"] .td-page .td-tile[data-pressed] {
+  scale: .985;
+  transition-duration: var(--td-dur-press);
+  transition-timing-function: var(--td-ease-out);
+}
+html:not([data-modality="touch"]) .td-page .td-row.vp-tint:active,
+html[data-modality="touch"] .td-page .td-row.vp-tint[data-pressed] {
+  scale: none;
+  background-color: var(--td-press-tint);
+  transition-duration: 0s;
+}
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+.td-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; }
+.td-head-date { margin: 0; font-size: 13px; font-weight: 500; color: var(--td-muted); font-variant-numeric: tabular-nums; }
+.td-head-h1 { margin: 4px 0 0; font-size: clamp(28px, 3vw, 40px); font-weight: 600; letter-spacing: -0.035em; line-height: 1.05; }
+.td-head-sum { margin: 6px 0 0; font-size: 15.5px; color: var(--td-muted); max-width: 640px; text-wrap: pretty; }
+.td-head-sum a { color: var(--td-green); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.td-head-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.td-quick { display: none; }
+
+/* ── hero ───────────────────────────────────────────────────────────────── */
+.td-hero {
+  background: var(--td-hero); color: var(--td-hero-ink);
+  border-radius: 16px; padding: 22px; display: flex; flex-wrap: wrap; gap: 20px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 30px 60px -44px rgba(26,25,23,0.9);
+}
+.td-hero-stats { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.td-hero-top { display: flex; align-items: center; gap: 10px; }
+.td-hero-h { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.td-pill { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 999px; background: rgba(247,245,240,0.08); font-size: 12.5px; font-weight: 600; }
+.td-pill-dot { width: 7px; height: 7px; border-radius: 50%; }
+.td-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.td-tile { padding: 14px 16px; border-radius: 16px; background: rgba(247,245,240,0.06); border: 1px solid rgba(247,245,240,0.08); display: flex; flex-direction: column; gap: 4px; min-width: 0; color: inherit; text-decoration: none; }
+a.td-tile:hover { background: rgba(247,245,240,0.10); }
+.td-tile-l { font-size: 12.5px; color: #A9A39A; }
+.td-tile-v { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-tile-v.is-word { font-size: 21px; white-space: normal; overflow: visible; text-wrap: balance; }
+.td-tile-s { font-size: 12.5px; line-height: 1.35; color: #A9A39A; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.td-tile-s.is-brass { color: #E3C98F; }
+.td-chart { flex: 1.5 1 440px; min-width: 0; border-radius: 18px; background: rgba(247,245,240,0.05); border: 1px solid rgba(247,245,240,0.1); padding: 16px 18px 12px; display: flex; flex-direction: column; gap: 12px; }
+.td-chart-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.td-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: #A9A39A; }
+.td-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.td-sw { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.td-plot { position: relative; padding-top: 22px; }
+.td-lane { display: flex; align-items: flex-end; gap: 12px; }
+.td-lane-l { width: 52px; flex: none; font-size: 11.5px; color: #A9A39A; }
+.td-bars { flex: 1; min-width: 0; height: 72px; display: flex; align-items: flex-end; gap: 2px; border-top: 1px dashed rgba(247,245,240,0.18); }
+.td-bar { flex: 1; min-width: 0; border-radius: 3px 3px 1px 1px; transform-origin: bottom; }
+.td-shifts { flex: 1; min-width: 0; position: relative; }
+.td-shift { position: absolute; height: 6px; border-radius: 3px; transform-origin: left; }
+.td-axis { flex: 1; min-width: 0; position: relative; height: 16px; font-size: 11px; color: #A9A39A; font-variant-numeric: tabular-nums; }
+.td-axis span { position: absolute; white-space: nowrap; }
+.td-marks { position: absolute; left: 64px; right: 0; top: 0; bottom: 22px; pointer-events: none; }
+.td-now { position: absolute; top: 20px; bottom: 0; width: 2px; margin-left: -1px; background: #F7F5F0; border-radius: 1px; }
+.td-now-l { position: absolute; top: 0; transform: translateX(-50%); padding: 1px 6px; border-radius: 6px; background: #F7F5F0; color: #1A1917; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.td-closeline { position: absolute; top: 20px; bottom: 0; border-left: 1px dashed rgba(200,164,100,0.55); }
+.td-closeline-l { position: absolute; top: 1px; transform: translateX(-50%); font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; color: var(--td-brass); white-space: nowrap; }
+
+/* ── the visit's one intro (todayMotion.jsx puts td-intro on the page) ─── */
+/* Only while .td-intro is on — the first view of the business day in this
+   session, for 1.6 s (longer only while a card that arrived late finishes
+   its entrance) — does anything enter. The beat: the hero stands still and
+   its figures rise into place. Around it the cards settle, the chart's bars
+   rise left to right and the now-line fades in after them, the week's hour
+   columns grow one by one, the MOMS meter fills. Without the class (a poll,
+   a return, reduced motion) every element simply is where it ends.
+   Transform + opacity only; every one of them ends at the element's own
+   resting state. */
+.td-intro .td-rise { animation: tdRise .5s var(--td-ease-out) backwards; }
+.td-intro .td-bar { animation: tdBarIn var(--td-dur-slow) var(--td-ease-out) backwards; }
+.td-intro .td-shift { animation: tdGrowX var(--td-dur-slow) var(--td-ease-out) backwards; }
+.td-intro .td-now,
+.td-intro .td-now-l,
+.td-intro .td-closeline,
+.td-intro .td-closeline-l { animation: tdFade var(--td-dur-base) var(--td-ease-out) 760ms backwards; }
+.td-intro .td-pending { animation: tdFade var(--td-dur-fast) var(--td-ease-out) backwards; }
+.td-intro .td-week-plan {
+  transform-origin: 50% 100%;
+  animation: tdBarIn var(--td-dur-slow) var(--td-ease-out) backwards;
+  animation-delay: calc(500ms + var(--td-i, 0) * 35ms);
+}
+.td-intro .td-meter > span { animation: tdGrowX 700ms var(--td-ease-out) 460ms backwards; }
+/* The figures: each rises .6em into place once, as ONE piece, on the soft
+   spring — the clock-in figure's entrance (CLOCK-MOTION-SPEC 2.2, vagtplan.css
+   vp-roll-in-up, the same values). Its own final text from the first frame:
+   never a 0, a digit in between or a lone separator. The hero's at 80 ms; a
+   card's once that card has landed (an inline animation-delay). Each one is
+   a block (a flex item or a div), so the transform applies. */
+.td-intro .td-fig { animation: tdRollInUp 460ms var(--td-spring-soft) 80ms backwards; }
+@keyframes tdRise { from { opacity: .35; transform: translateY(8px); } }
+@keyframes tdBarIn { from { transform: scaleY(0); } }
+@keyframes tdGrowX { from { transform: scaleX(0); } }
+@keyframes tdFade { from { opacity: 0; } }
+@keyframes tdRollInUp { from { opacity: 0; transform: translateY(.6em); } }
+
+/* ── main grid ──────────────────────────────────────────────────────────── */
+.td-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.td-a-res { grid-area: auto; }
+.td-bottom { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.td-minis { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+
+/* ── bookings ───────────────────────────────────────────────────────────── */
+.td-seg { display: flex; padding: 3px; border-radius: 12px; background: var(--td-chip); gap: 2px; }
+.td-seg button { height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent; color: var(--td-muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.td-seg button[aria-pressed="true"] { background: var(--td-card); color: var(--td-ink); box-shadow: 0 1px 2px rgba(22,33,28,0.08); }
+.td-table-h, .td-brow { display: grid; grid-template-columns: 64px minmax(0, 1.5fr) 64px minmax(0, 1fr) 132px; gap: 12px; align-items: center; padding: 0 20px; }
+.td-table-h { height: 34px; background: var(--td-head); border-top: 1px solid var(--td-line-2); border-bottom: 1px solid var(--td-line-2); font-size: 12px; font-weight: 600; color: var(--td-muted); }
+.td-brow { min-height: 52px; border-bottom: 1px solid var(--td-line-2); font-size: 14px; color: inherit; text-decoration: none; }
+.td-brow-t { font-weight: 600; font-variant-numeric: tabular-nums; }
+.td-brow-g { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.td-brow-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--td-chip); color: var(--td-muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.td-tag.is-warn { background: var(--td-red-soft); color: var(--td-red-ink); }
+.td-brow-p { display: flex; align-items: center; gap: 6px; color: var(--td-ink-2); font-variant-numeric: tabular-nums; }
+.td-brow-tb { color: var(--td-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-brow-meta { display: none; }
+/* The book answers to ITS width (two-column iPad, a phone): below 560px the
+   row folds to time · guest + "2 gæster · T4" · status, like the canvas phone. */
+.td-a-res { container-type: inline-size; container-name: tdres; }
+@container tdres (max-width: 560px) {
+  .td-table-h { display: none; }
+  .td-brow { grid-template-columns: 48px minmax(0, 1fr) auto; grid-template-areas: "t g st" "t m st"; padding: 8px 14px; min-height: 40px; gap: 2px 10px; font-size: 13px; }
+  .td-brow-t { grid-area: t; }
+  .td-brow-g { grid-area: g; }
+  .td-brow-p, .td-brow-tb { display: none; }
+  .td-brow-meta { display: block; grid-area: m; font-size: 12.5px; color: var(--td-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .td-st { grid-area: st; font-size: 12px; }
+}
+.td-st { justify-self: start; display: inline-flex; align-items: center; gap: 6px; height: 26px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.td-st-dot { width: 6px; height: 6px; border-radius: 50%; }
+.td-st.s-confirmed { color: var(--td-green); } .td-st.s-confirmed .td-st-dot { background: var(--td-green-dot); }
+.td-st.s-requested { color: var(--td-amber); } .td-st.s-requested .td-st-dot { background: var(--td-amber-dot); }
+.td-st.s-seated { color: var(--td-green); } .td-st.s-seated .td-st-dot { background: var(--td-brass); }
+.td-st.s-completed { color: var(--td-muted); } .td-st.s-completed .td-st-dot { background: #9AA39E; }
+.td-foot { padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--td-muted); }
+.td-empty { padding: 20px; font-size: 14px; color: var(--td-muted); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* ── lists (needs, staff) ───────────────────────────────────────────────── */
+.td-li { display: flex; align-items: center; gap: 12px; padding: 10px 16px 10px 20px; min-height: 64px; box-sizing: border-box; border-top: 1px solid var(--td-line-2); color: inherit; text-decoration: none; }
+.td-li-ic { width: 36px; height: 36px; flex: none; border-radius: 11px; display: grid; place-items: center; }
+.td-li-ic.t-amber { background: var(--td-amber-soft); color: var(--td-amber); }
+.td-li-ic.t-green { background: var(--td-green-soft); color: var(--td-green); }
+.td-li-ic.t-red { background: var(--td-red-soft); color: var(--td-red); }
+.td-li-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.td-li-t { font-size: 14px; font-weight: 600; text-wrap: pretty; }
+.td-li-s { font-size: 12.5px; color: var(--td-muted); }
+/* "Skjul" on a finding — quiet, 40px hit area (phone compact controls). */
+.td-x { flex: none; width: 40px; height: 40px; margin: 0 -8px 0 -6px; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--td-muted); cursor: pointer; }
+.td-x:hover { background: var(--td-hover); color: var(--td-ink); }
+.td-x:focus-visible { outline: 2px solid var(--td-ink); outline-offset: 2px; }
+.td-count { display: inline-grid; place-items: center; height: 22px; min-width: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 999px; background: var(--td-ink); color: var(--td-card); font-size: 11.5px; font-weight: 700; }
+.td-clear { display: inline-flex; height: 22px; padding: 0 9px; align-items: center; border-radius: 999px; background: var(--td-green-soft); color: var(--td-green); font-size: 11.5px; font-weight: 700; }
+.td-person { display: flex; align-items: center; gap: 12px; padding: 9px 20px; border-top: 1px solid var(--td-line-2); }
+.td-ava { width: 34px; height: 34px; flex: none; border-radius: 50%; color: #F7F5F0; display: grid; place-items: center; font-size: 11.5px; font-weight: 700; }
+.td-person-b { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.td-person-n { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-person-m { font-size: 12.5px; color: var(--td-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-person-m .is-unseen { color: var(--td-amber); }
+.td-person-time { font-size: 13px; color: var(--td-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.td-chip { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; border: 1px solid var(--td-line); color: var(--td-muted); }
+.td-chip.is-on { background: var(--td-green-soft); border-color: var(--td-green-soft); color: var(--td-green); }
+.td-chip.is-amber { background: var(--td-amber-soft); border-color: var(--td-amber-soft); color: var(--td-amber); }
+.td-more-row { padding: 10px 20px; border-top: 1px solid var(--td-line-2); font-size: 13px; color: var(--td-muted); }
+
+/* ── close / moms / hours cards ─────────────────────────────────────────── */
+.td-k-h { padding: 16px 18px 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.td-k-title { display: flex; align-items: center; gap: 10px; }
+.td-k-ic { width: 32px; height: 32px; border-radius: 10px; background: var(--td-chip); color: var(--td-ink-2); display: grid; place-items: center; flex: none; }
+.td-k-b { padding: 6px 18px 16px; display: flex; flex-direction: column; gap: 12px; }
+.td-k-foot { padding: 12px 18px; border-top: 1px solid var(--td-line-2); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; font-size: 13px; }
+.td-big { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.td-big small { font-size: 14px; font-weight: 600; color: var(--td-muted); letter-spacing: 0; }
+.td-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.td-step { display: flex; align-items: center; gap: 12px; padding: 8px 8px; border-radius: 10px; color: inherit; text-decoration: none; }
+.td-step-dot { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 12px; font-weight: 700; border: 1.5px solid var(--td-line); color: var(--td-muted); }
+.td-step.is-done .td-step-dot { background: var(--td-ink); border-color: var(--td-ink); color: var(--td-brass); }
+.td-step.is-cur { background: var(--td-amber-soft); }
+.td-step.is-cur .td-step-dot { border: 2px solid var(--td-brass); }
+.td-step-t { font-size: 14px; font-weight: 600; }
+.td-step.is-done .td-step-t { color: var(--td-muted); }
+.td-heat { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.td-heat-l { font-size: 11px; color: var(--td-muted); text-align: center; }
+.td-cell { aspect-ratio: 1 / 1; border-radius: 5px; max-height: 26px; }
+.td-cell.c-closed1 { background: var(--td-heat-1); }
+.td-cell.c-closed2 { background: var(--td-heat-2); }
+.td-cell.c-closed3 { background: var(--td-heat-3); }
+.td-cell.c-draft { background: var(--td-amber-soft); border: 1px solid var(--td-amber-dot); }
+.td-cell.c-missing { background: var(--td-chip); }
+.td-cell.c-venueClosed { border: 1px dashed var(--td-line); }
+.td-cell.c-today { border: 2px solid var(--td-brass); }
+.td-cell.c-future { border: 1px dashed var(--td-line-2); }
+.td-legend-k { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; color: var(--td-muted); }
+.td-legend-k span { display: inline-flex; align-items: center; gap: 5px; }
+.td-meter { height: 8px; border-radius: 999px; background: var(--td-chip); overflow: hidden; }
+.td-meter > span { display: block; height: 100%; border-radius: 999px; background: var(--td-green); transform-origin: left; }
+.td-week { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 6px; align-items: end; height: 60px; }
+.td-week-col { position: relative; height: 100%; display: flex; align-items: flex-end; }
+.td-week-plan { position: relative; width: 100%; border-radius: 5px; background: var(--td-chip); overflow: hidden; display: flex; align-items: flex-end; }
+.td-week-done { width: 100%; border-radius: 5px; background: var(--td-green); }
+.td-week-col.is-today .td-week-done { background: var(--td-brass); }
+
+/* ── the phone tab bar's items (MobileBottomNav) ────────────────────────── */
+/* The dock press (PREMIUM-FEEL-SPEC 1.3, the Orvexlo dock): down to .96 in
+   0.11 s, back on the spring. One scale: it replaces index.css's touch
+   press (.97, 60 ms, snap back) instead of stacking on it. The pressed rule
+   names its own properties: index.css's touch `a:active { transition: scale
+   60ms }` outranks .td-tab and would cut the list to `scale` alone, which
+   then took the first duration here (.18 s) instead of .11 s. */
+.td-tab {
+  transition: color var(--td-dur-fast) var(--td-ease-out), scale var(--td-dur-spring) var(--td-spring);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+}
+.td-tab:active {
+  scale: .96;
+  transition-property: color, scale;
+  transition-duration: var(--td-dur-fast), var(--td-dur-press);
+  transition-timing-function: var(--td-ease-out), var(--td-ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .td-page *, .td-page *::before, .td-page *::after { animation: none !important; transition: none !important; }
+  /* A press under reduce: no scale, a dim while held (an effect, not motion).
+     A grouped row (.vp-tint) only tints, as with motion (PREMIUM-FEEL-SPEC E). */
+  html[data-modality="touch"] :where(.td-page :is(button, a, [role="button"]):not(.vp-tint))[data-pressed]:not(:disabled),
+  html:not([data-modality="touch"]) .td-page :is(.td-btn, .td-link, .td-seg button):active:not(:disabled),
+  html[data-modality="touch"] .td-page :is(.td-btn, .td-link, .td-seg button)[data-pressed]:not(:disabled),
+  html:not([data-modality="touch"]) .td-page .td-x:active:not(:disabled),
+  html[data-modality="touch"] .td-page .td-x[data-pressed]:not(:disabled),
+  html:not([data-modality="touch"]) .td-page .td-tile:active,
+  html[data-modality="touch"] .td-page .td-tile[data-pressed] { scale: none; opacity: .72; }
+  .td-tab { transition: none; }
+  .td-tab:active { scale: none; opacity: .72; }
+}
+
+/* ── widths (container, not window) ─────────────────────────────────────── */
+@container (min-width: 860px) {
+  .td-grid { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-areas: "res needs" "res staff"; }
+  /* No booking book (a shop, the pillar off): Kræver dig and Personale side by side. */
+  .td-grid.no-res { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "needs staff"; }
+  .td-a-res { grid-area: res; }
+  .td-a-needs { grid-area: needs; }
+  .td-a-staff { grid-area: staff; }
+  .td-bottom { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .td-minis { display: contents; }
+}
+@container (min-width: 600px) and (max-width: 859.98px) {
+  .td-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .td-bottom > .td-close { grid-column: 1 / -1; }
+  .td-minis { display: contents; }
+}
+@container (max-width: 599.98px) {
+  .td-page { padding-left: 0; padding-right: 0; }
+  .td-wrap { gap: 14px; }
+  .td-head-actions { display: none; }
+  .td-quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
+  .td-quick .td-btn { height: 40px; font-size: 13px; padding: 0 10px; border-radius: 12px; }
+  .td-hero { padding: 16px; border-radius: 16px; gap: 14px; }
+  .td-hero-stats, .td-chart { flex-basis: 100%; }
+  .td-tile { padding: 12px 12px; border-radius: 14px; }
+  .td-tile-v { font-size: 22px; }
+  .td-tile-v.is-word { font-size: 17px; }
+  .td-chart { padding: 12px 12px 10px; }
+  .td-lane-l { display: none; }
+  .td-marks { left: 0; }
+  .td-card { border-radius: 14px; }
+  .td-card-h { padding: 14px 14px 8px; }
+  .td-card-title { font-size: 16px; }
+  .td-li { padding: 8px 12px 8px 14px; min-height: 56px; }
+  .td-li-t { font-size: 13px; }
+  .td-li-ic { width: 32px; height: 32px; border-radius: 10px; }
+  .td-person { padding: 8px 14px; }
+  .td-person-n { font-size: 13px; }
+  .td-ava { width: 30px; height: 30px; font-size: 11px; }
+  .td-foot { padding: 10px 14px; }
+  .td-empty { padding: 14px; font-size: 13px; }
+  .td-k-h { padding: 14px 14px 4px; }
+  .td-k-b { padding: 6px 14px 14px; }
+  .td-k-foot { padding: 10px 14px; }
+  .td-big { font-size: 22px; }
+  .td-minis .td-k-ic { display: none; }
+  .td-minis .td-big { font-size: 20px; }
+  .td-minis .td-card-title { font-size: 15px; }
+}
+
+/* ── the I dag rail (Layout) ────────────────────────────────────────────── */
+.td-rail .td-rail-row {
+  display: flex; align-items: center; gap: 11px; min-height: 40px; padding: 0 10px 0 12px;
+  border-radius: 12px; color: var(--td-ink-2); font-size: 14px; font-weight: 500; text-decoration: none;
+  transition: background-color .18s ease, color .18s ease;
+}
+.td-rail .td-rail-row:hover { background: rgba(255, 254, 251, 0.65); color: var(--td-ink); }
+.dark .td-rail .td-rail-row:hover { background: rgba(255,255,255,0.06); }
+.td-rail .td-rail-row.is-active { background: var(--td-card); color: var(--td-ink); font-weight: 600; box-shadow: 0 1px 2px rgba(22,33,28,0.06), 0 0 0 1px var(--td-line); }
+.td-rail .td-rail-row.is-top { min-height: 44px; }
+.td-rail .td-rail-row:focus-visible { outline: 2px solid var(--td-brass); outline-offset: 1px; }
+/* Pressed (PREMIUM-FEEL-SPEC 1.3, grouped rows): a tint, never index.css's
+   touch shrink — a whole row shrinking reads as a lurch. */
+.td-rail .td-rail-row:active { scale: none; background-color: var(--td-press-tint); transition-duration: 0s; }
+.td-rail-sec { margin: 12px 12px 4px; font-size: 12px; font-weight: 600; color: var(--td-muted); }
+.td-rail-sec-btn { width: calc(100% - 0px); display: flex; align-items: center; gap: 8px; min-height: 36px; margin-top: 8px; padding: 0 12px; border: 0; background: transparent; border-radius: 10px; font: inherit; font-size: 12px; font-weight: 600; color: var(--td-muted); cursor: pointer; }
+.td-rail-sec-btn:hover { color: var(--td-ink); }
+.td-rail-sec-btn:focus-visible { outline: 2px solid var(--td-brass); outline-offset: 1px; }
+.td-badge { margin-left: auto; min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 999px; display: inline-grid; place-items: center; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.td-badge.b-act { background: var(--td-green-soft); color: var(--td-green); }
+.td-badge.b-draft { background: var(--td-amber-soft); color: var(--td-amber); }
+.td-badge.b-missing { border: 1px solid var(--td-brass-line); color: var(--td-amber); font-weight: 600; }
+.td-ask { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 12px; border-radius: 14px; border: 1px solid var(--td-line); background: var(--td-head); color: var(--td-ink); font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; }
+.td-ask-ic { width: 28px; height: 28px; flex: none; border-radius: 9px; background: #1A1917; color: var(--td-brass); display: grid; place-items: center; }
+.td-ask-s { display: block; font-size: 12px; font-weight: 500; color: var(--td-muted); }
+.td-owner { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 6px 8px; border-radius: 12px; border: 0; background: transparent; color: var(--td-ink); font: inherit; text-align: left; cursor: pointer; }
+.td-owner:hover { background: rgba(255, 254, 251, 0.65); }
+.dark .td-owner:hover { background: rgba(255,255,255,0.06); }
+.td-owner-ava { width: 32px; height: 32px; flex: none; border-radius: 50%; background: #DCE6DF; color: #1A1917; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.td-menu { position: absolute; left: 8px; right: 8px; bottom: calc(100% + 6px); z-index: 70; background: var(--td-card); border: 1px solid var(--td-line); border-radius: 14px; box-shadow: 0 18px 40px -20px rgba(22,33,28,0.45); padding: 6px; display: flex; flex-direction: column; gap: 1px; }
+.td-menu-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 10px; border: 0; background: transparent; color: var(--td-ink-2); font: inherit; font-size: 13.5px; font-weight: 500; text-decoration: none; cursor: pointer; text-align: left; width: 100%; }
+.td-menu-row:hover { background: var(--td-hover); color: var(--td-ink); }
+.td-menu-row:focus-visible { outline: 2px solid var(--td-brass); outline-offset: -1px; }
+.td-menu-row.is-danger { color: var(--td-red); }
+.td-menu-sep { height: 1px; background: var(--td-line-2); margin: 4px 6px; }
+
+/* The rail hidden on a wide screen leaves Layout's floating "show sidebar"
+   button (fixed, top 16px, 44px) over the page's first line — keep it clear. */
+@media (min-width: 768px) {
+  main.md\:ml-0 .td-page { padding-top: 68px; }
+}

@@ -173,14 +173,17 @@ const APPOINTMENT_LABELS = Object.freeze({
 export const NAV_MANIFEST = [
   // ─── CORE (spine — flat, headerless top of the sidebar) ───────────────
   {
+    // "I dag" (Nov 2026 redesign) — the owner's today page. Same route, same
+    // row; the label says what the page now is. The previous Home lives on at
+    // /home ("Fuldt overblik", below) with every card it had.
     to: "/dashboard",
     icon: "Home",
-    labelKey: "navHome",
+    labelKey: "navTodayHome",
     group: "core",
     pillar: null,
     frequency: "daily",
     surfaces: ["sidebar", "search", "bottomnav"],
-    aliases: ["dashboard", "home", "overview"],
+    aliases: ["dashboard", "home", "forsiden", "i dag", "today"],
   },
   {
     to: "/sales",
@@ -189,7 +192,11 @@ export const NAV_MANIFEST = [
     group: "core",
     pillar: null,
     frequency: "daily",
-    surfaces: ["sidebar", "search", "bottomnav"],
+    // 'more' added with the I dag tab bar (Nov 2026): Salg left the phone tab
+    // bar for Reservationer + Vagtplan, so the More sheet carries it — the
+    // phone keeps a tappable way in, and the QuickAdd "+" (top bar) still
+    // logs a sale in one tap.
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
   },
   {
     // Directly after Sales on purpose: these are the two daily money-logging
@@ -696,6 +703,19 @@ export const NAV_MANIFEST = [
       "retention", "churn", "loyalty", "guests", "gæster", "kundefastholdelse",
     ],
   },
+  {
+    // The previous Home — every card it had (profit answer, trend, P&L, top
+    // sellers, alerts, the first-run demo seeder …), untouched, on its own
+    // route now that /dashboard is the I dag page. Rail: Mere.
+    to: "/home",
+    icon: "LayoutGrid",
+    labelKey: "navOverview",
+    group: "reports",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["overview", "overblik", "fuldt overblik", "home", "forsiden", "dashboard"],
+  },
 
   // ─── WORKSHOP (vertical) ───────────────────────────────────────────
   {
@@ -876,6 +896,19 @@ export const NAV_MANIFEST = [
     frequency: "rare",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["subscription", "plan", "billing", "upgrade"],
+  },
+  {
+    // "Alle sider" — the desktop path to the More sheet's rare rows (budget,
+    // kørsel, forbindelser, terminaler, team …), which before Nov 2026 a desktop
+    // owner could only reach through ⌘K. Sidebar-only: the More page does not
+    // list itself, and ⌘K already indexes every row it shows.
+    to: "/more",
+    icon: "Menu",
+    labelKey: "navAllPages",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar"],
   },
 ];
 
@@ -1424,4 +1457,91 @@ export function sidebarGroupsFor(archetypeId = null) {
     requiresAnyModule: g.requiresAnyModule,
     items: sidebarItems.filter((d) => d.group === g.id),
   }));
+}
+
+/**
+ * THE I DAG RAIL (Nov 2026 redesign — Manoj's canvas, Dashboard.dc.html)
+ * --------------------------------------------------------------------
+ * The sidebar is three sections now, in the order an owner works:
+ *   • today  — headerless: I dag · Reservationer · Vagtplan · Kasserapport ·
+ *              Timer & løn (the daily jobs)
+ *   • admin  — "Administration", always open: Salg · Udgifter · Lager ·
+ *              Rapporter · Skat Autopilot
+ *   • workshop — the Værksted vertical, exactly as before (module-gated)
+ *   • more   — "Mere", collapsible, closed until the owner opens it: every
+ *              other sidebar row, unchanged gates
+ * and the account menu (owner card at the foot of the rail) carries
+ * Lokationer · Moduler · Abonnement & betaling beside Profil / Hjælp / tema /
+ * sprog / Log ud.
+ *
+ * A destination's section is RAIL_BY_ROUTE[to], default "more". It is a
+ * PLACEMENT, not a visibility axis: `surfaces` still decides whether a row is
+ * on the sidebar at all (the C12/C12b lever, untouched), and filterDestinations
+ * still applies relevance ⊥ tier lock ⊥ business type ⊥ activation ⊥ usage.
+ * `group` is untouched too — the phone More page still sections by it.
+ * REVERT: Layout renders sidebarGroupsFor() again (still exported, still
+ * tested) — one line.
+ */
+export const RAIL_SECTIONS = [
+  { id: "today", labelKey: null, icon: null },
+  { id: "admin", labelKey: "navAdministration", icon: null, collapsible: false },
+  { id: "workshop", labelKey: "navWorkshop", icon: "Wrench", requiresAnyModule: ["workshop"] },
+  { id: "more", labelKey: "navMoreRail", icon: null, defaultOpen: false },
+];
+
+export const RAIL_BY_ROUTE = Object.freeze({
+  "/dashboard": "today",
+  "/reservations": "today",
+  "/staff/schedule": "today",
+  "/daily-close": "today",
+  "/staff/hours": "today",
+  "/sales": "admin",
+  "/expenses": "admin",
+  "/inventory": "admin",
+  "/reports": "admin",
+  "/tax": "admin",
+  "/workshop": "workshop",
+  "/branches": "account",
+  "/modules": "account",
+  "/subscription": "account",
+});
+
+/** The rail section a destination sits in (default "more"). */
+export function railOf(item) {
+  return (item && RAIL_BY_ROUTE[item.to]) || "more";
+}
+
+/**
+ * railSectionsFor(archetypeId) — the sidebar projected into RAIL_SECTIONS:
+ * each section with the manifest rows that are on THIS owner's sidebar
+ * surface (surfacesFor, archetype-aware) and placed in it. Account-menu rows
+ * are not here (accountMenuDestinations). Within a section, rows keep the
+ * order RAIL_BY_ROUTE lists them in, then manifest order.
+ */
+export function railSectionsFor(archetypeId = null) {
+  const order = Object.keys(RAIL_BY_ROUTE);
+  const rank = (d) => {
+    const i = order.indexOf(d.to);
+    return i === -1 ? order.length : i;
+  };
+  const onRail = NAV_MANIFEST
+    .map((d, i) => ({ d, i }))
+    .filter(({ d }) => isOnSurface(d, "sidebar", archetypeId) && railOf(d) !== "account")
+    .sort((a, b) => (rank(a.d) - rank(b.d)) || (a.i - b.i))
+    .map(({ d }) => d);
+  return RAIL_SECTIONS.map((s) => ({
+    ...s,
+    visibleFor: null,
+    items: onRail.filter((d) => railOf(d) === s.id),
+  }));
+}
+
+/**
+ * The account menu's manifest rows (Lokationer · Moduler · Abonnement &
+ * betaling). Listed for every archetype — the menu is one tap away and never
+ * dense — but still resolved through filterDestinations by the caller, so an
+ * owner-only or module gate keeps working.
+ */
+export function accountMenuDestinations() {
+  return NAV_MANIFEST.filter((d) => railOf(d) === "account");
 }

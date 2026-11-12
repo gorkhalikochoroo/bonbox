@@ -1,5 +1,7 @@
 /**
- * The phone tab bar's centre "+" must always resolve to SOMETHING.
+ * The phone's QuickAdd "+" must always resolve to SOMETHING. (It was the tab
+ * bar's centre slot; since the I dag tab bar, Nov 2026, it is in the phone top
+ * bar — same trigger, same fallback.)
  *
  * It opened the QuickAdd sheet with
  *
@@ -101,7 +103,6 @@ vi.mock("../components/InstallAppPrompt", () => ({ default: () => null }));
 vi.mock("../components/GlobalSearchModal", () => ({ default: () => null }));
 
 import Layout from "../components/Layout";
-import MobileBottomNav from "../components/MobileBottomNav";
 
 beforeEach(() => {
   mounted.quickAdd = 0;
@@ -179,17 +180,12 @@ describe("the header ✨ is never a no-op either", () => {
   });
 });
 
-describe("the centre + is never a no-op", () => {
-  /* Render the bar alone (no QuickAdd anywhere) and report where we end up. */
+describe("the QuickAdd + is never a no-op", () => {
+  /* Nov 2026 (the I dag tab bar): the "+" left the tab bar's centre slot for
+     the phone TOP bar (Layout), so the reach is asserted there — the shell
+     rendered with no QuickAdd trigger in the DOM, and then with one. */
   function renderBareBar() {
-    render(
-      <MemoryRouter initialEntries={["/dashboard"]}>
-        <Probe />
-        <Routes>
-          <Route path="*" element={<MobileBottomNav />} />
-        </Routes>
-      </MemoryRouter>,
-    );
+    renderShell("/dashboard");
     return () => screen.getByTestId("where").textContent;
   }
 

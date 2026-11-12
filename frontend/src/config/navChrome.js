@@ -197,10 +197,13 @@ export function readNavGroups(raw) {
  * @param {string} groupId
  * @returns {boolean}
  */
-export function isNavGroupOpen(stored, groupId) {
+export function isNavGroupOpen(stored, groupId, defaultOpen = true) {
   const pref = stored ? stored[groupId] : undefined;
   if (typeof pref === "boolean") return pref;
-  return true;
+  // `defaultOpen` (Nov 2026, the I dag rail): a section may start closed —
+  // "Mere" does, unless the page the owner is on sits inside it (the caller
+  // passes that in). Still a DEFAULT, never a write: an explicit choice wins.
+  return defaultOpen !== false;
 }
 
 /**
@@ -212,6 +215,6 @@ export function setNavGroupOpen(stored, groupId, open) {
 }
 
 /** Next stored map with `groupId` flipped from whatever it currently resolves to. */
-export function toggleNavGroup(stored, groupId) {
-  return setNavGroupOpen(stored, groupId, !isNavGroupOpen(stored, groupId));
+export function toggleNavGroup(stored, groupId, defaultOpen = true) {
+  return setNavGroupOpen(stored, groupId, !isNavGroupOpen(stored, groupId, defaultOpen));
 }
