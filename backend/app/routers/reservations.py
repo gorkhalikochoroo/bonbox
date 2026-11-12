@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session
 
@@ -2530,7 +2530,20 @@ def reservation_book(
         # the screen then keeps its slower full reload). The 20-second
         # /changes?day= poll compares against it.
         "rev": rev,
+        # "DK" | "PT" | None — how the app writes a guest's phone number (the
+        # stored value is never changed). The same reading the SMS uses.
+        "venue_country": _venue_country_safe(db, user),
     }
+
+
+def _venue_country_safe(db: Session, user: User):
+    """owner_language.venue_country for this venue; None if it can't be read
+    (the app then formats Danish-first, as before)."""
+    from app.services.owner_language import venue_country
+    try:
+        return venue_country(_profile(db, user), user)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _held_is_bot(held: dict | None) -> bool:
@@ -3213,6 +3226,9 @@ def _occupied_409(db: Session, user: User, occupant: Reservation, table_ids) -> 
             "table": label,
             "ends_at": occupant.ends_at.isoformat() if occupant.ends_at else None,
             "over_min": over,
+            # When they sat down (UTC, "Z") — the app keeps "Another table" as
+            # the safe first choice while a party has only just been seated.
+            "seated_at": _utc_iso(occupant.seated_at),
         },
     })
 
@@ -3926,6 +3942,13 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                     restore_blocked = {"booked_at": booked.strftime("%H:%M"), "table": _lbl}
         except Exception:  # noqa: BLE001 — the undo itself must still go through
             restored_from = None
+    if payload.status in ("requested", "confirmed") and prev_status == "seated":
+        # Undo of a seating: they never sat down, so no seat time either. A
+        # stale seated_at outlived the undo — a booking later marked finished
+        # without being re-seated then reported a stay it never had (and any
+        # turn-time reading of seated_at counted it). Re-seating stamps a
+        # fresh one; a reopen (completed → seated) keeps its own, above.
+        r.seated_at = None
     # Finished: when they left. A reopen (or any other move off "completed")
     # clears it, so the history never shows a leave time for a party still
     # sitting. Re-marking an already-finished row keeps its first stamp.
@@ -3943,6 +3966,13 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
             "owner_declined" if prev_status == "requested"
             else payload.cancel_reason
         )
+    # Removing a drop-in that "Sæt ved" seated from the waitlist, within the
+    # undo window, puts that party back on the list (the toast's Fortryd from
+    # the booking) — in the same commit as the removal.
+    waitlist_restored = None
+    if (payload.status == "cancelled" and prev_status == "seated"
+            and r.source == "walk_in" and r.cancel_reason == "walk_in_removed"):
+        waitlist_restored = _unseat_on_drop_in_removal(db, user, r)
 
     # ── Occupancy lifecycle ───────────────────────────────────────────
     # Terminal states free the slot; holding states (re)claim it. The DB
@@ -4045,6 +4075,8 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         out["early_kept"] = early_kept
     if restore_blocked:
         out["restore_blocked"] = restore_blocked
+    if waitlist_restored is not None:
+        out["waitlist_restored"] = _waitlist_dict(waitlist_restored)
     # Auto-fill SURFACING (Venteliste): a cancel / no-show just freed a table,
     # so surface the waiting parties that fit — the owner then taps Notify or
     # Book. This ONLY reads + returns matches; it sends no SMS, holds nothing,
@@ -4161,6 +4193,23 @@ class WaitlistCreate(BaseModel):
     desired_from: datetime | None = None
     desired_to: datetime | None = None
     note: str | None = Field(default=None, max_length=500)
+    # The time the door told the party to expect a table (the drop-in strip's
+    # "ca. 17.19"). The client sends toISOString() (UTC, "Z"); a naive value
+    # is read as the venue's wall clock. Never a reason to refuse the party:
+    # an unreadable or out-of-range value is stored as NULL (_quoted_at_utc).
+    quoted_at: datetime | None = None
+
+    @field_validator("quoted_at", mode="before")
+    @classmethod
+    def _quoted_at_never_blocks(cls, v):
+        if v is None or isinstance(v, datetime):
+            return v
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
 
 
 class WaitlistUpdate(BaseModel):
@@ -4181,6 +4230,31 @@ class WaitlistConvert(BaseModel):
     allow_overflow: bool = False
 
 
+class WaitlistSeat(BaseModel):
+    # The table(s) the door saw free for this party NOW: one id = one table,
+    # 2–6 = tables pushed together (the waitlist row's own "fits" set).
+    resource_ids: list[UUID] = Field(min_length=1, max_length=6)
+
+
+def _quoted_at_utc(q: datetime | None, user: User) -> datetime | None:
+    """A quoted time as stored: naive UTC, or None. A tz-aware value is
+    converted; a naive one is the venue's wall clock. Kept only inside
+    [now − 10 min, now + 12 h] — anything else is a wrong clock, not a
+    promise, and is dropped (the entry is still added)."""
+    if q is None:
+        return None
+    try:
+        if q.tzinfo is None:
+            q = q.replace(tzinfo=now_local(user).tzinfo)
+        q = q.astimezone(timezone.utc).replace(tzinfo=None, microsecond=0)
+    except Exception:  # noqa: BLE001
+        return None
+    now = utc_now()
+    if not (now - timedelta(minutes=10) <= q <= now + timedelta(hours=12)):
+        return None
+    return q
+
+
 def _waitlist_dict(w: ReservationWaitlistEntry) -> dict:
     return {
         "id": str(w.id),
@@ -4196,6 +4270,8 @@ def _waitlist_dict(w: ReservationWaitlistEntry) -> dict:
             str(w.converted_reservation_id) if w.converted_reservation_id else None
         ),
         "created_at": w.created_at.isoformat() if w.created_at else None,
+        # The time the door told the party ("lovet ca. 17.19"), UTC with "Z".
+        "quoted_at": _utc_iso(getattr(w, "quoted_at", None)),
     }
 
 
@@ -4318,6 +4394,7 @@ def add_waitlist(payload: WaitlistCreate, request: Request,
         waitlist_date=payload.waitlist_date,
         desired_from=payload.desired_from, desired_to=payload.desired_to,
         note=(payload.note or None), source="manual",
+        quoted_at=_quoted_at_utc(payload.quoted_at, user),
         purge_after=datetime.combine(payload.waitlist_date, datetime.min.time())
         + timedelta(days=retention),
     )
@@ -4388,6 +4465,9 @@ def notify_waitlist(entry_id: UUID, request: Request,
         raise HTTPException(status_code=503, detail={"error": "try_again"})
 
     channel, sms_sent, sms_limit = "call", False, False
+    # Why no SMS went out when one was tried ("bad_number": the phone could
+    # not be read for this venue's country) — None when none was tried.
+    sms_error = None
     if w.guest_phone and has_feature(user, "sms_reminders") and sms_configured():
         # Venue-wide daily ceiling (billing cap `waitlist_sms_per_day`). The
         # door tablet wraps this handler, so one bound covers both; before it,
@@ -4415,10 +4495,15 @@ def notify_waitlist(entry_id: UUID, request: Request,
                 biz = "the restaurant"
             text = pwl.spot_may_be_free_sms(lang, first_name=pwl.sms_first_name(w.guest_name),
                                             venue=biz)
+        # The venue's country decides what a number typed without a country
+        # code means (+45 8 digits in Denmark, +351 9 digits in Portugal); a
+        # number that cannot be read for it is never sent — the host calls.
+        country = _venue_country_safe(db, user)
         try:
-            res = send_sms(to=w.guest_phone, text=text)
+            res = send_sms(to=w.guest_phone, text=text, country=country)
         except Exception:  # noqa: BLE001
             res = {"ok": False}
+        sms_error = res.get("error")
         if res.get("ok"):
             channel, sms_sent = "sms", True
             # The ledger the daily ceiling counts — one row per SMS that
@@ -4434,6 +4519,7 @@ def notify_waitlist(entry_id: UUID, request: Request,
     db.commit()
     return {"entry": _waitlist_dict(w), "channel": channel,
             "sms_sent": sms_sent, "sms_limit_reached": sms_limit,
+            "sms_error": None if sms_sent else sms_error,
             "phone": w.guest_phone}
 
 
@@ -4486,6 +4572,180 @@ def convert_waitlist(entry_id: UUID, payload: WaitlistConvert, request: Request,
                          "reservation_waitlist", w.id)
     db.commit()
     return {"entry": _waitlist_dict(w), "reservation": out}
+
+
+def _locked_waitlist(db: Session, user: User, entry_id: UUID):
+    """_owned_waitlist with the row locked for this transaction (Postgres;
+    SQLite has no row locks and ignores it). Two door screens tapping "Sæt
+    ved" for the same party queue here: the second one reads the first one's
+    "converted" and gets 409 not_seatable instead of a second walk-in."""
+    return (
+        db.query(ReservationWaitlistEntry)
+        .filter(ReservationWaitlistEntry.id == entry_id,
+                ReservationWaitlistEntry.user_id == user.id)
+        .with_for_update()
+        .first()
+    )
+
+
+@router.post("/waitlist/{entry_id}/seat")
+def seat_waitlist(entry_id: UUID, payload: WaitlistSeat, request: Request,
+                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Seat a waiting party NOW at the table(s) the door saw free — one tap
+    instead of "Book" + a time picker while the guest stands at the bar.
+
+    Same create path as the stand's own drop-in (create_manual, source
+    walk_in, status seated): the seated-occupant check, the explicit-table
+    clash check and the Postgres no-double-booking constraint all govern, and
+    a lost race is that path's own 409. Before it, the table is re-checked
+    here so the refusal can name WHY: someone is sitting there
+    (table_occupied, naming them), or a booking holds it inside this party's
+    sitting (slot_unavailable with the table and the venue time it starts —
+    or `at` null when that booking is already due). The entry turns
+    "converted" in the same commit as the walk-in, linked to it — the
+    Genvundet card counts it like any converted party that sat down. Name,
+    phone and note are copied verbatim. Nothing is sent to the guest."""
+    enforce_feature(user, "reservations")
+    w = _locked_waitlist(db, user, entry_id)
+    if w is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    if w.status not in ("waiting", "notified"):
+        raise HTTPException(status_code=409, detail={"error": "not_seatable"})
+    if w.waitlist_date != business_today_local(user):
+        raise HTTPException(status_code=409, detail={"error": "not_today"})
+    ids = list(dict.fromkeys(payload.resource_ids))
+    for rid in ids:
+        _assert_owned_resource(db, user, rid)
+    occupant = _seated_occupant(db, user, ids)
+    if occupant is not None:
+        raise _occupied_409(db, user, occupant, ids)
+    now_l = now_local(user).replace(tzinfo=None, second=0, microsecond=0)
+    duration = rsvc.resolve_duration(_profile(db, user), w.party_size, None)
+    hold = (
+        db.query(ReservationOccupancy)
+        .filter(
+            ReservationOccupancy.user_id == user.id,
+            ReservationOccupancy.resource_id.in_(ids),
+            ReservationOccupancy.active.is_(True),
+            ReservationOccupancy.starts_at < now_l + timedelta(minutes=duration),
+            ReservationOccupancy.ends_at > now_l,
+        )
+        .order_by(ReservationOccupancy.starts_at)
+        .first()
+    )
+    if hold is not None:
+        label = (db.query(BookableResource.label)
+                 .filter(BookableResource.id == hold.resource_id,
+                         BookableResource.user_id == user.id)
+                 .scalar())
+        raise HTTPException(status_code=409, detail={
+            "error": "slot_unavailable",
+            "table": label,
+            # Venue time the booking on it starts; null = it is due already.
+            "at": hold.starts_at.strftime("%H:%M") if hold.starts_at > now_l else None,
+        })
+
+    # Pending in the SAME transaction as the walk-in: create_manual's commit
+    # carries both, and any refusal below rolls both back.
+    w.status = "converted"
+    w.converted_at = utc_now()
+    mr = ManualReservation(
+        guest_name=w.guest_name, guest_phone=w.guest_phone,
+        guest_email=w.guest_email, party_size=w.party_size,
+        starts_at=now_l,
+        resource_id=(ids[0] if len(ids) == 1 else None),
+        resource_ids=(ids if len(ids) > 1 else None),
+        source="walk_in", status="seated",
+        guest_notes=w.note, auto_assign=False, allow_overflow=False,
+    )
+    try:
+        out = create_manual(mr, request, db=db, user=user)
+    except Exception:
+        # Lost the table in the meantime (create_manual's own 409:
+        # table_occupied | slot_unavailable) — the entry stays as it was.
+        db.rollback()
+        raise
+    w.converted_reservation_id = UUID(out["id"])
+    audit_service.record(db, user, "reservation.waitlist_seated",
+                         "reservation_waitlist", w.id)
+    db.commit()
+    return {"entry": _waitlist_dict(w), "reservation": out}
+
+
+# How long the toast's "Fortryd" can still put a seated party back.
+_UNSEAT_WINDOW = timedelta(minutes=10)
+
+
+@router.post("/waitlist/{entry_id}/unseat")
+def unseat_waitlist(entry_id: UUID, request: Request,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Undo a "Sæt ved" tap: the walk-in it made is removed (cancelled,
+    walk_in_removed — the drop-in "fjern" reason, which no count reads) and
+    its table freed; the party is back on the list as it was (waiting, or
+    notified if they had been). Only within 10 minutes of the seating, and
+    only while that walk-in is still seated — after that the host finishes or
+    moves the table instead. No mail, no push."""
+    enforce_feature(user, "reservations")
+    w = _locked_waitlist(db, user, entry_id)
+    if w is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    r = None
+    if (w.status == "converted" and w.converted_reservation_id is not None
+            and w.converted_at is not None
+            and w.converted_at >= utc_now() - _UNSEAT_WINDOW):
+        r = (
+            db.query(Reservation)
+            .filter(Reservation.id == w.converted_reservation_id,
+                    Reservation.user_id == user.id,
+                    Reservation.is_deleted.is_(False))
+            .first()
+        )
+    if r is None or r.source != "walk_in" or r.status != "seated":
+        raise HTTPException(status_code=409, detail={"error": "not_undoable"})
+    now = utc_now()
+    r.status = "cancelled"
+    r.cancel_reason = "walk_in_removed"
+    r.cancelled_at = now
+    r.seated_at = None
+    occ_service.release_occupancy(db, r.id)
+    audit_service.record(db, user, "reservation.cancelled", "reservation", r.id)
+    _back_on_waitlist(db, user, w)
+    db.commit()
+    return {"entry": _waitlist_dict(w), "reservation": _reservation_dict(r)}
+
+
+def _back_on_waitlist(db: Session, user: User, w: ReservationWaitlistEntry) -> None:
+    """A "Sæt ved" seating undone: the party is back on the list as it was —
+    waiting, or notified if they had been — with its place (created_at) and
+    its quoted time kept. The caller commits."""
+    w.status = "notified" if int(w.notify_count or 0) > 0 else "waiting"
+    w.converted_reservation_id = None
+    w.converted_at = None
+    audit_service.record(db, user, "reservation.waitlist_unseated",
+                         "reservation_waitlist", w.id)
+
+
+def _unseat_on_drop_in_removal(db: Session, user: User, r: Reservation):
+    """The drop-in a "Sæt ved" tap made, removed from its booking within the
+    undo window: that IS the toast's Fortryd, reached after the toast is gone
+    (it lives 12 s; the server allows 10 minutes). The party goes back on the
+    waitlist instead of vanishing from it with its place and its quoted time
+    (review round, 12 Nov). The entry is found by its link to this walk-in,
+    under the tenant; outside the window (or for any other drop-in) nothing
+    changes on the waitlist. Returns the entry put back, or None."""
+    w = (
+        db.query(ReservationWaitlistEntry)
+        .filter(ReservationWaitlistEntry.user_id == user.id,
+                ReservationWaitlistEntry.converted_reservation_id == r.id,
+                ReservationWaitlistEntry.status == "converted")
+        .with_for_update()
+        .first()
+    )
+    if w is None or w.converted_at is None or w.converted_at < utc_now() - _UNSEAT_WINDOW:
+        return None
+    r.seated_at = None  # they never sat down — as the undo itself clears it
+    _back_on_waitlist(db, user, w)
+    return w
 
 
 @router.get("/waitlist/matches")

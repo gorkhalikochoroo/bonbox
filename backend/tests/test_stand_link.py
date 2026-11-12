@@ -516,6 +516,11 @@ def test_credential_reaches_no_owner_config_route(client, db):
         "/stand/{token}/waitlist/{entry_id}",
         "/stand/{token}/waitlist/{entry_id}/notify",
         "/stand/{token}/waitlist/{entry_id}/convert",
+        # "Sæt ved Bord 2" (Reservations v2 fix, 12 Nov): seat a waiting party
+        # at a table free NOW, and the toast's undo. Same owner handlers, same
+        # create path as the stand's own drop-in; rate limited like add.
+        "/stand/{token}/waitlist/{entry_id}/seat",
+        "/stand/{token}/waitlist/{entry_id}/unseat",
         # The table picker. The drawer renders it on the stand whenever
         # /resources returned tables — which it does, because /resources is
         # wrapped — so before this existed the host got a complete, live-looking

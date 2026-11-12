@@ -52,3 +52,43 @@ def venue_language(profile, owner) -> str:
     tz = (getattr(owner, "timezone", None) or "").strip()
     is_dk_venue = country == "DK" or (not country and tz in _DK_TIMEZONES)
     return "da" if is_dk_venue else "en"
+
+
+# Portugal's IANA zones (mainland, Madeira, the Azores).
+_PT_TIMEZONES = frozenset({
+    "Europe/Lisbon",
+    "Atlantic/Madeira",
+    "Atlantic/Azores",
+})
+
+
+def venue_country(profile, owner) -> str | None:
+    """"DK", "PT" or None: the country a venue's GUESTS dial from — the
+    default country code for a phone number typed without one (SMS), and the
+    phone formatting the owner app uses.
+
+    profile.country alone cannot say it: the onboarding wizard writes "DK"
+    for every venue and the column defaults to "DK". owner.timezone alone
+    cannot either: the app re-syncs it to the owner's browser on every login,
+    so a Danish owner on holiday in Lisbon reads Lisbon. So:
+
+      • "PT" — profile.country is "PT", or (country blank or the default
+        "DK") a Portuguese timezone AND the account counts in EUR (both
+        together; a travelling DKK owner never flips to Portugal).
+      • "DK" — profile.country is "DK", or a blank country with a Danish-realm
+        timezone, or the account counts in DKK. Every existing Danish venue
+        lands here, so nothing about them changes.
+      • None — anything else; callers keep their legacy Danish-first default.
+    """
+    country = (getattr(profile, "country", None) or "").strip().upper()
+    tz = (getattr(owner, "timezone", None) or "").strip()
+    currency = (getattr(owner, "currency", None) or "").strip().upper()
+    if country == "PT":
+        return "PT"
+    # "DK" (or blank) is the wizard's default, not a choice — a Portuguese
+    # zone with EUR outweighs it. Any other country the owner set stays theirs.
+    if country in ("", "DK") and tz in _PT_TIMEZONES and currency == "EUR":
+        return "PT"
+    if country == "DK" or (not country and tz in _DK_TIMEZONES) or currency == "DKK":
+        return "DK"
+    return None

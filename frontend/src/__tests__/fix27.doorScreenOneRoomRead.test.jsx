@@ -278,7 +278,7 @@ describe("the door screen's book reads its tables once", () => {
     expect(tableReads()).toBe(before + 1);
     expect(document.querySelector("[data-seat-room-unknown]")).toBeNull();
     const picker = screen.getByRole("combobox", { name: "Table" });
-    expect([...picker.querySelectorAll("option")].some((o) => o.textContent.startsWith("21"))).toBe(true);
+    expect([...picker.querySelectorAll("option")].some((o) => o.textContent.startsWith("Table 21"))).toBe(true);
   });
 
   it("the honest line in Danish and English, and its salon words", async () => {

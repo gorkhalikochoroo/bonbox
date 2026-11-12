@@ -95,7 +95,10 @@ describe("allergy words (B8)", () => {
     const src = (f) => fs.readFileSync(path.resolve(SRC, f), "utf8");
     expect(src("components/FloorPlan.jsx")).toMatch(/allergy === "severe"\s*\?\s*<OctagonAlert/);
     const rp = src("pages/ReservationsPage.jsx");
-    expect((rp.match(/level=\{allergy === "severe" \? "severe" : "allergy"\}/g) || []).length).toBe(2);
+    // The timeline's two bars live in its own file since the fix round of
+    // 12 Nov (the door screen loads that lens on first use).
+    const tl = src("components/reservations/TimelineView.jsx");
+    expect((tl.match(/level=\{allergy === "severe" \? "severe" : "allergy"\}/g) || []).length).toBe(2);
     expect(rp).toMatch(/level=\{severe \? "severe" : "allergy"\}\s*\n\s*role="img"/);
     expect(src("components/reservations/UpcomingRail.jsx")).toContain('level={severe ? "severe" : "allergy"}');
   });

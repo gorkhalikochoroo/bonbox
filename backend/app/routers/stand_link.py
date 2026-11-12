@@ -545,6 +545,41 @@ def stand_convert_waitlist(
                               db=db, user=user)
 
 
+@router.post("/{token}/waitlist/{entry_id}/seat")
+@limiter.limit("30/minute")
+def stand_seat_waitlist(
+    token: str,
+    entry_id: UUID,
+    payload: R.WaitlistSeat,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """"Sæt ved Bord 2": seat a waiting party at a table that is free NOW, in
+    one tap. The owner handler goes through the same create path as the
+    stand's own drop-in button — same seated-occupant check, same clash
+    check, same no-double-booking constraint — so no new reach. Rate limited
+    like add: a device in a public room should not be able to churn walk-ins
+    faster than a host can seat people."""
+    _, user = _bind(db, token)
+    return R.seat_waitlist(entry_id=entry_id, payload=payload, request=request,
+                           db=db, user=user)
+
+
+@router.post("/{token}/waitlist/{entry_id}/unseat")
+@limiter.limit("30/minute")
+def stand_unseat_waitlist(
+    token: str,
+    entry_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """The toast's "Fortryd" after a "Sæt ved": removes only the walk-in that
+    seating made, within 10 minutes, and puts the party back on the list.
+    Reaches nothing the seat itself did not touch."""
+    _, user = _bind(db, token)
+    return R.unseat_waitlist(entry_id=entry_id, request=request, db=db, user=user)
+
+
 # ── Bordet og allergien ───────────────────────────────────────────────
 # Two controls the drawer renders on the stand and neither was wrapped, so both
 # 404'd on the door tablet while looking perfectly live.

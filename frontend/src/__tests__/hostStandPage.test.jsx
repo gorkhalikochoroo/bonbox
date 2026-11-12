@@ -160,7 +160,7 @@ describe("drop-in by party size", () => {
     const [url, body] = api.post.mock.calls[0];
     expect(url).toBe("/reservations/book");
     expect(body).toMatchObject({ resource_id: "41", party_size: 2, status: "seated", source: "walk_in" });
-    expect(await screen.findByText("2 guests seated at 41")).toBeInTheDocument();
+    expect(await screen.findByText("2 guests seated at Table 41")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change table" })).toBeInTheDocument();
   });
 
@@ -299,7 +299,7 @@ describe("joined tables at the door", () => {
     const [url, body] = api.post.mock.calls[0];
     expect(url).toBe("/reservations/book");
     expect(body).toMatchObject({ resource_id: null, resource_ids: ["51", "52"], party_size: 5, status: "seated", source: "walk_in" });
-    expect(await screen.findByText("5 guests seated at 51 + 52")).toBeInTheDocument();
+    expect(await screen.findByText("5 guests seated at Table 51 + Table 52")).toBeInTheDocument();
   });
 
   it("6+ opens the seat sheet with the joined tables already picked", async () => {
@@ -308,7 +308,7 @@ describe("joined tables at the door", () => {
     await waitFor(async () => expect((await sizeButton(6)).textContent).toContain("Free now"));
     fireEvent.click(await sizeButton(6));
     const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
-    expect(within(dialog).getByText("51 + 52 · 6 seats")).toBeInTheDocument();
+    expect(within(dialog).getByText("Table 51 + Table 52 · 6 seats")).toBeInTheDocument();
     expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("__joined");
     fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
@@ -324,7 +324,7 @@ describe("joined tables at the door", () => {
     renderStand();
     await waitFor(async () => expect((await sizeButton(5)).textContent).toContain("Free now"));
     fireEvent.click(await sizeButton(5));
-    expect(await screen.findByText("5 guests seated at 52 + 51")).toBeInTheDocument();
+    expect(await screen.findByText("5 guests seated at Table 52 + Table 51")).toBeInTheDocument();
     expect(document.querySelector("[data-walkin-done]").dataset.walkinDone).toBe("seated");
   });
 
@@ -340,8 +340,8 @@ describe("joined tables at the door", () => {
     await waitFor(() => expect(document.querySelector("[data-walkin-done]")).not.toBeNull());
     const line = document.querySelector("[data-walkin-done]");
     expect(line.dataset.walkinDone).toBe("moved");
-    expect(line.textContent).toContain("Seated at 41 — not at 51 + 52");
-    expect(screen.queryByText("5 guests seated at 51 + 52")).toBeNull();
+    expect(line.textContent).toContain("Seated at Table 41 — not at Table 51 + Table 52");
+    expect(screen.queryByText("5 guests seated at Table 51 + Table 52")).toBeNull();
     // The booking is still one tap away, to move them.
     expect(within(line).getByRole("button", { name: "Change table" })).toBeInTheDocument();
   });
@@ -380,7 +380,7 @@ describe("a server older than joined tables (the frontend goes live first)", () 
       fireEvent.click(await sizeButton(5));
       await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
       expect(api.post.mock.calls[0][1]).toMatchObject({ resource_ids: ["51", "52"], party_size: 5 });
-      expect(await screen.findByText("5 guests seated at 51 + 52")).toBeInTheDocument();
+      expect(await screen.findByText("5 guests seated at Table 51 + Table 52")).toBeInTheDocument();
     } finally {
       ticks.restore();
     }
@@ -418,7 +418,7 @@ describe("the seat sheet picks what the drop-in row counted", () => {
     const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
     const sel = within(dialog).getByRole("combobox", { name: "Table" });
     expect(sel).toHaveValue("__joined");
-    expect(within(dialog).getByRole("option", { name: "51 + 52 · 6 seats, pushed together" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("option", { name: "Table 51 + Table 52 · 6 seats, pushed together" })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     expect(api.post.mock.calls[0][1]).toMatchObject({ resource_id: null, resource_ids: ["51", "52"], party_size: 6 });
