@@ -4,13 +4,25 @@
 	"webDir": "dist-scheduler",
 	"ios": {
 		"path": "ios-scheduler",
-		"contentInset": "automatic",
+		"contentInset": "never",
 		"allowsLinkPreview": false,
 		"backgroundColor": "#f9fafb",
 		"scrollEnabled": true
 	},
 	"android": {
-		"backgroundColor": "#f9fafb"
+		"path": "android-scheduler",
+		"backgroundColor": "#F6F4EE",
+		"includePlugins": [
+			"@capacitor/app",
+			"@capacitor/browser",
+			"@capacitor/camera",
+			"@capacitor/haptics",
+			"@capacitor/keyboard",
+			"@capacitor/network",
+			"@capacitor/preferences",
+			"@capacitor/splash-screen",
+			"@capacitor/status-bar"
+		]
 	},
 	"plugins": {
 		"SplashScreen": {
@@ -22,7 +34,12 @@
 		"StatusBar": {
 			"style": "LIGHT",
 			"backgroundColor": "#f9fafb",
-			"overlaysWebView": false
+			"overlaysWebView": true
+		},
+		"SystemBars": {
+			"style": "LIGHT",
+			"initialViewportFitValueHint": "cover",
+			"insetsHandling": "native"
 		},
 		"Keyboard": {
 			"resize": "body",
