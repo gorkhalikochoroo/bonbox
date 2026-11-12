@@ -129,6 +129,21 @@ describe("the phone tab bar", () => {
     expect(new Set(off).size).toBe(5);
   });
 
+  it("slot 3 never offers an irrelevant or switched-off Lager", () => {
+    // A services business (repair shop) with staff off: Salg in slot 2, and
+    // Lager is not relevant to its type.
+    const free = routes(getTabsForType("mobile_repair", new Set(["staff"]), { usedPillars: new Set(), usedSurfaces: new Set() }));
+    expect(free).not.toContain("/inventory");
+    expect(free[2]).toBe("/expenses");
+    // A shop that switched Lager off (and has no staff) never gets it back here.
+    const shopOff = routes(getTabsForType("clothing", new Set(["inventory", "staff"]), { usedPillars: new Set(), usedSurfaces: new Set() }));
+    expect(shopOff).not.toContain("/inventory");
+    expect(shopOff[2]).toBe("/expenses");
+    // A shop with Lager on but unused (slot 2 = Salg), staff off → Lager in slot 3.
+    const shopOn = routes(getTabsForType("clothing", new Set(["staff"]), { usedPillars: new Set(), usedSurfaces: new Set() }));
+    expect(shopOn.slice(1, 3)).toEqual(["/sales", "/inventory"]);
+  });
+
   it("a shop without a book leads with Lager once it is in use, else Salg", () => {
     const inUse = { usedPillars: new Set(["inventory"]), usedSurfaces: new Set(), enabledModules: null };
     expect(getTabsForType("clothing", new Set(), inUse)[1].to).toBe("/inventory");

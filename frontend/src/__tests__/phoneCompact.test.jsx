@@ -448,7 +448,10 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // Release merge (12 Nov 2026): home v3 + the address batch above, both
     // ADDED, nothing removed. Was { testid: 16, tKeys: 462 } (home v3) and
     // { testid: 15, tKeys: 465 } (address batch) from a common { testid: 13, tKeys: 457 }.
-    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 50, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 18, Button: 20, button: 66, disabled: 30, to: 5, tKeys: 470 },
+    // I dag review (12 Nov) ADDED, nothing removed: the phone day strip's
+    // "Lønprocent" label carries a title naming its basis (+1 title, "inkl.
+    // MOMS" — schedLaborPctInclMoms, listed in NEW_KEYS). Was { title: 56 }.
+    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 50, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 57, id: 15, testid: 18, Button: 20, button: 66, disabled: 30, to: 5, tKeys: 470 },
     "components/ScheduleConfirmationCard.jsx": { role: 1, tKeys: 3 },
     // Home v3 review (Nov 2026): the hours row shows the recorded live pauses
     // — measured / suggested / below the suggestion, and the pause list (+4
@@ -527,7 +530,7 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
   const NEW_KEYS = {
     "components/dashboard/KpiStrip.jsx": ["kpiWeekShort"],
     "components/dashboard/TodayOnShiftCard.jsx": ["todayOnShiftNone"],
-    "pages/StaffSchedulePage.jsx": ["schedEmptyWeekShort"],
+    "pages/StaffSchedulePage.jsx": ["schedEmptyWeekShort", "schedLaborPctInclMoms"],
     "pages/InventoryPage.jsx": ["invKpiItemsShort", "invKpiLowShort", "invKpiFreshShort"],
   };
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");

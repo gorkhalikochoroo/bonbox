@@ -1,12 +1,13 @@
 /**
  * The I dag page renders (a green build is not a running page — the TDZ P0
  * lesson): mid-service and before opening, with the honesty rules visible in
- * the DOM — a trend WORD (never a %), no figure without a source, the publish
- * action behind a confirm, and the "before opening" state.
+ * the DOM — a trend WORD (never a %), no figure without a source, Udgiv
+ * through Vagtplan's own publish sheet, no "all caught up" before the
+ * findings are known, and the "before opening" state.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 
 const get = vi.fn();
 const post = vi.fn();
@@ -20,9 +21,6 @@ vi.mock("../hooks/useLanguage", () => ({
 }));
 vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1", business_type: "restaurant", currency: "DKK", role: "owner" } }) }));
 vi.mock("../hooks/usePillars", () => ({ usePillars: () => ({ hiddenPillars: new Set() }) }));
-const confirmMock = vi.fn(async () => true);
-vi.mock("../hooks/useConfirm", () => ({ useConfirm: () => confirmMock }));
-vi.mock("../hooks/useEventLog", () => ({ trackEvent: () => {} }));
 
 import TodayDashboard from "../components/today/TodayDashboard";
 
@@ -68,17 +66,30 @@ function payload(over = {}) {
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
-  confirmMock.mockClear();
+  try { localStorage.clear(); } catch { /* none */ }
 });
 
-function mount(data) {
+function Where() {
+  const loc = useLocation();
+  return <p data-testid="where">{loc.pathname}{loc.search}</p>;
+}
+
+const WAITING = [{ code: "unconfirmed_reservations", severity: "info", deep_link: "/reservations", meta: { count: 1 } }];
+
+function mount(data, { findings = WAITING, needsYou = null, initialAt = null } = {}) {
   get.mockImplementation((url) => {
     if (url === "/today") return Promise.resolve({ data });
     if (url === "/cashflow/forecast") return Promise.resolve({ data: { foresight: { available: true, deadline: { date: "2027-03-01", days_until: 109, period_label: "2. halvår" }, moms: { realized: 83520, expected: 113834 }, action: { weekly_rate: 7200, weeks: 15, already_covered: false } } } });
-    if (url === "/diagnostics/needs-you") return Promise.resolve({ data: [{ code: "unconfirmed_reservations", severity: "info", deep_link: "/reservations", meta: { count: 1 } }] });
+    if (url === "/diagnostics/needs-you") return needsYou ? needsYou() : Promise.resolve({ data: { findings } });
     return Promise.resolve({ data: null });
   });
-  return render(<MemoryRouter><TodayDashboard initial={data} /></MemoryRouter>);
+  return render(
+    <MemoryRouter initialEntries={["/dashboard"]}>
+      <Routes>
+        <Route path="*" element={<><TodayDashboard initial={data} initialAt={initialAt} /><Where /></>} />
+      </Routes>
+    </MemoryRouter>,
+  );
 }
 
 describe("I dag — mid-service", () => {
@@ -102,17 +113,53 @@ describe("I dag — mid-service", () => {
     expect(row.getAttribute("href")).toBe("/reservations?booking=r2&date=2026-11-12");
   });
 
-  it("Kræver dig: publish asks first, then calls the real endpoint and refreshes", async () => {
-    post.mockResolvedValue({ data: {} });
-    const seen = vi.fn();
-    window.addEventListener("bonbox-data-changed", seen);
+  it("Kræver dig: Udgiv opens Vagtplan's own publish sheet for that week — never a blind publish", async () => {
     mount(payload());
     const btn = await screen.findByRole("button", { name: "tdPublishAction" });
     fireEvent.click(btn);
-    await waitFor(() => expect(post).toHaveBeenCalledWith("/staff/schedules/publish", null, { params: { week_start: "2026-11-09", lang: "da" } }));
-    expect(confirmMock).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(seen).toHaveBeenCalled());
-    window.removeEventListener("bonbox-data-changed", seen);
+    expect(screen.getByTestId("where").textContent).toBe("/staff/schedule?week=2026-11-09&publish=1");
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("no 'all caught up' and no count before the findings are known", async () => {
+    let answer;
+    mount(payload({ schedule: { week_start: "2026-11-09", week_number: 46, drafts: 0 } }), {
+      needsYou: () => new Promise((res) => { answer = res; }),
+    });
+    expect(screen.queryByText("tdAllCaughtUp")).toBeNull();
+    expect(screen.queryByText("tdAllClear")).toBeNull();
+    expect(screen.queryByText("tdNothingNeedsYou")).toBeNull();
+    expect(screen.getByText("tdNeedsChecking")).toBeInTheDocument();
+    await waitFor(() => expect(typeof answer).toBe("function"));
+    answer({ data: { findings: [] } });
+    await waitFor(() => expect(screen.getByText("tdAllCaughtUp")).toBeInTheDocument());
+    expect(screen.getByText("tdNothingNeedsYou")).toBeInTheDocument();
+  });
+
+  it("a failed needs-you read never turns into 'nothing needs you'", async () => {
+    mount(payload({ schedule: { week_start: "2026-11-09", week_number: 46, drafts: 0 } }), {
+      needsYou: () => Promise.reject(new Error("offline")),
+    });
+    await waitFor(() => expect(screen.getByText("tdNeedsCouldNotCheck")).toBeInTheDocument());
+    expect(screen.queryByText("tdAllCaughtUp")).toBeNull();
+    expect(screen.queryByText("tdNothingNeedsYou")).toBeNull();
+  });
+
+  it("a finding can be dismissed (Skjul), and the dismissal is kept", async () => {
+    const missing = [{ code: "close_missing", severity: "info", deep_link: "/daily-close?date=2026-11-11", meta: { date: "2026-11-11" } }];
+    mount(payload({ schedule: { week_start: "2026-11-09", week_number: 46, drafts: 0 } }), { findings: missing });
+    const x = await screen.findByRole("button", { name: "nyqDismiss" });
+    fireEvent.click(x);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "nyqDismiss" })).toBeNull());
+    expect(JSON.parse(localStorage.getItem("bonbox_nyq_dismissed"))).toHaveProperty(["close_missing|2026-11-11"]);
+    // the dated dismissal travels to the server scan as skip
+    await waitFor(() => expect(get).toHaveBeenCalledWith("/diagnostics/needs-you", { params: { skip: "close_missing:2026-11-11" } }));
+  });
+
+  it("does not read /today again when the page's own read is fresh", async () => {
+    mount(payload(), { initialAt: Date.now() });
+    await waitFor(() => expect(get).toHaveBeenCalledWith("/cashflow/forecast"));
+    expect(get.mock.calls.filter(([u]) => u === "/today")).toHaveLength(0);
   });
 
   it("a locked day with a like-for-like baseline shows the WORD", () => {

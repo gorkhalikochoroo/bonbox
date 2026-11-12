@@ -7,7 +7,8 @@
  *   • GET /api/cashflow/forecast     — the MOMS foresight (the Moms card)
  *   • GET /api/diagnostics/needs-you — the existing "Skal ses nu" findings
  * and refreshes on the freshness bus (`bonbox-data-changed`), on return to the
- * tab, and every five minutes while visible.
+ * tab, and every five minutes while visible. The first /today read is the
+ * one TodayPage just made (`initial`, `initialAt`) — not asked again.
  *
  * Honest by construction (see todayModel.js): no figure without a source, the
  * sales trend is a word and only like-for-like, "Kræver dig" lists only what
@@ -16,25 +17,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  ArrowRight, CalendarPlus, Check, ChevronRight, Moon, ReceiptText as Receipt, Send, Timer, UserPlus, Users,
+  ArrowRight, CalendarPlus, Check, ChevronRight, Moon, ReceiptText as Receipt, Send, Timer, UserPlus, Users, X,
 } from "lucide-react";
 import api from "../../services/api";
 import { peekGet } from "../../lib/swrCache";
 import { useLanguage } from "../../hooks/useLanguage";
 import { useAuth } from "../../hooks/useAuth";
 import { usePillars } from "../../hooks/usePillars";
-import { useConfirm } from "../../hooks/useConfirm";
 import { archetypeIdFor } from "../../config/archetypes";
 import { formatOwnerMoney } from "../../utils/currency";
 import { dateLocale } from "../../utils/dateFormat";
-import { trackEvent } from "../../hooks/useEventLog";
-import { RENDERERS, keyFor, loadDismissed, skipParamFor } from "../needsYouRenderers";
+import { DATED_CODES, RENDERERS, keyFor, loadDismissed, saveDismissal, skipParamFor } from "../needsYouRenderers";
 import {
   buildNeeds, chartWindow, closeSteps, defaultService, greetingKey, heatCells, hhmm,
   laborLine, minutesOf, plural, relMinutes, salesTile, shiftState, splitService, staffSummary, tonightCovers,
 } from "./todayModel";
 
 const REFRESH_MS = 5 * 60 * 1000;
+// TodayPage's own /today answer is this fresh or fresher → the first load
+// does not ask again (one landing used to read /today twice).
+const FRESH_INITIAL_MS = 30 * 1000;
 const DATA_EVENT = "bonbox-data-changed";
 const AVATAR_HUES = ["#93573F", "#456E5F", "#8A6A2F", "#4F5F80", "#2F5D4E", "#5B6E8C", "#7A4F6A", "#3E6A7A"];
 
@@ -64,11 +66,10 @@ function weekdayName(iso) {
   }
 }
 
-export default function TodayDashboard({ initial = null, onFresh = null }) {
-  const { t, lang } = useLanguage();
+export default function TodayDashboard({ initial = null, initialAt = null, onFresh = null }) {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const confirm = useConfirm();
   const { hiddenPillars } = usePillars();
   const currency = user?.currency || "DKK";
   const money = useCallback((v) => formatOwnerMoney(v, currency), [currency]);
@@ -79,13 +80,26 @@ export default function TodayDashboard({ initial = null, onFresh = null }) {
   const staffOn = !hiddenPillars.has("staff");
 
   const [data, setData] = useState(initial);
-  const [fetchedAt, setFetchedAt] = useState(() => Date.now());
+  const [fetchedAt, setFetchedAt] = useState(() => (initial && initialAt ? initialAt : Date.now()));
   const [foresight, setForesight] = useState(() => peekGet("/cashflow/forecast")?.foresight || null);
-  const [findings, setFindings] = useState(() => peekGet("/diagnostics/needs-you") || []);
-  const [, setTick] = useState(0);
-  const [publishing, setPublishing] = useState(false);
-  const [notice, setNotice] = useState(null);
+  // The owner's dismissals ("Skjul"), shared with the old Home's queue.
+  const [dismissed, setDismissed] = useState(loadDismissed);
+  const dismissedRef = useRef(dismissed);
+  // The needs-you findings: null = NOT KNOWN YET. Until they are, the page
+  // says neither "all caught up" nor a count — a first paint (or a failed
+  // read) must not claim nothing needs the owner.
+  const [findings, setFindings] = useState(() => {
+    const skip = skipParamFor(dismissed);
+    const kept = peekGet("/diagnostics/needs-you", skip ? { skip } : {});
+    return Array.isArray(kept?.findings) ? kept.findings : null;
+  });
+  const [findingsFailed, setFindingsFailed] = useState(false);
+  // The wall clock the venue time is moved on by — set by the minute tick,
+  // never read during render (React's purity rule).
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const alive = useRef(true);
+  const [reuseInitial] = useState(() => !!(initial && initialAt && Date.now() - initialAt < FRESH_INITIAL_MS));
+  const reusedRef = useRef(false);
   // Set in the effect body too: StrictMode (dev) runs mount → unmount → mount,
   // and a cleanup-only ref would stay false and drop every later answer.
   useEffect(() => {
@@ -94,34 +108,53 @@ export default function TodayDashboard({ initial = null, onFresh = null }) {
   }, []);
 
   const load = useCallback(async () => {
-    const dismissed = loadDismissed();
-    const skip = skipParamFor(dismissed);
+    const skip = skipParamFor(dismissedRef.current);
+    const reuse = reuseInitial && !reusedRef.current;
+    reusedRef.current = true;
     const [td, fc, nq] = await Promise.allSettled([
-      api.get("/today"),
+      reuse ? Promise.resolve(null) : api.get("/today"),
       api.get("/cashflow/forecast"),
       api.get("/diagnostics/needs-you", { params: skip ? { skip } : {} }),
     ]);
     if (!alive.current) return;
     if (td.status === "fulfilled" && td.value?.data) {
+      const at = Date.now();
       setData(td.value.data);
-      setFetchedAt(Date.now());
+      setFetchedAt(at);
+      setClockNow(at);
     }
     if (fc.status === "fulfilled") setForesight(fc.value?.data?.foresight || null);
-    if (nq.status === "fulfilled") {
-      const list = Array.isArray(nq.value?.data) ? nq.value.data : (nq.value?.data?.findings || []);
-      setFindings(list.filter((f) => !dismissed[keyFor(f)]));
+    if (nq.status === "fulfilled" && Array.isArray(nq.value?.data?.findings)) {
+      setFindings(nq.value.data.findings);
+      setFindingsFailed(false);
+    } else {
+      // Could not check: the last known list stays; none known → "failed",
+      // never an empty list that reads as "nothing needs you".
+      setFindingsFailed(true);
     }
-  }, []);
+  }, [reuseInitial]);
+
+  const dismiss = useCallback((item) => {
+    const next = saveDismissal(dismissedRef.current, item);
+    dismissedRef.current = next;
+    setDismissed(next);
+    // A dated dismissal changes the server's scan (worst-only detectors): ask
+    // again so the next one surfaces instead of hiding behind it.
+    if (DATED_CODES.has(item.code)) load();
+  }, [load]);
 
   useEffect(() => {
-    load();
+    // First read on the next tick, not in the effect body (React 19's
+    // set-state-in-effect rule; same pattern as EventPublicPage).
+    const first = setTimeout(load, 0);
     const onData = () => load();
     const onVis = () => { if (document.visibilityState === "visible") load(); };
     window.addEventListener(DATA_EVENT, onData);
     document.addEventListener("visibilitychange", onVis);
     const every = setInterval(() => { if (document.visibilityState === "visible") load(); }, REFRESH_MS);
-    const clock = setInterval(() => setTick((n) => n + 1), 60 * 1000);
+    const clock = setInterval(() => setClockNow(Date.now()), 60 * 1000);
     return () => {
+      clearTimeout(first);
       window.removeEventListener(DATA_EVENT, onData);
       document.removeEventListener("visibilitychange", onVis);
       clearInterval(every);
@@ -137,37 +170,16 @@ export default function TodayDashboard({ initial = null, onFresh = null }) {
 
   const cutoff = data.cutoff_hour ?? 6;
   // The venue's clock, moved on by the minutes since the payload was read.
-  const nowMin = ((data.now_minutes ?? 0) + Math.floor((Date.now() - fetchedAt) / 60000)) % 1440;
+  const nowMin = ((data.now_minutes ?? 0) + Math.max(0, Math.floor((clockNow - fetchedAt) / 60000))) % 1440;
   const dayState = data.day_state;
   const before = dayState === "before_open" || dayState === "closed_today";
   const rsv = rsvOn ? data.reservations : null;
   const showRsv = !!(rsv && rsv.has_book);
   const shifts = staffOn ? (data.staff?.shifts || []) : [];
   const sum = staffSummary(shifts, nowMin, cutoff);
-  const needs = buildNeeds(data, findings, { hiddenPillars });
-
-  const publish = async (item) => {
-    if (publishing) return;
-    const ok = await confirm({
-      title: t("tdPublishConfirmTitle", { week: item.meta.week }),
-      message: t("tdPublishConfirmBody", { count: item.meta.count, word: plural(t, item.meta.count, "tdWShift", "tdWShifts") }),
-      confirmLabel: t("tdPublishAction"),
-    });
-    if (!ok) return;
-    setPublishing(true);
-    try {
-      await api.post("/staff/schedules/publish", null, {
-        params: { week_start: item.meta.weekStart, lang: lang === "da" ? "da" : "en" },
-      });
-      trackEvent("schedule_published", "today");
-      setNotice({ tone: "ok", text: t("tdPublishedNotice", { week: item.meta.week }) });
-      window.dispatchEvent(new Event(DATA_EVENT));
-    } catch {
-      setNotice({ tone: "err", text: t("tdPublishFailed") });
-    } finally {
-      setPublishing(false);
-    }
-  };
+  const known = Array.isArray(findings);
+  const visibleFindings = known ? findings.filter((f) => !(keyFor(f) in dismissed)) : null;
+  const needs = buildNeeds(data, visibleFindings, { hiddenPillars });
 
   const closeTo = "/daily-close";
   const newBookingTo = "/reservations?new=1";
@@ -185,10 +197,12 @@ export default function TodayDashboard({ initial = null, onFresh = null }) {
             <p className="td-head-date">{longDate(data.business_day)} · {hhmm(nowMin)}</p>
             <h1 className="td-head-h1 td-h">{greeting}</h1>
             <p className="td-head-sum">
-              {summary}{summary ? " " : ""}
-              <a href="#td-needs">
-                {needs.length ? t("tdNeedsLink", { count: needs.length }) : t("tdAllCaughtUp")}
-              </a>
+              {summary}{summary && known ? " " : ""}
+              {known && (
+                <a href="#td-needs">
+                  {needs.length ? t("tdNeedsLink", { count: needs.length }) : t("tdAllCaughtUp")}
+                </a>
+              )}
             </p>
           </div>
           <div className="td-head-actions">
@@ -209,14 +223,10 @@ export default function TodayDashboard({ initial = null, onFresh = null }) {
           <Link to={closeTo} className="td-btn td-btn-brass"><Moon size={16} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
         </div>
 
-        {notice && (
-          <p role="status" className="td-sub" style={{ color: notice.tone === "ok" ? "var(--td-green)" : "var(--td-red)" }}>{notice.text}</p>
-        )}
-
         {/* DOM order is the phone's (canvas: Kræver dig before the book); on a
             wide page the grid areas put the book left, Kræver dig + Personale right. */}
         <div className={`td-grid${showRsv ? "" : " no-res"}`}>
-          <Needs t={t} needs={needs} navigate={navigate} publish={publish} publishing={publishing} />
+          <Needs t={t} needs={needs} known={known} failed={findingsFailed} navigate={navigate} onDismiss={dismiss} />
           {showRsv && (
             <Bookings t={t} rsv={rsv} day={data.business_day} cutoff={cutoff} nowMin={nowMin}
               isFood={isFood} isAppointments={isAppointments} canWalkIn={canWalkIn} newBookingTo={newBookingTo} walkInTo={walkInTo} />
@@ -611,14 +621,22 @@ function needWords(t, item) {
   };
 }
 
-function Needs({ t, needs, navigate, publish, publishing }) {
+function Needs({ t, needs, known, failed, navigate, onDismiss }) {
+  // Not known yet: no count and no "all clear" — the rows we DO know (the
+  // unpublished week, the revisor set-up) still show, with a quiet line
+  // saying the rest is being checked (or could not be).
+  const pending = !known && (
+    <div className="td-li" style={{ minHeight: needs.length ? 40 : 52 }}>
+      <span className="td-li-body"><span className="td-li-s">{failed ? t("tdNeedsCouldNotCheck") : t("tdNeedsChecking")}</span></span>
+    </div>
+  );
   return (
-    <section id="td-needs" aria-labelledby="td-needs-h" aria-live="polite" className="td-card td-a-needs td-rise" style={{ animationDelay: "210ms" }}>
+    <section id="td-needs" aria-labelledby="td-needs-h" aria-live="polite" aria-busy={!known && !failed} className="td-card td-a-needs td-rise" style={{ animationDelay: "210ms" }}>
       <div className="td-card-h" style={{ justifyContent: "flex-start", gap: 8 }}>
         <h2 id="td-needs-h" className="td-card-title td-h">{t("tdNeedsTitle")}</h2>
-        {needs.length > 0 ? <span className="td-count">{needs.length}</span> : <span className="td-clear">{t("tdAllClear")}</span>}
+        {known && (needs.length > 0 ? <span className="td-count">{needs.length}</span> : <span className="td-clear">{t("tdAllClear")}</span>)}
       </div>
-      {needs.length === 0 && (
+      {known && needs.length === 0 && (
         <div className="td-li" style={{ minHeight: 52 }}>
           <span className="td-li-ic t-green"><Check size={18} aria-hidden="true" /></span>
           <span className="td-li-body"><span className="td-li-s">{t("tdNothingNeedsYou")}</span></span>
@@ -628,7 +646,6 @@ function Needs({ t, needs, navigate, publish, publishing }) {
         const w = needWords(t, item);
         if (!w) return null;
         const Icon = w.Icon;
-        const onAct = item.kind === "publish" ? () => publish(item) : () => navigate(item.to);
         return (
           <div key={item.id} className="td-li td-row">
             <span className={`td-li-ic t-${w.tone}`}><Icon size={18} aria-hidden="true" /></span>
@@ -636,12 +653,20 @@ function Needs({ t, needs, navigate, publish, publishing }) {
               <span className="td-li-t">{w.title}</span>
               {w.sub && <span className="td-li-s">{w.sub}</span>}
             </span>
-            <button type="button" className="td-btn td-btn-sm td-btn-soft" onClick={onAct} disabled={item.kind === "publish" && publishing}>
+            <button type="button" className="td-btn td-btn-sm td-btn-soft" onClick={() => navigate(item.to)}>
               {w.action}
             </button>
+            {/* The same "Skjul" the old Home's queue has, on the server's
+                findings only (the week and the revisor go away by doing). */}
+            {item.kind === "finding" && (
+              <button type="button" className="td-x" onClick={() => onDismiss(item)} aria-label={t("nyqDismiss")} title={t("nyqDismiss")}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            )}
           </div>
         );
       })}
+      {pending}
     </section>
   );
 }

@@ -398,16 +398,41 @@ def _staff_block(db: Session, user: User, day: date) -> dict:
     ).limit(1).first() is not None
     clocked_in = None
     if uses_clock:
-        clocked_in = (
-            db.query(func.count(HoursLogged.id)).filter(
-                HoursLogged.user_id == user.id,
-                HoursLogged.entry_method == "clock",
-                HoursLogged.end_time.is_(None),
-                HoursLogged.date >= day - timedelta(days=1),
-                HoursLogged.date <= day,
-            ).scalar()
-        ) or 0
+        clocked_in = clocked_in_now(db, user, day)
     return {"shifts": shifts, "uses_clock": uses_clock, "clocked_in_now": clocked_in}
+
+
+def clocked_in_now(db: Session, user: User, day: date) -> int:
+    """PEOPLE on the clock right now: distinct staff with an open punch that is
+    still plausibly a shift. A forgotten clock-out (open longer than any real
+    shift) is NOT "on shift now" — the same rule Timer's exceptions and the
+    staff portal use (time_registration.open_punch_is_forgotten, on the
+    owner's wall clock and cutoff via staff._open_punch_clock), so the hero can
+    never read "4 af 3" because two people forgot to clock out yesterday."""
+    from app.routers.staff import _open_punch_clock
+    from app.services.time_registration import open_punch_is_forgotten
+
+    rows = (
+        db.query(HoursLogged.staff_id, HoursLogged.date, HoursLogged.start_time)
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.entry_method == "clock",
+            HoursLogged.end_time.is_(None),
+            HoursLogged.date >= day - timedelta(days=1),
+            HoursLogged.date <= day,
+        )
+        .all()
+    )
+    clk = _open_punch_clock(user)
+    live = set()
+    for staff_id, d, start in rows:
+        try:
+            forgotten = open_punch_is_forgotten(d, start, clk["now"], clk["cutoff_hour"])
+        except Exception:  # noqa: BLE001 — unusable start: the calendar fallback
+            forgotten = d < day
+        if not forgotten and staff_id is not None:
+            live.add(str(staff_id))
+    return len(live)
 
 
 def _close_block(db: Session, user: User, day: date, profile) -> dict:
@@ -529,9 +554,14 @@ def _labor_block(db: Session, user: User, day: date) -> dict:
     }
 
 
-def _badges(db: Session, user: User, day: date) -> dict:
+def _badges(db: Session, user: User, day: date, profile=None, skip=frozenset()) -> dict:
     """Only actionable counts: bookings waiting for the owner's answer, draft
-    shifts this week nobody can see yet, and a missing kasserapport."""
+    shifts this week nobody can see yet, and a missing kasserapport.
+
+    The kasserapport badge follows the same two rules as the page: a day the
+    owner DISMISSED ("Skjul", sent as `skip` like /diagnostics/needs-you) is not
+    missing, and neither is a day the venue's own opening hours say it was shut
+    (the hero already says "nothing missing" then — the rail must agree)."""
     from app.services.diagnostics_service import (
         _detect_close_missing,
         _detect_unconfirmed_reservations,
@@ -546,10 +576,15 @@ def _badges(db: Session, user: User, day: date) -> dict:
     sch = _safe("badge_schedule", lambda: _schedule_block(db, user, day))
     if sch:
         out["schedule"] = int(sch.get("drafts") or 0)
-    cm = _safe("badge_close", lambda: _detect_close_missing(db, user, now))
-    if cm:
+    cm = _safe("badge_close", lambda: _detect_close_missing(db, user, now, skip))
+    if cm and not _venue_closed_on(profile, day - timedelta(days=1)):
         out["daily_close"] = 1
     return out
+
+
+def _venue_closed_on(profile, d: date) -> bool:
+    h = _hours_for(profile, d)
+    return bool(h and h.get("closed"))
 
 
 @router.get("")
@@ -557,6 +592,10 @@ def _badges(db: Session, user: User, day: date) -> dict:
 def get_today(
     request: Request,
     part: Optional[str] = Query(None, pattern="^(badges)$"),
+    # The owner's dismissed dated findings ("close_missing:YYYY-MM-DD,…"),
+    # the same CSV /diagnostics/needs-you takes — so the rail's badge never
+    # counts a day the owner already said "Skjul" to.
+    skip: str = Query("", max_length=2000),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -569,9 +608,11 @@ def get_today(
     if profile is not None and profile.day_cutoff_hour is not None:
         user.day_cutoff_hour = profile.day_cutoff_hour
     day = business_today_local(user)
+    from app.routers.diagnostics import _parse_skip
+    skipped = frozenset(_parse_skip(skip or ""))
 
     if part == "badges":
-        return {"business_day": day.isoformat(), "badges": _badges(db, user, day)}
+        return {"business_day": day.isoformat(), "badges": _badges(db, user, day, profile, skipped)}
 
     now = now_local(user)
     now_min = now.hour * 60 + now.minute
@@ -602,5 +643,5 @@ def get_today(
             "has_accountant_email": bool(profile is not None and (profile.accountant_email or "").strip()),
             "schedule": getattr(profile, "revisor_package_schedule", None) if profile is not None else None,
         },
-        "badges": _badges(db, user, day),
+        "badges": _badges(db, user, day, profile, skipped),
     }

@@ -97,7 +97,26 @@ describe("Kræver dig — only what the owner can act on", () => {
     expect(needs[0].meta).toEqual({ week: 46, count: 6, weekStart: "2026-11-09" });
     expect(needs[1].to).toBe(`/reservations?booking=r1&date=${day}`);
     expect(needs[1].guest.name).toBe("Petersen");
-    expect(needs[2].to).toBe("/bookkeeping-export");
+    // The revisor's e-mail field lives on Profile (Betaling & revisor), not on
+    // the export page, which only says "add it on Profile".
+    expect(needs[2].to).toBe("/profile#billing");
+    // Udgiv opens Vagtplan's own publish sheet for that week — never a blind
+    // publish from I dag.
+    expect(needs[0].to).toBe("/staff/schedule?week=2026-11-09&publish=1");
+  });
+
+  it("a closed day is not a missing kasserapport (the hero agrees)", () => {
+    const missing = { code: "close_missing", meta: { date: "2026-11-11" }, deep_link: "/daily-close?date=2026-11-11" };
+    const quiet = { ...base, schedule: { drafts: 0 }, revisor: { has_accountant_email: true } };
+    const shut = { ...quiet, close: { days: [{ date: "2026-11-11", status: "none", venue_closed: true }] } };
+    expect(buildNeeds(shut, [missing])).toEqual([]);
+    const open = { ...quiet, close: { days: [{ date: "2026-11-11", status: "none", venue_closed: false }] } };
+    expect(buildNeeds(open, [missing]).map((n) => n.code)).toEqual(["close_missing"]);
+  });
+
+  it("findings not known yet (null) add no rows — never a guessed list", () => {
+    const needs = buildNeeds({ ...base, revisor: { has_accountant_email: true } }, null);
+    expect(needs.map((n) => n.kind)).toEqual(["publish"]);
   });
 
   it("drops what is not actionable: no drafts, a hidden pillar, a saved revisor e-mail, too few closes", () => {
@@ -126,7 +145,7 @@ describe("Kræver dig — only what the owner can act on", () => {
       { code: "close_missing", meta: { date: "2026-11-11" }, deep_link: "/daily-close?date=2026-11-11" },
       { code: "stale_bank_feed", meta: { days: 4 }, deep_link: "/connections" },
     ]);
-    for (const n of needs) expect(n.kind === "publish" || typeof n.to === "string").toBe(true);
+    for (const n of needs) expect(typeof n.to).toBe("string");
   });
 });
 

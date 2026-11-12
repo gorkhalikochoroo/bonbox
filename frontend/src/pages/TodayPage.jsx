@@ -57,6 +57,9 @@ export default function TodayPage() {
     (shared && locked);
 
   const [first, setFirst] = useState(() => (legacyByRole ? null : peekGet("/today") || null));
+  // When THIS page's read answered — TodayDashboard then does not ask /today
+  // again on its first load (a kept copy has no stamp: it is refreshed).
+  const [firstAt, setFirstAt] = useState(null);
   const [state, setState] = useState(() => (legacyByRole ? "legacy" : first ? "ok" : "loading"));
 
   useEffect(() => {
@@ -71,6 +74,7 @@ export default function TodayPage() {
           return;
         }
         setFirst(body);
+        setFirstAt(Date.now());
         setState(isFreshAccount(body) ? "legacy" : "ok");
       })
       .catch(() => {
@@ -83,5 +87,5 @@ export default function TodayPage() {
   // flips it back to the old Home mid-look.
   if (legacyByRole || state === "legacy") return <Legacy />;
   if (state === "loading" || !first) return <TodaySkeleton />;
-  return <TodayDashboard initial={first} />;
+  return <TodayDashboard initial={first} initialAt={firstAt} />;
 }

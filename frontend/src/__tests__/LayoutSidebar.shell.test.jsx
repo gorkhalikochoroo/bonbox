@@ -26,9 +26,11 @@ vi.mock("../services/api", () => ({
 vi.mock("../hooks/useLanguage", () => ({
   useLanguage: () => ({ t: (k) => k, lang: "da", setLang: () => {}, LANGUAGES: [{ code: "da", short: "DK" }] }),
 }));
+const auth = vi.hoisted(() => ({ user: null }));
+const OWNER = { id: 1, business_type: "cafe", role: "owner", business_name: "Café Test", currency: "DKK" };
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { id: 1, business_type: "cafe", role: "owner", business_name: "Café Test", currency: "DKK" },
+    user: auth.user || { id: 1, business_type: "cafe", role: "owner", business_name: "Café Test", currency: "DKK" },
     logout: vi.fn(),
     loading: false,
   }),
@@ -118,6 +120,7 @@ function renderShell(path = "/dashboard") {
 }
 
 beforeEach(() => {
+  auth.user = OWNER;
   setViewport(DESKTOP);
   try { localStorage.clear(); } catch { /* stubbed storage */ }
 });
@@ -287,6 +290,22 @@ describe("the rail is visible to a keyboard", () => {
     expect(owner).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(owner);
     expect(owner).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("the account card names who this is", () => {
+  it("says Ejer to the owner", () => {
+    renderShell("/dashboard");
+    expect(screen.getByText("tdRoleOwner")).toBeInTheDocument();
+    expect(screen.getByText("tdOwnerCardSub")).toBeInTheDocument();
+  });
+
+  it("never says Ejer (or betaling) to an invited seat", () => {
+    auth.user = { ...OWNER, role: "manager" };
+    renderShell("/dashboard");
+    expect(screen.queryByText("tdRoleOwner")).toBeNull();
+    expect(screen.getByText("teamRoleManager")).toBeInTheDocument();
+    expect(screen.getByText("tdMemberCardSub")).toBeInTheDocument();
   });
 });
 

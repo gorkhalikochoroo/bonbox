@@ -1336,7 +1336,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
     pctAccent = "warn";
   } else if (pct != null) {
     pctValue = pctText(Math.round(pct * 100), lang);
-    pctHelper = `${t("hovTileLaborPctSub", "of revenue · target {target}%").split("{target}").join(Math.round(target * 100))}${soFar}`;
+    pctHelper = `${t("hovTileLaborPctSub", "of revenue incl. MOMS · target {target}%").split("{target}").join(Math.round(target * 100))}${soFar}`;
     if (pct <= target) pctAccent = "success";
     else if (pct <= target + 0.05) pctAccent = "warn";
     else pctAccent = "critical";

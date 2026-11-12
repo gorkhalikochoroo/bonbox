@@ -24,7 +24,7 @@ import { AlertTriangle, ChevronRight, X } from "lucide-react";
 import api from "../services/api";
 import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
-import { STORAGE_KEY, keyFor, loadDismissed, skipParamFor, RENDERERS } from "./needsYouRenderers";
+import { keyFor, loadDismissed, saveDismissal, skipParamFor, RENDERERS } from "./needsYouRenderers";
 
 const SEVERITY_DOT = {
   urgent: "bg-red-500",
@@ -61,15 +61,8 @@ export default function NeedsYouQueue() {
     };
   }, [skip]);
 
-  const dismiss = (f) => {
-    const next = { ...dismissed, [keyFor(f)]: Date.now() };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      /* storage full/blocked — dismissal still applies for this session */
-    }
-    setDismissed(next);
-  };
+  // saveDismissal also tells the rail's badges to re-read (DISMISS_EVENT).
+  const dismiss = (f) => setDismissed(saveDismissal(dismissed, f));
 
   // Client-side filter covers the snoozed (non-dated) codes + fetch latency.
   const visible = findings.filter((f) => !(keyFor(f) in dismissed));

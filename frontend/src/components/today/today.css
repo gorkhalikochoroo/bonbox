@@ -261,6 +261,10 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 .td-li-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .td-li-t { font-size: 14px; font-weight: 600; text-wrap: pretty; }
 .td-li-s { font-size: 12.5px; color: var(--td-muted); }
+/* "Skjul" on a finding — quiet, 40px hit area (phone compact controls). */
+.td-x { flex: none; width: 40px; height: 40px; margin: 0 -8px 0 -6px; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--td-muted); cursor: pointer; }
+.td-x:hover { background: var(--td-hover); color: var(--td-ink); }
+.td-x:focus-visible { outline: 2px solid var(--td-ink); outline-offset: 2px; }
 .td-count { display: inline-grid; place-items: center; height: 22px; min-width: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 999px; background: var(--td-ink); color: var(--td-card); font-size: 11.5px; font-weight: 700; }
 .td-clear { display: inline-flex; height: 22px; padding: 0 9px; align-items: center; border-radius: 999px; background: var(--td-green-soft); color: var(--td-green); font-size: 11.5px; font-weight: 700; }
 .td-person { display: flex; align-items: center; gap: 12px; padding: 9px 20px; border-top: 1px solid var(--td-line-2); }

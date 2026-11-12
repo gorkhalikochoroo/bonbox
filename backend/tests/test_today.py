@@ -330,3 +330,60 @@ def test_badges_part_counts_only_actionable(client, db):
     assert body["badges"]["schedule"] == 1
     assert body["badges"]["reservations"] == 0
     assert set(body.keys()) == {"business_day", "badges"}
+
+
+def test_clocked_in_now_counts_people_and_skips_forgotten_clock_outs(client, db):
+    """"På vagt nu": a punch left open since yesterday morning is a forgotten
+    clock-out, not someone on shift now (time_registration rule)."""
+    from app.models.staff import HoursLogged
+    from app.services.tz_utils import now_local
+
+    u = _owner(db, "-d")
+    day = _today(u)
+    anna = StaffMember(id=uuid.uuid4(), user_id=u.id, name="Anna", role="server")
+    bo = StaffMember(id=uuid.uuid4(), user_id=u.id, name="Bo", role="server")
+    db.add_all([anna, bo])
+    db.commit()
+    now = now_local(u)
+    db.add_all([
+        # Anna clocked in just now — on shift.
+        HoursLogged(id=uuid.uuid4(), user_id=u.id, staff_id=anna.id, date=day,
+                    start_time=f"{now.hour:02d}:{now.minute:02d}", end_time=None,
+                    total_hours=0, entry_method="clock"),
+        # Bo never clocked out yesterday — forgotten, not "on shift now".
+        HoursLogged(id=uuid.uuid4(), user_id=u.id, staff_id=bo.id, date=day - timedelta(days=1),
+                    start_time="07:00", end_time=None, total_hours=0, entry_method="clock"),
+    ])
+    db.commit()
+    _as(u)
+    staff = client.get("/api/today").json()["staff"]
+    assert staff["uses_clock"] is True
+    assert staff["clocked_in_now"] == 1
+
+
+def test_close_badge_respects_dismissal_and_a_closed_day(client, db):
+    """The rail's Kasserapport badge agrees with the page: not for a day the
+    owner dismissed, not for a day the venue's own hours say it was shut."""
+    import json
+    from app.models.business_profile import BusinessProfile
+
+    u = _owner(db, "-e")
+    day = _today(u)
+    yesterday = day - timedelta(days=1)
+    for back in (2, 3, 4):  # closes regularly
+        _close(db, u, day - timedelta(days=back), 9000)
+    _as(u)
+    badges = client.get("/api/today", params={"part": "badges"}).json()["badges"]
+    assert badges["daily_close"] == 1
+
+    skip = f"close_missing:{yesterday.isoformat()}"
+    badges = client.get("/api/today", params={"part": "badges", "skip": skip}).json()["badges"]
+    assert badges["daily_close"] == 0
+
+    keys = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+    hours = {k: "11:00-22:00" for k in keys}
+    hours[keys[yesterday.weekday()]] = "closed"
+    db.add(BusinessProfile(id=uuid.uuid4(), user_id=u.id, operating_hours_json=json.dumps(hours)))
+    db.commit()
+    badges = client.get("/api/today", params={"part": "badges"}).json()["badges"]
+    assert badges["daily_close"] == 0

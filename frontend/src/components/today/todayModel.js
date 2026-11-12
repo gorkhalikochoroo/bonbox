@@ -241,8 +241,9 @@ export function laborLine(labor) {
  * set-up.
  *
  * @param {object} today       GET /api/today payload
- * @param {Array}  findings    GET /api/diagnostics/needs-you (already filtered
- *                             for the owner's dismissals)
+ * @param {Array}  findings    GET /api/diagnostics/needs-you `.findings`
+ *                             (already filtered for the owner's dismissals;
+ *                             null while not known — then no finding rows)
  * @param {{hiddenPillars?: Set<string>}} opts
  */
 export function buildNeeds(today, findings, { hiddenPillars } = {}) {
@@ -253,15 +254,27 @@ export function buildNeeds(today, findings, { hiddenPillars } = {}) {
   const staffOn = !hidden.has("staff");
   const drafts = today?.schedule?.drafts || 0;
   if (staffOn && drafts > 0) {
+    const weekStart = today.schedule.week_start;
     out.push({
       id: "publish",
       kind: "publish",
-      meta: { week: today.schedule.week_number, count: drafts, weekStart: today.schedule.week_start },
+      meta: { week: today.schedule.week_number, count: drafts, weekStart },
+      // Udgiv goes through Vagtplan's OWN publish sheet for that week — the
+      // Shield 11h/48h warnings, who has no e-mail, and a held mail are said
+      // there before anything goes out; I dag never publishes blind.
+      to: `/staff/schedule?week=${encodeURIComponent(weekStart || "")}&publish=1`,
     });
   }
 
+  // A day the venue's own hours say it was shut is not a missing
+  // kasserapport — the hero already says so; Kræver dig must agree.
+  const shutDays = new Set(
+    (today?.close?.days || []).filter((d) => d && d.venue_closed).map((d) => d.date),
+  );
+
   for (const f of Array.isArray(findings) ? findings : []) {
     if (!f || !f.code) continue;
+    if (f.code === "close_missing" && f.meta?.date && shutDays.has(f.meta.date)) continue;
     if (f.code === "unconfirmed_reservations") {
       if (hidden.has("reservations")) continue;
       // One request tonight → straight to that booking; otherwise the book.
@@ -278,7 +291,9 @@ export function buildNeeds(today, findings, { hiddenPillars } = {}) {
 
   const sales = today?.sales;
   if (today?.revisor && !today.revisor.has_accountant_email && (sales?.confirmed_closes_30d || 0) >= 3) {
-    out.push({ id: "revisor", kind: "revisor", to: "/bookkeeping-export" });
+    // Profile → Betaling & revisor holds the revisor's e-mail field (the
+    // export page only says "add it on Profile").
+    out.push({ id: "revisor", kind: "revisor", to: "/profile#billing" });
   }
   return out;
 }

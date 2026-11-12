@@ -615,6 +615,18 @@ export default function Layout() {
         archetypeId,
         isStaffMember: _ownerFinancialsHidden,
       }).filter((item) => !(isNativeApp() && item.locked));
+  // Who the account card says this is. Only the owner is "Ejer"; an invited
+  // seat reads its own role (Bestyrer / Kasserer / Kun læse) and the revisor
+  // the read-only view — neither handles billing, so their line says
+  // "Profil & indstillinger". A personal-mode account is "Din konto".
+  const ownerCard = (() => {
+    const role = String(user?.role || "owner").toLowerCase();
+    const SEAT_KEY = { manager: "teamRoleManager", cashier: "teamRoleCashier", viewer: "teamRoleViewer" };
+    if (isAccountant) return { title: t("tdRoleAccountant"), sub: t("tdMemberCardSub") };
+    if (isStaffMemberRole(role)) return { title: t(SEAT_KEY[role] || "teamRoleStaff"), sub: t("tdMemberCardSub") };
+    if (String(user?.business_type || "").toLowerCase() === "personal") return { title: t("tdRolePersonal"), sub: t("tdOwnerCardSub") };
+    return { title: t("tdRoleOwner"), sub: t("tdOwnerCardSub") };
+  })();
   const ownerInitials = (() => {
     const src = String(user?.full_name || user?.business_name || "").trim();
     const parts = src.split(/\s+/).filter(Boolean);
@@ -1260,8 +1272,8 @@ export default function Layout() {
             >
               <span className="td-owner-ava" aria-hidden="true">{ownerInitials}</span>
               <span className="flex flex-col min-w-0">
-                <span className="text-[13.5px] font-semibold truncate">{isAccountant ? t("tdRoleAccountant") : t("tdRoleOwner")}</span>
-                <span className="text-[12px] truncate" style={{ color: "var(--td-muted)" }}>{t("tdOwnerCardSub")}</span>
+                <span className="text-[13.5px] font-semibold truncate">{ownerCard.title}</span>
+                <span className="text-[12px] truncate" style={{ color: "var(--td-muted)" }}>{ownerCard.sub}</span>
               </span>
               <svg className={`w-3.5 h-3.5 ml-auto shrink-0 transition-transform ${accountMenuOpen ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />

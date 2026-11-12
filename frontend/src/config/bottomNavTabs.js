@@ -70,8 +70,9 @@ function slotInUse(entry, hiddenPillars, usage) {
  *            off); otherwise the type's own tool when it is in use (a shop's
  *            Lager, a workshop's Værksted, a freelancer's Pengestrøm — the
  *            rule the old 4th slot followed); otherwise Salg.
- *   slot 3 — Vagtplan when the staff pillar is on; otherwise Salg (or Lager
- *            when Salg already took slot 2).
+ *   slot 3 — Vagtplan when the staff pillar is on; otherwise Salg — or,
+ *            when Salg already took slot 2, Lager if it is relevant to the
+ *            type and not switched off, else Udgifter.
  *   slot 4 — Kasserapport, every business (the locked noun; the canvas's
  *            "Afslutning" is the same page).
  *   slot 5 — Mere (/more), which now also lists Salg.
@@ -101,7 +102,12 @@ export function getTabsForType(branchType, hiddenPillars = null, usage = null) {
 
   let slot3 = null;
   if (relevant.has("staff") && !hidden.has("staff")) slot3 = "/staff/schedule";
-  if (!slot3) slot3 = slot2 === "/sales" ? "/inventory" : "/sales";
+  if (!slot3 && slot2 !== "/sales") slot3 = "/sales";
+  // Salg already took slot 2: Lager only where it belongs to this type and
+  // is not switched off (a freelancer never gets Lager, a shop that turned
+  // it off never gets it back here); otherwise Udgifter, which every
+  // business has.
+  if (!slot3) slot3 = relevant.has("inventory") && !hidden.has("inventory") ? "/inventory" : "/expenses";
 
   const tab = (to) => manifestTab(to, { to, icon: "Circle", labelKey: "more" }, archetypeId);
   return [

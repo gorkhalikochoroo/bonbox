@@ -38,6 +38,27 @@ export function loadDismissed() {
   }
 }
 
+// Said on the window whenever the owner dismisses a finding, so the rail's
+// badges (hooks/useNavBadges) re-read with the new skip list.
+export const DISMISS_EVENT = "bonbox-needs-dismissed";
+
+/** Store one dismissal (the same key either surface uses) and say so.
+ *  Returns the new map. Storage full/blocked: it still applies this session. */
+export function saveDismissal(dismissed, f) {
+  const next = { ...(dismissed || {}), [keyFor(f)]: Date.now() };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    /* storage full/blocked — dismissal still applies for this session */
+  }
+  try {
+    window.dispatchEvent(new Event(DISMISS_EVENT));
+  } catch {
+    /* no DOM */
+  }
+  return next;
+}
+
 // Dated dismissals → "code:YYYY-MM-DD" CSV for the backend skip param.
 export const skipParamFor = (dismissed) =>
   Object.keys(dismissed)
