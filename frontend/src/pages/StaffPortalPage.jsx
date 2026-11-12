@@ -6,6 +6,9 @@
 import { memo, useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useTransition } from "react";
 
 import { useConfirm } from "../hooks/useConfirm";
+// Esc, focus in and kept in, focus back to the opener — the portal sheets
+// answer a hardware keyboard (an iPad with a Magic Keyboard; Vagtplan 1.6).
+import { useSheetKeys } from "../hooks/useSheetKeys";
 import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftChip } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
@@ -710,6 +713,8 @@ function DocumentsSection({ token }) {
   // sheet opens, so the drag is enabled by the sheet's own presence.
   const docsRef = useRef(null);
   useSheetDrag(docsRef, () => setOpenSheet(false), { enabled: docsSheet.mounted && !docsSheet.closing });
+  const closeDocs = useCallback(() => setOpenSheet(false), []);
+  useSheetKeys(docsSheet.mounted && !docsSheet.closing, docsRef, closeDocs);
   const { t } = useLanguage();
   const [docs, setDocs] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -4485,6 +4490,7 @@ function VpQuestionSheet({ closing = false, title, body, onDismiss, dismissLabel
   // Pull down to close (premium feel 1.5): the same answer as the scrim.
   const sheetRef = useRef(null);
   useSheetDrag(sheetRef, onDismiss, { enabled: !closing });
+  useSheetKeys(!closing, sheetRef, onDismiss);
   return (
     <div
       data-vp-overlay=""
@@ -4629,6 +4635,7 @@ function PeriodSheet({ initial, current, anchorMonth, onClose, onApply, closing 
   // start a drag.
   const sheetRef = useRef(null);
   useSheetDrag(sheetRef, onClose, { enabled: !closing });
+  useSheetKeys(!closing, sheetRef, onClose);
 
   return (
     <div data-vp-overlay="" className="fixed inset-0 z-50 m-0 flex flex-col justify-end" {...closingProps(closing)}>
@@ -6529,6 +6536,7 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
   const narrow = !useMediaMatch("(min-width: 640px)");
   const sheetRef = useRef(null);
   useSheetDrag(sheetRef, onClose, { enabled: !closing && narrow });
+  useSheetKeys(!closing, sheetRef, onClose);
 
   return (
     <div data-vp-overlay="" className={`fixed inset-0 z-40 m-0 flex items-end sm:items-center sm:justify-center ${SHEET_KB_TOP}`} style={KB_LIFT_STYLE} {...closingProps(closing)}>
@@ -10381,6 +10389,12 @@ export default function StaffPortalPage() {
   useSheetDrag(photoSheetRef, () => setPhotoMenu(false), { enabled: photoSheet.mounted && !photoSheet.closing });
   useSheetDrag(deptSheetRef, () => setDeptOpen(false), { enabled: deptSheet.mounted && !deptSheet.closing });
   useSheetDrag(profileSheetRef, () => setShowEmailEdit(false), { enabled: profileSheet.mounted && !profileSheet.closing });
+  const closePhotoMenu = useCallback(() => setPhotoMenu(false), []);
+  const closeDept = useCallback(() => setDeptOpen(false), []);
+  const closeProfile = useCallback(() => setShowEmailEdit(false), []);
+  useSheetKeys(photoSheet.mounted && !photoSheet.closing, photoSheetRef, closePhotoMenu);
+  useSheetKeys(deptSheet.mounted && !deptSheet.closing, deptSheetRef, closeDept);
+  useSheetKeys(profileSheet.mounted && !profileSheet.closing, profileSheetRef, closeProfile);
   // The profile sheet offers DA and EN. On a slow phone a switch waited 2-3 s
   // for the other dictionary's chunk (Android 14 walk, 12 Nov 2026), so it is
   // fetched when the sheet opens — the only place the language changes — once

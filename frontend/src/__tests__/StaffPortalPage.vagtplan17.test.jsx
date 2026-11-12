@@ -376,6 +376,19 @@ describe("phone fixes from 1.6", () => {
   });
 });
 
+describe("sheets answer a hardware keyboard (1.6's useSheetKeys)", () => {
+  it("the period sheet takes focus, keeps Tab inside, and Esc closes it", async () => {
+    await mount("da");
+    goPhone("hours");
+    const opener = await screen.findByTestId("portal-hours-period");
+    fireEvent.click(opener);
+    const sheet = await screen.findByTestId("portal-period-sheet");
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("portal-period-sheet")).toBeNull());
+  });
+});
+
 describe("helpers ported from 1.6", () => {
   it("sickCallDefaultDate: today when I work today, else my next shift in the window, else today", () => {
     const today = "2026-11-12";
