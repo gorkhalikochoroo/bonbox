@@ -19,6 +19,8 @@ Two jobs, two rules (plan DAWA-REPLACEMENT-PLAN.md 3.1, decisions 2-4):
     postcode guard and a house-number guard. Street-only, wrong-postcode and
     ambiguous pins are refused: a wrong anchor can lock staff out of
     clock-in, which is a payroll control. -> geocode()
+    A venue outside Denmark (business_profiles.country, 12 Nov 2026):
+    Nominatim in THAT country only, the same guards. -> osm_find_in()
 
 THREE OUTCOMES, NEVER A BARE None
 
@@ -731,13 +733,21 @@ def parse_street_number(text: str | None) -> ParsedAddress:
     return ParsedAddress(first, None, postcode, town)
 
 
-def looks_like_street_address(text: str | None) -> bool:
+def looks_like_street_address(text: str | None, country: str | None = None) -> bool:
     """True when a typed line reads as a street address, by the same tests
     geocode() uses to ask the register and to apply the house-number guards:
     a street and a house number (or an interval), or a digit before the
     postcode ("Vestergade 1 baghus"). A venue name, with or without a
     postcode ("Café Luna, 8000 Aarhus C"), is False. Lets the UI tell "we
-    couldn't find that address" apart from "that venue isn't on the map"."""
+    couldn't find that address" apart from "that venue isn't on the map".
+    For a venue outside Denmark, by that country's parse ("Praça do
+    Comércio, 1100-148 Lisboa" is a name, "Rua Garrett 120, …" an address)."""
+    cc = venue_country(country)
+    if cc != DK:
+        parsed = parse_foreign_address(text, cc)
+        if parsed.street and parsed.number:
+            return True
+        return bool(re.search(r"\d", _foreign_rest(_clean(text), cc)))
     t = _clean(text)
     parsed = parse_street_number(t)
     if parsed.street and (parsed.number or parsed.interval):
@@ -1231,8 +1241,280 @@ def osm_find(text: str, parsed: ParsedAddress | None = None,
                                     provider="osm", postnr=pc), None
 
 
+# ── the venue's country (12 Nov 2026) ─────────────────────────────────────
+# The pin lookup was Denmark-only on purpose, and still is for a Danish
+# venue: the register is Danish and Nominatim is asked with countrycodes=dk,
+# so a Danish venue never matches abroad. A venue in another country
+# (Portugal first) is looked up in ITS country, from business_profiles.country
+# (an ISO 3166-1 alpha-2 code, default "DK"): no register call, Nominatim with
+# countrycodes=<that code>, and the same guards — the house number must
+# match, the postcode must match in the country's format, street-only and
+# ambiguous hits are refused. Each hit's own country_code must be the
+# venue's too, so a foreign venue never matches in Denmark either. Denmark,
+# an unset country, or a value that is not a country code keeps exactly the
+# Danish chain above.
+
+DK = "DK"
+_COUNTRY_ALIASES = {"UK": "GB", "DENMARK": DK, "DANMARK": DK, "PORTUGAL": "PT"}
+_ISO2 = re.compile(r"^[A-Z]{2}$")
+# A trailing ", Portugal" is the country, not the town.
+_COUNTRY_NAMES = {"PT": ("portugal",), "GB": ("uk", "united kingdom"), "DE": ("deutschland", "germany")}
+
+# Postcode formats we know, as OSM writes them. Portugal: NNNN-NNN, typed
+# NNNN-NNN or NNNN NNN; a bare "1100" is not a Portuguese postcode. A
+# country not listed here is "generic": the hit's postcode must appear in
+# what the owner typed.
+_POSTCODE_FORMATS: dict[str, tuple[re.Pattern, str]] = {
+    "PT": (re.compile(r"^(\d{4})(?:-|\s)(\d{3})$"), "{}-{}"),
+}
+_POSTCODE_TAILS: dict[str, re.Pattern] = {
+    "PT": re.compile(
+        r"^(?P<rest>.*?\S)[\s,]+(?P<pc>\d{4}(?:-|\s)\d{3})(?:\s+(?P<town>[^\d,][^\d,]*?))?\s*$"),
+}
+
+# House numbers: "24", "24A", "24-A", "nº 24", "n.º 24"; leading ("24 Rua
+# Augusta", "10 Downing Street") or trailing ("Rua Augusta 24"), or alone
+# in the second segment ("Rua Garrett, 120"). An interval "120-122".
+_NR_PREFIX = r"(?:n\.?\s?[º°]\.?\s*)?"
+_NR = r"\d{1,4}(?:\s?-?\s?[A-Za-z](?![A-Za-z]))?"
+_F_INTERVAL = re.compile(
+    rf"^(?P<street>.*?\D)\s*,?\s*{_NR_PREFIX}(?P<a>\d{{1,4}}[A-Za-z]?)\s*-\s*(?P<b>\d{{1,4}}[A-Za-z]?)$",
+    re.IGNORECASE)
+_F_TRAILING = re.compile(rf"^(?P<street>.*?\D)\s*,?\s*{_NR_PREFIX}(?P<nr>{_NR})$", re.IGNORECASE)
+_F_LEADING = re.compile(r"^(?P<nr>\d{1,4}[A-Za-z]?)\s+(?P<street>[^\d\s,].*)$")
+_F_NUMBER_ONLY = re.compile(rf"^{_NR_PREFIX}(?P<nr>{_NR})$", re.IGNORECASE)
+_F_NR_TOKEN = re.compile(r"\d{1,4}(?:\s?[A-Za-z](?![A-Za-z]))?")
+_F_NR_PAIR = re.compile(r"(\d{1,4}[A-Za-z]?)\s*-\s*(\d{1,4}[A-Za-z]?)")
+
+
+def venue_country(raw: Any) -> str:
+    """The venue's country for the pin lookup, as an ISO alpha-2 code.
+    "DK" for Denmark, unset, empty, or anything that is not a country code:
+    the Danish chain is the default, exactly as before."""
+    c = raw.strip().upper() if isinstance(raw, str) else ""
+    c = _COUNTRY_ALIASES.get(c, c)
+    return c if _ISO2.match(c) else DK
+
+
+def _hn(nr: Any) -> str:
+    """A house number for comparing: "24 a" / "24-A" -> "24A", "120-122" -> "120122"."""
+    return re.sub(r"[\s\-]+", "", nr if isinstance(nr, str) else "").upper()
+
+
+_HN_LIST = re.compile(r"^\d{1,4}[A-Z]?(?:\s*[/;,]\s*\d{1,4}[A-Z]?)+$")
+
+
+def _hn_set(raw: Any) -> set[str]:
+    """A hit's house number(s). OSM writes one building with two doors as
+    "120/122" (A Brasileira, Rua Garrett, recorded 12 Nov 2026): either
+    number is that building. A letter stays part of its number ("24A" is
+    not "24"); an interval "120-122" is itself."""
+    s = _clean(raw if isinstance(raw, str) else None).upper()
+    if not s:
+        return set()
+    out = {_hn(s)}
+    if _HN_LIST.match(s):
+        out.update(_hn(p) for p in re.split(r"[/;,]", s))
+    return out
+
+
+def _canon_postcode(country: str, raw: Any) -> str | None:
+    """The postcode in the country's own format ("1100 148" -> "1100-148"),
+    or None (not that format, or a country whose format we do not know)."""
+    fmt = _POSTCODE_FORMATS.get(country)
+    s = _clean(raw if isinstance(raw, str) else None)
+    if not fmt or not s:
+        return None
+    m = fmt[0].match(s)
+    return fmt[1].format(*m.groups()) if m else None
+
+
+def _compact(s: Any) -> str:
+    return re.sub(r"[^0-9A-Z]", "", (s if isinstance(s, str) else "").upper())
+
+
+def _strip_country_name(text: str, country: str) -> str:
+    low = text.casefold()
+    for name in _COUNTRY_NAMES.get(country, ()):
+        if low.endswith(name) and (len(text) == len(name) or low[-len(name) - 1] in " ,"):
+            return text[: len(text) - len(name)].rstrip(" ,")
+    return text
+
+
+def parse_foreign_address(text: str | None, country: str) -> ParsedAddress:
+    """Street, house number, postcode and town from one line, for a venue
+    outside Denmark. The postcode only when the country's format is known
+    (Portugal), stripped from the tail first with the town. An interval
+    ("Rua X 120-122") has interval=True and number = its first number."""
+    t = _strip_country_name(_clean(text), country)
+    postcode = town = None
+    tail = _POSTCODE_TAILS.get(country)
+    m = tail.match(t) if tail else None
+    if m:
+        t = m.group("rest").rstrip(" ,")
+        postcode = _canon_postcode(country, m.group("pc"))
+        town = _clean(m.group("town")) or None
+    segs = [s.strip() for s in t.split(",") if s.strip()]
+    if not segs:
+        return ParsedAddress(None, None, postcode, town)
+    first = segs[0]
+    iv = _F_INTERVAL.match(first)
+    if iv:
+        return ParsedAddress(_clean(iv.group("street")).rstrip(" ,") or None, _hn(iv.group("a")),
+                             postcode, town, interval=True)
+    for pat in (_F_TRAILING, _F_LEADING):
+        sm = pat.match(first)
+        if sm:
+            return ParsedAddress(_clean(sm.group("street")).rstrip(" ,") or None, _hn(sm.group("nr")),
+                                 postcode, town)
+    if len(segs) > 1:
+        nm = _F_NUMBER_ONLY.match(segs[1])
+        if nm:
+            return ParsedAddress(first, _hn(nm.group("nr")), postcode, town)
+    return ParsedAddress(first, None, postcode, town)
+
+
+def _foreign_rest(text: str, country: str) -> str:
+    """The typed line without the country name and a known-format postcode
+    tail: what the house-number tests look at."""
+    t = _strip_country_name(_clean(text), country)
+    tail = _POSTCODE_TAILS.get(country)
+    m = tail.match(t) if tail else None
+    return m.group("rest") if m else t
+
+
+def _nr_tokens(text: str) -> set[str]:
+    """Every house-number-like token in the text, intervals joined."""
+    out = {_hn(x) for x in _F_NR_TOKEN.findall(text)}
+    out.update(_hn(a) + _hn(b) for a, b in _F_NR_PAIR.findall(text))
+    return out
+
+
+def _without_postcode(words: list[str], pc_c: str) -> str:
+    """The typed words minus the one or two that spell the hit's postcode
+    ("SW1A 2AA"): a postcode's digits are not a house number."""
+    out, i = [], 0
+    while i < len(words):
+        if _compact(words[i]) == pc_c:
+            i += 1
+        elif i + 1 < len(words) and _compact(words[i] + words[i + 1]) == pc_c:
+            i += 2
+        else:
+            out.append(words[i])
+            i += 1
+    return " ".join(out)
+
+
+def osm_find_in(text: str, country: str, deadline: Deadline | None = None,
+                ) -> tuple[Outcome, GeoResult | None, str | None]:
+    """Hardened Nominatim for a venue outside Denmark: countrycodes=<country>
+    and the Danish guards, in that country's terms.
+
+    Every hit must carry the venue's country_code (fail closed without one).
+    Postcode: a known format (Portugal) must match exactly when one was
+    typed; a country whose format we do not know needs the hit's postcode
+    to appear in the typed line (else postcode_mismatch, or need_postcode
+    when none was typed). House number: a typed number must be the hit's
+    (else street_only); digits typed without a parsed number need the hit's
+    number among them. A number without a postcode found in several
+    postcodes is need_postcode. Never the register: it is Danish.
+    """
+    deadline = deadline or Deadline(RESOLVE_DEADLINE_S)
+    cc = venue_country(country)
+    t = _clean(text)
+    if len(t) < 3 or len(t) > _MAX_ADRESSE or cc == DK:
+        return Outcome.NOT_FOUND, None, None
+    parsed = parse_foreign_address(t, cc)
+    known_format = cc in _POSTCODE_FORMATS
+    number = parsed.number
+    allowed_nr: set[str] = set()
+    if number:
+        allowed_nr = {number}
+        if parsed.interval:
+            allowed_nr |= {x for x in _nr_tokens(_foreign_rest(t, cc))
+                           if x.startswith(number) and len(x) > len(number)}
+    params: dict[str, Any] = {"format": "json", "addressdetails": 1, "limit": 3,
+                              "countrycodes": cc.lower()}
+    if parsed.street and number and parsed.postcode:
+        params["street"] = f"{number} {parsed.street}"
+        params["postalcode"] = parsed.postcode
+        if parsed.town:
+            params["city"] = parsed.town
+    else:
+        params["q"] = t
+    outcome, rows = _get(_OSM_HOST, "/search", params, deadline)
+    if outcome != Outcome.FOUND:
+        return outcome, None, None
+    if not isinstance(rows, list):
+        return Outcome.UNAVAILABLE, None, None
+
+    rest = _foreign_rest(t, cc)
+    words = [x for x in re.split(r"[\s,]+", t) if x]
+    typed_runs = {_compact(x) for x in words} | {_compact(a + b) for a, b in zip(words, words[1:])}
+    accepted: list[tuple[dict, float, float, str | None]] = []
+    wrong_postcode = street_only = False
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            lat, lng = float(row.get("lat")), float(row.get("lon"))
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(lat) and math.isfinite(lng)) or not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            continue
+        a = row.get("address") or {}
+        if _clean(a.get("country_code")).upper() != cc:
+            continue
+        row_pc_raw = _clean(a.get("postcode"))
+        if known_format:
+            row_pc = _canon_postcode(cc, row_pc_raw)
+            if parsed.postcode and row_pc != parsed.postcode:
+                wrong_postcode = True
+                continue
+            digits_left = rest
+        else:
+            row_pc = row_pc_raw or None
+            pc_c = _compact(row_pc_raw)
+            if not (len(pc_c) >= 3 and re.search(r"\d", pc_c) and pc_c in typed_runs):
+                wrong_postcode = True
+                continue
+            digits_left = _without_postcode(words, pc_c)
+        hns = _hn_set(a.get("house_number"))
+        if number:
+            if not (hns & allowed_nr):
+                street_only = True
+                continue
+        elif re.search(r"\d", digits_left) and not (hns & _nr_tokens(digits_left)):
+            street_only = True
+            continue
+        accepted.append((row, lat, lng, row_pc))
+
+    if not accepted:
+        if street_only:
+            reason = "street_only"
+        elif wrong_postcode:
+            reason = "postcode_mismatch"
+            if not known_format:
+                # Nothing postcode-like typed (beyond the house number).
+                others = [w for w in words if re.search(r"\d", w) and _hn(w) not in allowed_nr]
+                if not others:
+                    reason = "need_postcode"
+        else:
+            reason = None
+        return Outcome.NOT_FOUND, None, reason
+    if number and not parsed.postcode:
+        postcodes = {pc for _, _, _, pc in accepted}
+        if len(postcodes) > 1:
+            return Outcome.NOT_FOUND, None, "need_postcode"
+    row, lat, lng, pc = accepted[0]
+    label = _osm_label(row) or t
+    return Outcome.FOUND, GeoResult(lat=round(lat, 6), lng=round(lng, 6), label=label,
+                                    provider="osm", postnr=pc), None
+
+
 def geocode(text: str, *, user_key: str | None = None,
-            register: bool = True, osm: bool = True) -> tuple[Outcome, GeoResult | None, str | None]:
+            register: bool = True, osm: bool = True,
+            country: str | None = None) -> tuple[Outcome, GeoResult | None, str | None]:
     """Venue pin from typed text: the register, then hardened Nominatim.
 
     1. A 4-digit postcode: vask -> adresser/{id}; the record must be THIS
@@ -1245,11 +1527,18 @@ def geocode(text: str, *, user_key: str | None = None,
     4. Register UNAVAILABLE: Nominatim; if it finds nothing the answer is
        UNAVAILABLE, not "not found".
     Map links never come here (venue_locate parses them).
+
+    `country` is the VENUE's (business_profiles.country). Denmark, unset or
+    not a country code: the chain above, unchanged. Any other country: no
+    register call, only osm_find_in() scoped to that country; with
+    OpenStreetMap switched off that is UNAVAILABLE (nothing could check).
     """
     t = _clean(text)
     if len(t) < 3:
         return Outcome.NOT_FOUND, None, None
-    key = ("geo", _norm_key(t), register, osm)
+    cc = venue_country(country)
+    # The country is part of the key: the same line is another place abroad.
+    key = ("geo", _norm_key(t), register, osm, cc)
     cached = _cache_get(key)
     if cached is not None:
         return cached
@@ -1258,6 +1547,15 @@ def geocode(text: str, *, user_key: str | None = None,
         return Outcome.UNAVAILABLE, None, None
 
     deadline = Deadline(RESOLVE_DEADLINE_S)
+    if cc != DK:
+        if not osm:
+            result = (Outcome.NOT_FOUND, None, None)
+        elif not _osm_enabled():
+            result = (Outcome.UNAVAILABLE, None, None)
+        else:
+            result = osm_find_in(t, cc, deadline)
+        _cache_put(key, result[0], result)
+        return result
     parsed = parse_street_number(t)
     reg_out, reg_hit, reg_reason = (None, None, None)
     if register:
@@ -1286,5 +1584,6 @@ __all__ = [
     "register_building", "register_find_building", "register_search_text",
     "utm32_to_wgs84", "wgs84_to_utm32", "same_address", "parse_street_number",
     "looks_like_street_address", "KDS_PUBLIC_TOKEN",
+    "venue_country", "osm_find_in", "parse_foreign_address",
     "set_transport", "reset_state", "clear_cache",
 ]

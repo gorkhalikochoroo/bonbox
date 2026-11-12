@@ -442,7 +442,9 @@ def test_resolve_refuses_vague_pins_with_a_reason(db, client, geo_on, query, ove
         assert r.status_code == 404, r.text
         # query_kind added 12 Nov 2026 (old builds ignore it): every query
         # here is a typed street address, so the panel gives address advice.
-        assert r.json()["detail"] == {"error": "not_found", "reason": reason, "query_kind": "address"}
+        # country (12 Nov 2026): a default profile is looked up in Denmark.
+        assert r.json()["detail"] == {"error": "not_found", "reason": reason, "query_kind": "address",
+                                      "country": "DK"}
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
@@ -470,7 +472,8 @@ def test_resolve_with_no_match_is_a_plain_404(db, client, geo_on):
         r = client.post("/api/staff/clock-geofence/resolve", json={"query": "Silberbauer Bistro"})
         assert r.status_code == 404
         # A venue NAME: the only case where "not every venue is on the map" is true.
-        assert r.json()["detail"] == {"error": "not_found", "reason": None, "query_kind": "name"}
+        assert r.json()["detail"] == {"error": "not_found", "reason": None, "query_kind": "name",
+                                      "country": "DK"}
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 

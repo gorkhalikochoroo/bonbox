@@ -985,6 +985,14 @@ def current_pin(profile) -> Pin | None:
     return None
 
 
+def lookup_country(raw) -> str:
+    """The country the venue's address is looked up in ("DK" for Denmark,
+    unset or not a country code) — venue_locate's rule, one door."""
+    from app.services import venue_locate
+
+    return venue_locate.venue_country(raw)
+
+
 def lookup_failed_recently(profile) -> bool:
     """The address was looked up and found nothing, less than LOOKUP_RETRY
     ago (an address change clears the marker, so a new address asks again)."""
@@ -1017,10 +1025,12 @@ def ensure_pin_outcome(db, profile, locate=None) -> tuple[Pin | None, bool]:
     Danmarks Adresseregister first, then OpenStreetMap with its postcode and
     house-number guards (venue_locate.resolve_outcome -> address_lookup).
 
-    "Once" holds for a miss too: an address neither can place (a non-Danish
-    one, say — OpenStreetMap is asked with countrycodes=dk) is stored as
+    "Once" holds for a miss too: an address neither can place is stored as
     source "none" and not asked again for LOOKUP_RETRY, or until the address
-    changes. "Couldn't check" is NOT a miss: when the register and
+    (or the country) changes. The lookup runs in the venue's country
+    (profile.country): Denmark or unset, the register then OpenStreetMap in
+    Denmark; another country, OpenStreetMap in that country only.
+    "Couldn't check" is NOT a miss: when the register and
     OpenStreetMap are both not answering, nothing is written (no "none", no
     14-day wait) and lookup_down is True, so the pin check says so and the
     next visit asks again.
@@ -1046,10 +1056,14 @@ def ensure_pin_outcome(db, profile, locate=None) -> tuple[Pin | None, bool]:
         from app.services import venue_locate as locate
     pid, user_key = profile.id, str(profile.user_id)
     before = {"address": profile.address, "zipcode": profile.zipcode, "city": profile.city,
-              "venue_geo_source": profile.venue_geo_source}
+              "country": profile.country, "venue_geo_source": profile.venue_geo_source}
+    country = lookup_country(profile.country)
+    # Denmark keeps the exact call it always made (an injected `locate` may
+    # not take a country); another country is passed on.
+    extra = {"country": country} if country != "DK" else {}
     db.commit()                     # release the connection while we ask
     try:
-        outcome, found, _reason = locate.resolve_outcome(q, user_key=user_key)
+        outcome, found, _reason = locate.resolve_outcome(q, user_key=user_key, **extra)
     except Exception as e:  # noqa: BLE001 — a lookup must never break the pin check
         logger.warning("venue pin lookup failed: %s", type(e).__name__)
         outcome, found = Outcome.UNAVAILABLE, None

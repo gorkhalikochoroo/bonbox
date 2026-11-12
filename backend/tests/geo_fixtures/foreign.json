@@ -1,0 +1,192 @@
+{
+ "_about": "Recorded REAL replies, 12 Nov 2026, for the venue-country lookup: public Portuguese landmarks (Praça do Comércio, Avenida dos Aliados, the café A Brasileira on Rua Garrett), the Hotel Adlon in Berlin for the generic postcode rule, and the cross-country checks (a Portuguese line asked in Denmark, a Danish one in Portugal). Nominatim at >= 1.2 s spacing with BonBox's User-Agent; one KDS search, token removed.",
+ "cases": {
+  "de_adlon__q": {
+   "body": "[{\"place_id\":145697583,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"relation\",\"osm_id\":4582978,\"lat\":\"52.5155757\",\"lon\":\"13.3800699\",\"class\":\"tourism\",\"type\":\"hotel\",\"place_rank\":30,\"importance\":0.4419798675817451,\"addresstype\":\"tourism\",\"name\":\"Adlon Kempinski\",\"display_name\":\"Adlon Kempinski, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"tourism\":\"Adlon Kempinski\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5149514\",\"52.5162014\",\"13.3797554\",\"13.3809127\"]},{\"place_id\":145596600,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":4182951094,\"lat\":\"52.5159555\",\"lon\":\"13.3799024\",\"class\":\"amenity\",\"type\":\"restaurant\",\"place_rank\":30,\"importance\":8.875486381318407e-05,\"addresstype\":\"amenity\",\"name\":\"Lorenz Adlon Esszimer\",\"display_name\":\"Lorenz Adlon Esszimer, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"amenity\":\"Lorenz Adlon Esszimer\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5159055\",\"52.5160055\",\"13.3798524\",\"13.3799524\"]},{\"place_id\":145975816,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":4182951095,\"lat\":\"52.5160887\",\"lon\":\"13.3798808\",\"class\":\"amenity\",\"type\":\"restaurant\",\"place_rank\":30,\"importance\":8.875486381318407e-05,\"addresstype\":\"amenity\",\"name\":\"Restaurant Quarré\",\"display_name\":\"Restaurant Quarré, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"amenity\":\"Restaurant Quarré\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5160387\",\"52.5161387\",\"13.3798308\",\"13.3799308\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "de",
+    "format": "json",
+    "limit": 3,
+    "q": "Unter den Linden 77, 10117 Berlin"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "de_adlon_no_pc__q": {
+   "body": "[{\"place_id\":144833598,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"relation\",\"osm_id\":4582978,\"lat\":\"52.5155757\",\"lon\":\"13.3800699\",\"class\":\"tourism\",\"type\":\"hotel\",\"place_rank\":30,\"importance\":0.4419798675817451,\"addresstype\":\"tourism\",\"name\":\"Adlon Kempinski\",\"display_name\":\"Adlon Kempinski, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"tourism\":\"Adlon Kempinski\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5149514\",\"52.5162014\",\"13.3797554\",\"13.3809127\"]},{\"place_id\":144747523,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":4182951094,\"lat\":\"52.5159555\",\"lon\":\"13.3799024\",\"class\":\"amenity\",\"type\":\"restaurant\",\"place_rank\":30,\"importance\":8.875486381318407e-05,\"addresstype\":\"amenity\",\"name\":\"Lorenz Adlon Esszimer\",\"display_name\":\"Lorenz Adlon Esszimer, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"amenity\":\"Lorenz Adlon Esszimer\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5159055\",\"52.5160055\",\"13.3798524\",\"13.3799524\"]},{\"place_id\":145610843,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":4182951095,\"lat\":\"52.5160887\",\"lon\":\"13.3798808\",\"class\":\"amenity\",\"type\":\"restaurant\",\"place_rank\":30,\"importance\":8.875486381318407e-05,\"addresstype\":\"amenity\",\"name\":\"Restaurant Quarré\",\"display_name\":\"Restaurant Quarré, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"amenity\":\"Restaurant Quarré\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5160387\",\"52.5161387\",\"13.3798308\",\"13.3799308\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "de",
+    "format": "json",
+    "limit": 3,
+    "q": "Unter den Linden 77, Berlin"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "de_adlon_wrong_pc__q": {
+   "body": "[{\"place_id\":144580641,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"relation\",\"osm_id\":4582978,\"lat\":\"52.5155757\",\"lon\":\"13.3800699\",\"class\":\"tourism\",\"type\":\"hotel\",\"place_rank\":30,\"importance\":0.4419798675817451,\"addresstype\":\"tourism\",\"name\":\"Adlon Kempinski\",\"display_name\":\"Adlon Kempinski, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"tourism\":\"Adlon Kempinski\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5149514\",\"52.5162014\",\"13.3797554\",\"13.3809127\"]},{\"place_id\":144572578,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":4182951094,\"lat\":\"52.5159555\",\"lon\":\"13.3799024\",\"class\":\"amenity\",\"type\":\"restaurant\",\"place_rank\":30,\"importance\":8.875486381318407e-05,\"addresstype\":\"amenity\",\"name\":\"Lorenz Adlon Esszimer\",\"display_name\":\"Lorenz Adlon Esszimer, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"amenity\":\"Lorenz Adlon Esszimer\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5159055\",\"52.5160055\",\"13.3798524\",\"13.3799524\"]},{\"place_id\":144575875,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":4182951095,\"lat\":\"52.5160887\",\"lon\":\"13.3798808\",\"class\":\"amenity\",\"type\":\"restaurant\",\"place_rank\":30,\"importance\":8.875486381318407e-05,\"addresstype\":\"amenity\",\"name\":\"Restaurant Quarré\",\"display_name\":\"Restaurant Quarré, 77, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland\",\"address\":{\"amenity\":\"Restaurant Quarré\",\"house_number\":\"77\",\"road\":\"Unter den Linden\",\"quarter\":\"Friedrich-Wilhelm-Stadt\",\"suburb\":\"Mitte\",\"borough\":\"Mitte\",\"city\":\"Berlin\",\"ISO3166-2-lvl4\":\"DE-BE\",\"postcode\":\"10117\",\"country\":\"Deutschland\",\"country_code\":\"de\"},\"boundingbox\":[\"52.5160387\",\"52.5161387\",\"13.3798308\",\"13.3799308\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "de",
+    "format": "json",
+    "limit": 3,
+    "q": "Unter den Linden 77, 10115 Berlin"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "dk_address_in_pt__q": {
+   "body": "[]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "pt",
+    "format": "json",
+    "limit": 3,
+    "q": "Rådhuspladsen 1, 1550 København V"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "pt_address_in_dk__kds_soeg": {
+   "body": "{\"status\":\"ok\",\"beskrivelse\":\"\",\"fund\":[]}",
+   "content_type": "application/json; charset=utf-8",
+   "host": "adressevaelger.dk",
+   "params": {
+    "maksimum": "10",
+    "tekst": "Rua Garrett 120, 1200-273 Lisboa"
+   },
+   "path": "/husnumre/soeg",
+   "status": 200
+  },
+  "pt_address_in_dk__q": {
+   "body": "[]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "dk",
+    "format": "json",
+    "limit": 3,
+    "q": "Rua Garrett 120, 1200-273 Lisboa"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "pt_avenida_aliados__q": {
+   "body": "[{\"place_id\":286662114,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":734630276,\"lat\":\"41.1482848\",\"lon\":\"-8.6108220\",\"class\":\"highway\",\"type\":\"secondary\",\"place_rank\":26,\"importance\":0.33029660482760953,\"addresstype\":\"secondary\",\"name\":\"Avenida dos Aliados\",\"display_name\":\"Avenida dos Aliados, Baixa do Porto, Conjunto Urbano da Ribeira, Zona Histórica do Porto, Cedofeita, Santo Ildefonso, Sé, Miragaia, São Nicolau e Vitória, Porto, 4000-064, Portugal\",\"address\":{\"road\":\"Avenida dos Aliados\",\"neighbourhood\":\"Baixa do Porto\",\"quarter\":\"Conjunto Urbano da Ribeira\",\"suburb\":\"Zona Histórica do Porto\",\"city_district\":\"Cedofeita, Santo Ildefonso, Sé, Miragaia, São Nicolau e Vitória\",\"city\":\"Porto\",\"county\":\"Porto\",\"ISO3166-2-lvl6\":\"PT-13\",\"postcode\":\"4000-064\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"41.1478426\",\"41.1487177\",\"-8.6109422\",\"-8.6106718\"]},{\"place_id\":286351149,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":763524480,\"lat\":\"41.1474181\",\"lon\":\"-8.6113836\",\"class\":\"highway\",\"type\":\"secondary\",\"place_rank\":26,\"importance\":0.33029660482760953,\"addresstype\":\"secondary\",\"name\":\"Avenida dos Aliados\",\"display_name\":\"Avenida dos Aliados, Baixa do Porto, Conjunto Urbano da Ribeira, Zona Histórica do Porto, Cedofeita, Santo Ildefonso, Sé, Miragaia, São Nicolau e Vitória, Porto, 4000-066, Portugal\",\"address\":{\"road\":\"Avenida dos Aliados\",\"neighbourhood\":\"Baixa do Porto\",\"quarter\":\"Conjunto Urbano da Ribeira\",\"suburb\":\"Zona Histórica do Porto\",\"city_district\":\"Cedofeita, Santo Ildefonso, Sé, Miragaia, São Nicolau e Vitória\",\"city\":\"Porto\",\"county\":\"Porto\",\"ISO3166-2-lvl6\":\"PT-13\",\"postcode\":\"4000-066\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"41.1472792\",\"41.1475570\",\"-8.6114106\",\"-8.6113566\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "pt",
+    "format": "json",
+    "limit": 3,
+    "q": "Avenida dos Aliados, 4000-064 Porto"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "pt_praca_comercio__q": {
+   "body": "[{\"place_id\":430023581,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":677181958,\"lat\":\"38.7077151\",\"lon\":\"-9.1365238\",\"class\":\"place\",\"type\":\"square\",\"place_rank\":25,\"importance\":0.4362046242762565,\"addresstype\":\"square\",\"name\":\"Praça do Comércio\",\"display_name\":\"Praça do Comércio, São Nicolau, Santa Maria Maior, Madalena, Lisboa, 1100-148, Portugal\",\"address\":{\"square\":\"Praça do Comércio\",\"neighbourhood\":\"São Nicolau\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1100-148\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7065627\",\"38.7086607\",\"-9.1378565\",\"-9.1352350\"]},{\"place_id\":297126800,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":674702952,\"lat\":\"38.7068956\",\"lon\":\"-9.1360916\",\"class\":\"highway\",\"type\":\"primary\",\"place_rank\":26,\"importance\":0.05341483100633246,\"addresstype\":\"primary\",\"name\":\"Praça do Comércio\",\"display_name\":\"Praça do Comércio, São Nicolau, Santa Maria Maior, Madalena, Lisboa, 1100-148, Portugal\",\"address\":{\"road\":\"Praça do Comércio\",\"neighbourhood\":\"São Nicolau\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1100-148\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7066770\",\"38.7071133\",\"-9.1369947\",\"-9.1351883\"]},{\"place_id\":297161948,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":480419147,\"lat\":\"38.7077800\",\"lon\":\"-9.1356843\",\"class\":\"highway\",\"type\":\"service\",\"place_rank\":27,\"importance\":0.04008149767299915,\"addresstype\":\"road\",\"name\":\"Praça do Comércio\",\"display_name\":\"Praça do Comércio, Sé, Santa Maria Maior, Madalena, Lisboa, 1100-148, Portugal\",\"address\":{\"road\":\"Praça do Comércio\",\"neighbourhood\":\"Sé\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1100-148\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7070623\",\"38.7084961\",\"-9.1359722\",\"-9.1354000\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "pt",
+    "format": "json",
+    "limit": 3,
+    "q": "Praça do Comércio, 1100-148 Lisboa"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "pt_rua_garrett_120__structured": {
+   "body": "[{\"place_id\":297530579,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":489736332,\"lat\":\"38.7106819\",\"lon\":\"-9.1420119\",\"class\":\"amenity\",\"type\":\"cafe\",\"place_rank\":30,\"importance\":0.36107739355702545,\"addresstype\":\"amenity\",\"name\":\"A Brasileira\",\"display_name\":\"A Brasileira, 120/122, Rua Garrett, Chiado, Santa Maria Maior, Madalena, Lisboa, 1200-273, Portugal\",\"address\":{\"amenity\":\"A Brasileira\",\"house_number\":\"120/122\",\"road\":\"Rua Garrett\",\"neighbourhood\":\"Chiado\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1200-273\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7106319\",\"38.7107319\",\"-9.1420619\",\"-9.1419619\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "city": "Lisboa",
+    "countrycodes": "pt",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "1200-273",
+    "street": "120 Rua Garrett"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "pt_rua_garrett_120_no_pc__q": {
+   "body": "[{\"place_id\":297105278,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":489736332,\"lat\":\"38.7106819\",\"lon\":\"-9.1420119\",\"class\":\"amenity\",\"type\":\"cafe\",\"place_rank\":30,\"importance\":0.36107739355702545,\"addresstype\":\"amenity\",\"name\":\"A Brasileira\",\"display_name\":\"A Brasileira, 120/122, Rua Garrett, Chiado, Santa Maria Maior, Madalena, Lisboa, 1200-273, Portugal\",\"address\":{\"amenity\":\"A Brasileira\",\"house_number\":\"120/122\",\"road\":\"Rua Garrett\",\"neighbourhood\":\"Chiado\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1200-273\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7106319\",\"38.7107319\",\"-9.1420619\",\"-9.1419619\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "countrycodes": "pt",
+    "format": "json",
+    "limit": 3,
+    "q": "Rua Garrett 120, Lisboa"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "pt_rua_garrett_120_pc_1100_148__structured": {
+   "body": "[{\"place_id\":297530579,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":489736332,\"lat\":\"38.7106819\",\"lon\":\"-9.1420119\",\"class\":\"amenity\",\"type\":\"cafe\",\"place_rank\":30,\"importance\":0.36107739355702545,\"addresstype\":\"amenity\",\"name\":\"A Brasileira\",\"display_name\":\"A Brasileira, 120/122, Rua Garrett, Chiado, Santa Maria Maior, Madalena, Lisboa, 1200-273, Portugal\",\"address\":{\"amenity\":\"A Brasileira\",\"house_number\":\"120/122\",\"road\":\"Rua Garrett\",\"neighbourhood\":\"Chiado\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1200-273\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7106319\",\"38.7107319\",\"-9.1420619\",\"-9.1419619\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "city": "Lisboa",
+    "countrycodes": "pt",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "1100-148",
+    "street": "120 Rua Garrett"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "pt_rua_garrett_120_pc_1200_205__structured": {
+   "body": "[{\"place_id\":298152347,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"node\",\"osm_id\":489736332,\"lat\":\"38.7106819\",\"lon\":\"-9.1420119\",\"class\":\"amenity\",\"type\":\"cafe\",\"place_rank\":30,\"importance\":0.36107739355702545,\"addresstype\":\"amenity\",\"name\":\"A Brasileira\",\"display_name\":\"A Brasileira, 120/122, Rua Garrett, Chiado, Santa Maria Maior, Madalena, Lisboa, 1200-273, Portugal\",\"address\":{\"amenity\":\"A Brasileira\",\"house_number\":\"120/122\",\"road\":\"Rua Garrett\",\"neighbourhood\":\"Chiado\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1200-273\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7106319\",\"38.7107319\",\"-9.1420619\",\"-9.1419619\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "city": "Lisboa",
+    "countrycodes": "pt",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "1200-205",
+    "street": "120 Rua Garrett"
+   },
+   "path": "/search",
+   "status": 200
+  },
+  "pt_rua_garrett_999__structured": {
+   "body": "[{\"place_id\":294899602,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":19744960,\"lat\":\"38.7105968\",\"lon\":\"-9.1419595\",\"class\":\"highway\",\"type\":\"pedestrian\",\"place_rank\":26,\"importance\":0.05341483100633246,\"addresstype\":\"pedestrian\",\"name\":\"Rua Garrett\",\"display_name\":\"Rua Garrett, Chiado, Santa Maria Maior, Madalena, Lisboa, 1200-205, Portugal\",\"address\":{\"road\":\"Rua Garrett\",\"neighbourhood\":\"Chiado\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1200-205\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7105889\",\"38.7106694\",\"-9.1422909\",\"-9.1416422\"]},{\"place_id\":297175286,\"licence\":\"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright\",\"osm_type\":\"way\",\"osm_id\":19657233,\"lat\":\"38.7108210\",\"lon\":\"-9.1406404\",\"class\":\"highway\",\"type\":\"residential\",\"place_rank\":26,\"importance\":0.05341483100633246,\"addresstype\":\"residential\",\"name\":\"Rua Garrett\",\"display_name\":\"Rua Garrett, Chiado, Santa Maria Maior, Madalena, Lisboa, 1200-204, Portugal\",\"address\":{\"road\":\"Rua Garrett\",\"neighbourhood\":\"Chiado\",\"suburb\":\"Santa Maria Maior\",\"village\":\"Madalena\",\"city\":\"Lisboa\",\"county\":\"Lisboa\",\"ISO3166-2-lvl6\":\"PT-11\",\"postcode\":\"1200-204\",\"country\":\"Portugal\",\"country_code\":\"pt\"},\"boundingbox\":[\"38.7106694\",\"38.7109725\",\"-9.1416422\",\"-9.1396385\"]}]",
+   "content_type": "application/json; charset=utf-8",
+   "host": "nominatim.openstreetmap.org",
+   "params": {
+    "addressdetails": 1,
+    "city": "Lisboa",
+    "countrycodes": "pt",
+    "format": "json",
+    "limit": 3,
+    "postalcode": "1200-205",
+    "street": "999 Rua Garrett"
+   },
+   "path": "/search",
+   "status": 200
+  }
+ }
+}
