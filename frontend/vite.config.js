@@ -275,7 +275,8 @@ function htmlDiet() {
 // "/" is index.html's address, so the Vercel build (VERCEL=1, set by Vercel at build time) leaves index.html out: the
 // rewrite then decides. Every other build keeps index.html as it is: the native apps (Capacitor loads index.html, Xcode
 // Cloud runs `npm run build` too), `vite preview` and any host without these rewrites. Should VERCEL ever be missing on
-// Vercel, "/" simply gets index.html, today's document: slower on a phone, never broken (app.html is in every build).
+// Vercel, "/" simply gets index.html, today's document: slower on a phone, never broken (app.html is in every build);
+// `npm run healthcheck:prod` after a deploy warns when it does (scripts/lib/frontDoor.mjs).
 // Only the web build (the one with a landing chunk); the Vagtplan build is untouched. Its hook is generateBundle (order
 // "post"): it runs after Vite has written index.html through every transformIndexHtml hook, htmlDiet included, wherever it
 // sits in the plugin list.

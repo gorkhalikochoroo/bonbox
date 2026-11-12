@@ -11,6 +11,7 @@
  * "Something went wrong / connection issue". A plain 200-check MISSES (b) —
  * every chunk returns 200. This walks the chunk GRAPH and verifies the
  * import/export contract, which is the actual failure surface.
+ * It also says whether "/" is the landing's own document (scripts/lib/frontDoor.mjs, landing v7): a WARN when not.
  *
  * Run:  npm run healthcheck:prod
  *       node scripts/prod-healthcheck.mjs --base=https://www.bonbox.dk --json
@@ -18,6 +19,8 @@
  *
  * No deps. Node >= 18 (global fetch). Verifies PROD, never localhost.
  */
+
+import { FRONT_DOOR_OTHER, frontDoorFindings } from "./lib/frontDoor.mjs";
 
 const argv = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -103,6 +106,19 @@ async function main() {
   }
   const entryName = entryMatch[1] + ".js";
   notes.push(`entry=${entryName}`);
+
+  // 1b. The front door's own document (landing v7): "/" must be landing.html (the hero's phone cut), every other address
+  //     app.html. A Vercel build without VERCEL=1 quietly serves index.html at "/": it works, so it is a WARN, not BROKEN.
+  let other = null;
+  try {
+    const o = await get(BASE + FRONT_DOOR_OTHER);
+    if (o.status === 200) other = o.body;
+  } catch {
+    other = null;
+  }
+  const door = frontDoorFindings(idx.body, other);
+  warnings.push(...door.warnings);
+  notes.push(...door.notes);
 
   if (EXPECT_HASH && entryName !== EXPECT_HASH && `${EXPECT_HASH}.js` !== entryName) {
     // Staleness gate: the live entry is not what THIS build emitted. Vercel didn't
