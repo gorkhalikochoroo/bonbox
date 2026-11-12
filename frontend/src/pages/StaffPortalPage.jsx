@@ -39,6 +39,7 @@ import { fitDockLabels } from "../components/staff/dockLabelFit";
 import { usePresence, useLastValue, closingProps, motionAllowed } from "../components/staff/sheetMotion";
 import { beatFor, useHeroBeat, useBeatWindow, BREAK_MS } from "../components/staff/clockBeat";
 import { installPressFeel } from "../components/staff/pressFeel";
+import { feel } from "../components/staff/feel"; // the haptic words (1.4); the clock's own lines stay on haptic
 import { forgetAll } from "../components/staff/tabMemory";
 import BusyLabel from "../components/staff/BusyLabel";
 import { parseServerTime } from "../utils/serverTime";
@@ -1027,6 +1028,7 @@ function PinGate({ onVerified, token, staffName }) {
       if (res.data?.pin_proof) storePinProof(token, res.data.pin_proof);
       onVerified();
     } catch (err) {
+      if (err?.response?.status !== 429) feel.fail();   // the wrong-PIN branch
       setError(
         err?.response?.status === 429
           ? t("portalPinLocked", "Too many attempts — try again in 15 minutes.")
@@ -1173,10 +1175,12 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
       // in", silence is the wrong answer: the staffer is left guessing whether
       // to phone as well. Confirm what was recorded, then close on its own.
       setReason("");
+      feel.soft();
       setSent(true);
       onCalledIn?.();
       setTimeout(() => { setSent(false); setOpen(false); onDismiss?.(); }, 2600);
     } catch (err) {
+      feel.fail();
       setError(portalErrText(err, t, t("portalSickSendFailed", "Couldn't send. Try again."), lang));
     } finally {
       setSubmitting(false);
@@ -1360,7 +1364,7 @@ function useScheduleConfirm({ token, shifts, onConfirmed, allShifts }) {
       const res = await portalApi.post(`/portal/${token}/confirm-schedule`, {
         shift_ids: publishedShifts.filter((sh) => !sh.confirmed_at).map((sh) => sh.id),
       });
-      haptic.light(); // a quiet physical ack — confirm is routine, not ceremonial
+      feel.soft(); // a quiet physical ack — confirm is routine, not ceremonial
       const n = res?.data?.confirmed_count ?? 0;
       setFeedback(n > 0
         ? `✓ ${n === 1 ? t("portalConfirmCountOne", "{n} shift confirmed", { n }) : t("portalConfirmCount", "{n} shifts confirmed", { n })}`
@@ -1932,13 +1936,14 @@ function useOpenShiftClaim(token, onClaimed) {
     setMsg("");
     try {
       await portalApi.post(`/portal/${token}/open-shifts/${id}/claim`);
-      haptic.success();
+      feel.done();
       setMsg(t("portalOpenClaimed", "Added to your schedule."));
       setTimeout(() => setMsg(""), 3500);  // clear the confirmation after the moment
       onClaimed?.();
     } catch (err) {
       const code = err?.response?.data?.detail?.code;
-      haptic.warning();
+      if (code === "already_taken" || code === "shift_overlap") feel.warn();   // refused
+      else feel.fail();                                                         // could not do it
       if (code === "already_taken") setMsg(t("portalOpenTaken", "That shift was just taken."));
       else if (code === "shift_overlap") setMsg(t("portalOpenOverlap", "You already work then."));
       else setMsg(portalErrText(err, t, t("portalOpenClaimFailed", "Couldn't take the shift."), lang));
@@ -4175,7 +4180,7 @@ function VpSegmented({ options, value, onChange, label, testId }) {
           <button
             key={o.key}
             type="button"
-            onClick={() => onChange(o.key)}
+            onClick={() => { if (o.key !== value) feel.tick(); onChange(o.key); }}
             aria-pressed={on}
             data-testid={testId ? `${testId}-${o.key}` : undefined}
             className={`flex-1 min-w-0 inline-flex items-center justify-center vp-press ${FOCUS_RING}`}
@@ -4401,7 +4406,7 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
               <button
                 key={c.key}
                 type="button"
-                onClick={() => { setFrom(c.start); setTo(c.end); }}
+                onClick={() => { if (!active) feel.tick(); setFrom(c.start); setTo(c.end); }}
                 aria-pressed={active}
                 className={`min-w-0 vp-press ${FOCUS_RING}`}
                 style={{
@@ -5128,10 +5133,12 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
     setClaimErr("");
     try {
       await portalApi.post(`/portal/${token}/give-aways/${id}/claim`);
-      haptic.success(); // you just picked up a shift — a real moment
+      feel.done(); // you just picked up a shift — a real moment
       reload();
     } catch (err) {
-      haptic.warning();
+      const st = err?.response?.status;
+      if (st === 409 || st === 422) feel.warn();   // refused (taken, overlaps you)
+      else feel.fail();                            // network, server
       setClaimErr(portalErrText(err, t, t("portalGaClaimFailed", "Couldn't take the shift. Try again."), lang));
       fetchInbox(); // it may have just been taken — refresh the pool
     } finally {
@@ -5319,16 +5326,17 @@ function SwapRow({ swap, token, onChanged }) {
         `/portal/${token}/swap-requests/${swap.id}/respond`,
         { accept },
       );
+      if (accept) feel.done(); else feel.soft();
       onChanged();
     } catch (err) {
       // A refusal used to vanish: the button just stopped spinning. Now the
       // staffer reads why (e.g. the trade would double-book them) and the
       // request stays open, so Decline is still right there.
-      haptic.warning();
       const d = err?.response?.data?.detail;
       const overlap = err?.response?.status === 409 && d?.code === "swap_overlap";
       // The server declined it itself: a shift moved since it was offered.
       const stale = d?.code === "swap_stale";
+      if (overlap || stale) feel.warn(); else feel.fail();
       setRowErr({
         text: overlap
           ? swapErrText(err, t, "", lang)
@@ -5351,7 +5359,11 @@ function SwapRow({ swap, token, onChanged }) {
     setBusy(true);
     try {
       await portalApi.post(`/portal/${token}/swap-requests/${swap.id}/withdraw`);
+      feel.soft();
       onChanged();
+    } catch (err) {
+      feel.fail();
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -5558,7 +5570,7 @@ function GiveawaySellModal({ token, ownShifts, liveShiftId = null, onClose, onOf
         shift_id: pickedId,
         reason: reason.trim() || null,
       });
-      haptic.light();
+      feel.soft();
       onOffered?.();
     } catch (err) {
       setError(portalErrText(err, t, t("portalGaOfferFailed", "Couldn't post the shift. Try again."), lang));
@@ -5690,8 +5702,10 @@ function SwapProposeModal({ token, ownShifts, liveShiftId = null, onClose, onPro
         to_shift_id: target.shift_id,
         reason: reason.trim() || null,
       });
+      feel.soft();
       onProposed?.();
     } catch (err) {
+      feel.fail();
       setError(swapErrText(err, t, t("portalSwapProposeFailed", "Couldn't propose. Try again."), lang));
     } finally {
       setSubmitting(false);
@@ -6506,6 +6520,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         (prev || []).map((m) => (m.id === optimistic.id ? res.data : m)),
       );
     } catch {
+      feel.fail();
       setMessages((prev) =>
         (prev || []).map((m) =>
           m.id === optimistic.id ? { ...m, _pending: false, _failed: true } : m,
@@ -7212,16 +7227,18 @@ function AbsenceSection({ token, onChanged }) {
 
   const submit = async () => {
     setErr("");
-    if (!from) { setErr(t("fravaerPickDate", "Pick a start date")); return; }
-    if (to && to < from) { setErr(t("kanIkkeEndAfterStart", "End must be after start")); return; }
+    if (!from) { feel.warn(); setErr(t("fravaerPickDate", "Pick a start date")); return; }
+    if (to && to < from) { feel.warn(); setErr(t("kanIkkeEndAfterStart", "End must be after start")); return; }
     setSaving(true);
     try {
       const body = { kind, date_from: from };
       if (to) body.date_to = to;
       if (reason.trim()) body.reason = reason.trim();
       await portalApi.post(`/portal/${token}/absence`, body);
+      feel.soft();
       reset(); setAdding(false); await load(); onChanged?.();
     } catch {
+      feel.fail();
       setErr(t("fravaerSaveFailed", "Couldn't send — try again"));
     } finally { setSaving(false); }
   };
@@ -7229,8 +7246,10 @@ function AbsenceSection({ token, onChanged }) {
   const withdraw = async (g) => {
     try {
       await portalApi.post(`/portal/${token}/absence/withdraw`, { ids: g.ids });
+      feel.soft();
       await load(); onChanged?.();
     } catch {
+      feel.fail();
       setErr(t("fravaerWithdrawFailed", "Couldn't withdraw — try again"));
     }
   };
@@ -7613,7 +7632,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
               type="button"
               role="switch"
               aria-checked={allDay}
-              onClick={() => setAllDay(!allDay)}
+              onClick={() => { feel.tick(); setAllDay(!allDay); }}
               className={`relative shrink-0 vp-press vp-s ${FOCUS_RING}`}
               style={{ width: 46, height: 28, borderRadius: 999, background: allDay ? PINE : GRAB, transition: "background-color var(--dur-fast) var(--ease-out)" }}
             >
@@ -7872,10 +7891,11 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
     if (isPast(iso) || savingSet.has(iso)) return;
     if (meta.abs) return; // absence day — the request flow governs it, not a soft tap
     if (meta.oneOff) {                                   // un-mark
+      feel.tick();
       withSaving(iso, true);
       setAvail((rows) => (rows || []).filter((r) => r.id !== meta.oneOff.id));
       try { await portalApi.delete(`/portal/${token}/availability/${meta.oneOff.id}`); }
-      catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+      catch { feel.fail(); setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
       finally { withSaving(iso, false); }
       return;
     }
@@ -7897,10 +7917,11 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
       setConfirmRostered({ iso });
       return;
     }
+    feel.tick();
     withSaving(iso, true);
     setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: mode, date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
     try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: mode }); await loadAvail(); }
-    catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+    catch { feel.fail(); setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
     finally { withSaving(iso, false); }
   };
 
@@ -7909,10 +7930,11 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   const markAnyway = async (iso) => {
     setConfirmRostered(null);
     if (oneOffByDate[iso]) return;
+    feel.tick();
     withSaving(iso, true);
     setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: mode, date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
     try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: mode }); await loadAvail(); }
-    catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+    catch { feel.fail(); setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
     finally { withSaving(iso, false); }
   };
 
@@ -9831,10 +9853,12 @@ export default function StaffPortalPage() {
         postal_code: res.data.postal_code,
         city: res.data.city,
       });
+      feel.soft();
       setEmailStatus("ok");
       setEmailMsg(t("portalSaved", "Saved"));
       setTimeout(() => { setEmailMsg(""); setEmailStatus(null); setShowEmailEdit(false); }, 1500);
     } catch (err) {
+      feel.fail();
       setEmailStatus("err");
       setEmailMsg(portalErrText(err, t, t("portalSaveFailed", "Couldn't save"), lang));
     } finally {
@@ -10346,7 +10370,7 @@ export default function StaffPortalPage() {
                       <button
                         key={code}
                         type="button"
-                        onClick={() => setLang(code)}
+                        onClick={() => { if (code !== lang) feel.tick(); setLang(code); }}
                         aria-pressed={lang === code}
                         className={`px-3 py-1.5 rounded-md text-[12px] font-bold uppercase vp-press ${
                           lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"

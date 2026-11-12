@@ -12,9 +12,14 @@
  *   • Nothing ever throws out of a haptic (sync throw or rejected promise).
  *   • Call G: utils/haptics.js `warning` plays ERROR on Android, WARNING on
  *     the iPhone (the clock's approved lines call it; they are not touched).
+ *   • Source pin (1.4): the page calls haptic.* only in the clock's approved
+ *     lines inside act / breakAct; everything else goes through feel.*.
  *
  * The plugin and the platform module are mocked at their boundary.
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const plat = vi.hoisted(() => ({ isNative: true, isIOS: true, isAndroid: false, isWeb: false }));
@@ -210,5 +215,47 @@ describe("call G: the shared helper's warning (utils/haptics.js)", () => {
     haptic.success();
     haptic.error();
     expect(hx.calls).toEqual([["notification", { type: "SUCCESS" }], ["notification", { type: "ERROR" }]]);
+  });
+});
+
+// Premium feel 1.4 (Step 5): the page's haptics go through feel.*, except the
+// clock's approved lines (CLOCK-MOTION-SPEC.md), which stay on utils/haptics
+// byte for byte inside useClock's act and breakAct. Read from the source.
+describe("the haptic map on the page (source pin)", () => {
+  const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const PAGE = fs.readFileSync(path.join(SRC, "pages/StaffPortalPage.jsx"), "utf8");
+  const lines = PAGE.split("\n");
+  const at = (needle) => lines.findIndex((l) => l.includes(needle));
+
+  it("exactly the clock spec's haptic. lines, inside act and breakAct, and no other haptic. call", () => {
+    const act = at("  const act = async (dir) => {");
+    const breakAct = at("  const breakAct = async (kind) => {");
+    const end = at("  return { st, busy, err, result, act, breakAct,");
+    expect(act).toBeGreaterThan(0);
+    expect(breakAct).toBeGreaterThan(act);
+    expect(end).toBeGreaterThan(breakAct);
+    const calls = lines
+      .map((l, i) => [i, l.trim()])
+      .filter(([, l]) => /\bhaptic\./.test(l) && !l.startsWith("//") && !l.startsWith("*"));
+    const inAct = calls.filter(([i]) => i > act && i < breakAct).map(([, l]) => l);
+    const inBreak = calls.filter(([i]) => i > breakAct && i < end).map(([, l]) => l);
+    expect(inAct).toEqual([
+      "if (res.data?.discarded) haptic.warning();",
+      "else haptic.success();",
+      "haptic.warning();",
+      "haptic.warning();",
+      "haptic.error();",
+    ]);
+    expect(inBreak).toEqual(["haptic.success();", "haptic.warning();", "haptic.error();"]);
+    // Nothing else on the page calls the shared helper.
+    expect(calls).toHaveLength(inAct.length + inBreak.length);
+  });
+
+  it("every other moment speaks feel's words, imported once from components/staff/feel", () => {
+    expect(PAGE).toContain('import { feel } from "../components/staff/feel";');
+    const used = new Set([...PAGE.matchAll(/\bfeel\.(\w+)\(/g)].map((m) => m[1]));
+    expect([...used].sort()).toEqual(["done", "fail", "soft", "tick", "warn"]);
+    // Navigation stays silent: no haptic of any kind in setTab / the dock.
+    expect(PAGE).not.toMatch(/setTab\([^)]*\);?\s*feel\./);
   });
 });
