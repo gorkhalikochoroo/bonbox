@@ -67,9 +67,13 @@ describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal only", 
     .map((f) => path.relative(SRC, f).split(path.sep).join("/"))
     .sort();
 
-  it("only the portal entry (the page + its vagtplan.css) references them; main.jsx does not", () => {
-    expect(importers("@fontsource/sora")).toEqual(["components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
-    expect(importers("@fontsource/dm-sans")).toEqual(["components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+  it("only the portal entry and the owner app's I dag type (houseFonts + today.css) reference them; main.jsx does not", () => {
+    // Nov 2026: the I dag rail + page bring the house family (Sora + DM Sans)
+    // to the owner app — Manoj's type rule — through ONE module,
+    // components/today/houseFonts.js (+ its today.css latin-ext rules).
+    const OWNER = ["components/today/houseFonts.js", "components/today/today.css"];
+    expect(importers("@fontsource/sora")).toEqual([...OWNER, "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"].sort());
+    expect(importers("@fontsource/dm-sans")).toEqual([...OWNER, "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"].sort());
     expect(read("main.jsx")).not.toMatch(/sora|dm-sans/i);
     // The stylesheet itself is imported by the portal page and nowhere else.
     expect(importers("staff/vagtplan.css")).toEqual(["pages/StaffPortalPage.jsx"]);

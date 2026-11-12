@@ -111,8 +111,11 @@ describe("useBranch resolves the owner's own type when there are no branches", (
   });
 });
 
-describe("the phone tab bar's 4th slot", () => {
-  it("a branchless salon that takes bookings gets Tidsbestilling as tab 4", async () => {
+describe("the phone tab bar — the I dag bar (Nov 2026): I dag · book · Vagtplan · Kasserapport · Mere", () => {
+  // The old 4th-slot rule (Kasserapport OR the type's tool) is superseded by
+  // Manoj's canvas: Kasserapport is ALWAYS a tab (slot 4) and the book / the
+  // type's tool takes slot 2. The vertical words still resolve per type.
+  it("a branchless salon gets Tidsbestilling as a tab — and keeps Kasserapport", async () => {
     auth.user = { id: "u3", business_type: "salon", role: "owner" };
     act8n.known = new Set(["reservations"]);
     render(<MemoryRouter><BranchProvider><MobileBottomNav /></BranchProvider></MemoryRouter>);
@@ -120,66 +123,64 @@ describe("the phone tab bar's 4th slot", () => {
     const tab = screen.getByRole("link", { name: da.navAppointments });
     expect(da.navAppointments).toBe("Tidsbestilling");
     expect(tab.getAttribute("href")).toBe("/reservations");
-    expect(screen.queryByRole("link", { name: da.navToday })).toBeNull();
+    expect(screen.getByRole("link", { name: da.navToday }).getAttribute("href")).toBe("/daily-close");
   });
 
-  it("a salon that has not taken a booking yet — or whose answer is not in — keeps Kasserapport", async () => {
+  it("a salon whose usage answer is not in yet still has both — no tab waits on usage", async () => {
     auth.user = { id: "u3b", business_type: "salon", role: "owner" };
-    act8n.known = new Set(["staff"]);
-    const { unmount } = render(<MemoryRouter><BranchProvider><MobileBottomNav /></BranchProvider></MemoryRouter>);
-    await settle();
-    expect(screen.getByRole("link", { name: da.navToday }).getAttribute("href")).toBe("/daily-close");
-    unmount();
     act8n.known = null; // loading, no stored answer
     render(<MemoryRouter><BranchProvider><MobileBottomNav /></BranchProvider></MemoryRouter>);
     await settle();
     expect(screen.getByRole("link", { name: da.navToday }).getAttribute("href")).toBe("/daily-close");
+    expect(screen.getByRole("link", { name: da.navAppointments }).getAttribute("href")).toBe("/reservations");
   });
 
-  it("a café, a restaurant and a bar keep Kasserapport — even with bookings (product decision)", async () => {
+  it("a café, a restaurant and a bar: Kasserapport always, and the book beside it", async () => {
     act8n.known = new Set(["reservations", "inventory", "staff"]);
     for (const type of ["cafe", "restaurant", "bar", "bakery"]) {
       auth.user = { id: `u-${type}`, business_type: type, role: "owner" };
       const { unmount } = render(<MemoryRouter><BranchProvider><MobileBottomNav /></BranchProvider></MemoryRouter>);
       await settle();
       expect(screen.getByRole("link", { name: da.navToday }).getAttribute("href")).toBe("/daily-close");
-      expect(screen.queryByRole("link", { name: da.reservations })).toBeNull();
+      expect(screen.getByRole("link", { name: da.reservations }).getAttribute("href")).toBe("/reservations");
       unmount();
     }
   });
 
   it.each([
-    ["cafe", "/daily-close"],
-    ["restaurant", "/daily-close"],
-    ["bar", "/daily-close"],
+    ["cafe", "/reservations"],
+    ["restaurant", "/reservations"],
+    ["bar", "/reservations"],
     ["salon", "/reservations"],
-    ["clothing", "/inventory"],
-    ["workshop", "/workshop"],
-    ["general", "/daily-close"],
-  ])("%s → %s (no usage rule)", (type, to) => {
-    expect(getTabsForType(type)[3].to).toBe(to);
+    ["clothing", "/inventory"],  // no book → the type's own tool (no usage rule given)
+    ["workshop", "/workshop"],   // no book → Værksted (no usage rule given)
+    ["general", "/reservations"], // unknown type fails open
+  ])("%s → slot 2 is %s (no usage rule)", (type, to) => {
+    const tabs = getTabsForType(type);
+    expect(tabs[1].to).toBe(to);
+    expect(tabs[3].to).toBe("/daily-close");
   });
 
   it("never points at a pillar the owner switched off", () => {
-    expect(getTabsForType("salon", new Set(["reservations"]))[3].to).toBe("/daily-close");
-    expect(getTabsForType("clothing", new Set(["inventory"]))[3].to).toBe("/daily-close");
+    expect(getTabsForType("salon", new Set(["reservations"]))[1].to).not.toBe("/reservations");
+    expect(getTabsForType("restaurant", new Set(["staff"])).map((x) => x.to)).not.toContain("/staff/schedule");
+    expect(getTabsForType("clothing", new Set(["inventory"]), { usedPillars: new Set(["inventory"]), usedSurfaces: new Set() })[1].to).toBe("/sales");
   });
 
-  it("leads with the type's own tool only once it is used", () => {
+  it("a venue without a book leads with its own tool only once it is used", () => {
     const used = (pillars = [], surfaces = [], modules = null) => ({
       usedPillars: new Set(pillars), usedSurfaces: new Set(surfaces),
       enabledModules: modules === null ? null : new Set(modules),
     });
-    expect(getTabsForType("clothing", null, used([]))[3].to).toBe("/daily-close");
-    expect(getTabsForType("clothing", null, used(["inventory"]))[3].to).toBe("/inventory");
-    expect(getTabsForType("salon", null, used(["inventory"]))[3].to).toBe("/daily-close");
+    expect(getTabsForType("clothing", null, used([]))[1].to).toBe("/sales");
+    expect(getTabsForType("clothing", null, used(["inventory"]))[1].to).toBe("/inventory");
     // Workshop: job cards are the use; the module must be on (once known).
-    expect(getTabsForType("workshop", null, used([], [], ["workshop"]))[3].to).toBe("/daily-close");
-    expect(getTabsForType("workshop", null, used([], ["workshop"], ["workshop"]))[3].to).toBe("/workshop");
-    expect(getTabsForType("workshop", null, used([], ["workshop"], null))[3].to).toBe("/workshop");
-    expect(getTabsForType("workshop", null, used([], ["workshop"], []))[3].to).toBe("/daily-close");
+    expect(getTabsForType("workshop", null, used([], [], ["workshop"]))[1].to).toBe("/sales");
+    expect(getTabsForType("workshop", null, used([], ["workshop"], ["workshop"]))[1].to).toBe("/workshop");
+    expect(getTabsForType("workshop", null, used([], ["workshop"], null))[1].to).toBe("/workshop");
+    expect(getTabsForType("workshop", null, used([], ["workshop"], []))[1].to).toBe("/sales");
     // Unknown (still loading, no hint) reads as not used.
-    expect(getTabsForType("salon", null, { usedPillars: null, usedSurfaces: new Set() })[3].to).toBe("/daily-close");
+    expect(getTabsForType("clothing", null, { usedPillars: null, usedSurfaces: new Set() })[1].to).toBe("/sales");
   });
 });
 

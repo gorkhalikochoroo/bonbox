@@ -58,7 +58,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router, pillars as pillars_router, diagnostics as diagnostics_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router, pillars as pillars_router, diagnostics as diagnostics_router, today as today_router
 from app.routers import venue_location as venue_location_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import staff_chat as staff_chat_router
@@ -5034,6 +5034,11 @@ _MEMBER_READ_DENY_PREFIXES = (
     # ZIP — and the month-end checklist names the cash differences. Owner-only,
     # like /api/exports and /api/reports beside it.
     "/api/revisor-package",
+    # The owner's "I dag" aggregate (routers/today.py): today's revenue, the
+    # week's lønprocent and the revisor set-up in one read. Owner-only; an
+    # invited seat (and a locked shared device, which reuses this tuple) keeps
+    # the old Home. The router refuses a member view too.
+    "/api/today",
     # The same kr ÷ hours division, in a router the wage round did not look at.
     # /api/staffing/logs returns labor_cost + total_hours + staff_count per day,
     # and on any day logged with one person on, that division IS their exact
@@ -6009,6 +6014,7 @@ app.include_router(modules_router.router, prefix="/api/modules", tags=["Modules"
 # nav preference only — never read by public surfaces or crons.
 app.include_router(pillars_router.router, prefix="/api/pillars", tags=["Pillars"])
 app.include_router(diagnostics_router.router, prefix="/api/diagnostics", tags=["Diagnostics"])
+app.include_router(today_router.router, prefix="/api/today", tags=["Today"])
 # Activation-gated disclosure — GET /api/activation. The ACTIVATION axis of
 # the 4-axis IA model (DERIVED from real usage rows, new-accounts-only,
 # fail-open, feature-flagged). Owner-UI nav preference only; never stored,

@@ -199,6 +199,8 @@ describe("App.jsx — a returning owner's Home code starts with the check", () =
     expect(block).toContain('window.localStorage.getItem("bb_had_session") === "1"');
     expect(block).toContain("/^\\/(dashboard\\/?)?$/.test(window.location.pathname)");
     expect(block).toContain('import("./components/Layout").catch(() => {});');
-    expect(block).toContain('import("./pages/DashboardPage").catch(() => {});');
+    // Home is the I dag page since Nov 2026 (/dashboard → TodayPage; the
+    // previous Home is /home and loads only when asked for).
+    expect(block).toContain('import("./pages/TodayPage").catch(() => {});');
   });
 });

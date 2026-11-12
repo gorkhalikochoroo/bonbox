@@ -366,7 +366,9 @@ describe("4. text that sits directly on the paper", () => {
     ["components/ui/FilterBar.jsx", '"text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400"'],
     ["components/ui/TabPills.jsx", 'off: "max-sm:text-gray-600 max-sm:dark:text-gray-400"'],
     ["components/ui/TabPills.jsx", '"bg-gray-900/[0.06] text-gray-700 hover:bg-gray-900/10 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"'],
-    ["components/Layout.jsx", "text-xs text-red-700 dark:text-red-400 hover:bg-red-50"],
+    // Log ud moved off the paper into the owner card's menu (a white card,
+    // Nov 2026), where it reads --td-red #B5523A: 4.6:1 on white.
+    ["components/Layout.jsx", "td-menu-row is-danger"],
     // the empty-state primitive's body sits on the paper on several pages (/staff/hours Tid…)
     ["components/ui/Empty.jsx", '"text-sm text-gray-600 dark:text-gray-400 max-w-sm mx-auto leading-relaxed"'],
     // QA 12 Oct: the rail's "Tilføj funktioner → Indsigt" (Slå til) row, every owner page

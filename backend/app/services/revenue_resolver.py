@@ -127,6 +127,92 @@ def effective_revenue_by_date(
     return result
 
 
+def effective_revenue_ex_moms_by_date(
+    db: Session,
+    user_id,
+    start_date: date,
+    end_date: date,
+    vat_rate: float,
+    prices_include_moms: bool = True,
+) -> dict[date, float]:
+    """Effective revenue per date EXCLUDING moms — the lønprocent basis.
+
+    Manoj, 20 Oct 2026: lønprocent is wages ÷ omsætning EKSKL. moms. Same
+    per-date, per-branch precedence as :func:`effective_revenue_by_date`
+    (a confirmed close wins over its own branch's Sale rows), so the two can
+    never pick different days or different tills. Only the amount differs:
+
+      • confirmed close — `revenue_ex_moms` when the close stored it, else
+        `revenue_total − moms_total` when MOMS was keyed (an explicit 0 for a
+        momsfri close keeps the whole total), else the gross extraction
+        `revenue_total ÷ (1 + rate)`. A close's total is always the till's
+        GROSS figure, whatever `prices_include_moms` says — the rule
+        tax_service._calc_vat states and follows.
+      • Sale fallback — `amount ÷ (1 + rate)` when the owner's prices include
+        moms (B2C, the default), the amount itself when they are net.
+
+    `vat_rate` is the caller's (tax_service._get_vat_rate(currency)); a rate
+    of 0 or less leaves amounts untouched.
+    """
+    if start_date > end_date:
+        return {}
+    rate = float(vat_rate or 0.0)
+    divisor = 1.0 + rate if rate > 0 else 1.0
+
+    close_rows = (
+        db.query(
+            DailyClose.date,
+            DailyClose.branch_id,
+            DailyClose.revenue_total,
+            DailyClose.moms_total,
+            DailyClose.revenue_ex_moms,
+        )
+        .filter(
+            DailyClose.user_id == user_id,
+            DailyClose.date >= start_date,
+            DailyClose.date <= end_date,
+            DailyClose.is_deleted.isnot(True),
+            DailyClose.status == "confirmed",
+        )
+        .all()
+    )
+    result: dict[date, float] = {}
+    closed_branches: dict[date, set] = {}
+    for d, b, rev, moms, rev_ex in close_rows:
+        gross = float(rev or 0)
+        if rev_ex is not None:
+            net = float(rev_ex)
+        elif moms is not None:
+            net = gross - float(moms)
+        else:
+            net = gross / divisor
+        result[d] = result.get(d, 0.0) + net
+        closed_branches.setdefault(d, set()).add(b)
+
+    sale_rows = (
+        db.query(Sale.date, Sale.branch_id,
+                 func.coalesce(func.sum(Sale.amount), 0).label("total"))
+        .filter(
+            Sale.user_id == user_id,
+            Sale.date >= start_date,
+            Sale.date <= end_date,
+            Sale.is_deleted.isnot(True),
+            Sale.status == "completed",
+        )
+        .group_by(Sale.date, Sale.branch_id)
+        .all()
+    )
+    for d, b, total in sale_rows:
+        closed = closed_branches.get(d)
+        if closed is not None and (b in closed or None in closed or b is None):
+            continue
+        amt = float(total or 0)
+        if amt:
+            result[d] = result.get(d, 0.0) + (amt / divisor if prices_include_moms else amt)
+
+    return result
+
+
 def effective_revenue_total(
     db: Session,
     user_id,

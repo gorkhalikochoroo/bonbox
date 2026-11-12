@@ -60,6 +60,8 @@ export const GET_ALLOW = new Set([
   // venue is "Sidste lukning" from this list. Not kept, a return to Home drew
   // "I dag indtil nu 0 kr." until it answered (rev-1/rev-2, 16 Oct).
   "/daily-close",
+  // The I dag page (Nov 2026) — owner-only, same account/shared-device rules.
+  "/today",
 ]);
 
 // POSTs that change no figure Home shows: analytics and crash beacons, and

@@ -208,25 +208,35 @@ describe("document headings", () => {
 });
 
 describe("group collapse survives navigation", () => {
+  // Nov 2026 (the I dag rail): the collapsible section is "Mere" — CLOSED by
+  // default, OPEN by default while the owner stands on a page inside it, and an
+  // explicit choice (stored under its id) always wins over both defaults.
   it("keeps a collapsed group collapsed when the owner opens a page inside it", () => {
-    const { unmount } = renderShell("/dashboard");
-    // Money is open by default, so its children are on screen.
+    const { unmount } = renderShell("/cashbook");
+    // Standing inside Mere with no stored choice → open, so its rows show.
     expect(screen.getByText("cashBook")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /navMoney/ }));
+    fireEvent.click(screen.getByRole("button", { name: /navMoreRail/ }));
     expect(screen.queryByText("cashBook")).not.toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem("bonbox_nav_groups")).money).toBe(false);
+    expect(JSON.parse(localStorage.getItem("bonbox_nav_groups")).more).toBe(false);
     unmount();
 
-    // Re-enter the app ON a page inside that very group — the case the old
+    // Re-enter the app ON a page inside that very section — the case the old
     // auto-expand effect turned into a forced re-open, and then persisted.
     renderShell("/cashbook");
     expect(screen.queryByText("cashBook")).not.toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem("bonbox_nav_groups")).money).toBe(false);
+    expect(JSON.parse(localStorage.getItem("bonbox_nav_groups")).more).toBe(false);
   });
 
   it("still reveals the active group for an owner who has never touched it", () => {
     renderShell("/cashbook");
+    expect(screen.getByText("cashBook")).toBeInTheDocument();
+  });
+
+  it("starts Mere closed elsewhere, and opens it on one tap", () => {
+    renderShell("/dashboard");
+    expect(screen.queryByText("cashBook")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /navMoreRail/ }));
     expect(screen.getByText("cashBook")).toBeInTheDocument();
   });
 });
@@ -260,16 +270,23 @@ describe("the rail is visible to a keyboard", () => {
   });
 
   it("makes each group header announce whether it is open", () => {
+    // Nov 2026: the rail's one collapsible section is "Mere" (Administration
+    // is a plain label, always open); the owner card's menu button announces
+    // its state too.
     renderShell("/dashboard");
     const headers = Array.from(aside().querySelectorAll("button"))
-      .filter((b) => /^(navMoney|navStock|navReportsMoms|navSettings)$/.test(b.textContent.trim()));
-    expect(headers.length).toBeGreaterThan(2);
+      .filter((b) => /^navMoreRail$/.test(b.textContent.trim()));
+    expect(headers).toHaveLength(1);
 
     // The chevron rotates; a screen reader cannot see a rotation.
-    for (const h of headers) expect(h).toHaveAttribute("aria-expanded", "true");
-
-    fireEvent.click(headers[0]);
     expect(headers[0]).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(headers[0]);
+    expect(headers[0]).toHaveAttribute("aria-expanded", "true");
+
+    const owner = screen.getByLabelText("tdAccountMenuAria");
+    expect(owner).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(owner);
+    expect(owner).toHaveAttribute("aria-expanded", "true");
   });
 });
 

@@ -11,7 +11,10 @@ import { useActivation } from "../hooks/useActivation";
 import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
 import { syncStatusBar } from "../utils/statusBar";
-import { filterDestinations, sidebarGroupsFor, PILLAR_DISPLAY_BY_ID, isStaffMemberRole, pillarIsScopedOffTheRail } from "../config/navManifest";
+import { filterDestinations, railSectionsFor, accountMenuDestinations, PILLAR_DISPLAY_BY_ID, isStaffMemberRole, pillarIsScopedOffTheRail } from "../config/navManifest";
+import { useNavBadges } from "../hooks/useNavBadges";
+// The house type + the I dag rail/page tokens (Nov 2026).
+import "./today/houseFonts";
 import {
   NAV_FOCUS_RING,
   NAV_GROUPS_STORAGE_KEY,
@@ -499,7 +502,11 @@ export default function Layout() {
   // (`archetypeId` is declared above, next to `isAccountant`.)
   // Rebuilt only when the archetype changes — everything else about the
   // sidebar surface is static manifest data.
-  const navGroups = useMemo(() => sidebarGroupsFor(archetypeId), [archetypeId]);
+  // THE I DAG RAIL (Nov 2026): today · Administration · (Værksted) · Mere,
+  // projected by railSectionsFor (config/navManifest.js). Same filter below,
+  // same four visibility axes; only the PLACEMENT changed. Revert: put
+  // sidebarGroupsFor(archetypeId) back on this line.
+  const navGroups = useMemo(() => railSectionsFor(archetypeId), [archetypeId]);
 
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
@@ -543,9 +550,6 @@ export default function Layout() {
     catch { /* private mode / quota — the rail just won't remember */ }
   }, [openGroups]);
 
-  const toggleGroup = (gid) => {
-    setOpenGroups((prev) => toggleNavGroup(prev, gid));
-  };
 
   // Personal accounts only — the button is gated on canPersonal, so this is
   // unreachable for a business owner. It writes the sub-preference, not the
@@ -577,6 +581,84 @@ export default function Layout() {
     syncStatusBar(dark);
   }, [dark]);
   usePageTracking();
+
+  // ── I dag rail: badges, account menu, row renderer (Nov 2026) ──
+  const badgesOn = !!user && !isAccountant && !_ownerFinancialsHidden && mode === "business";
+  const navBadgesByRoute = useNavBadges(badgesOn);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef(null);
+  useEffect(() => {
+    if (!accountMenuOpen) return undefined;
+    const onDown = (e) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target)) setAccountMenuOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setAccountMenuOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [accountMenuOpen]);
+  useEffect(() => { setAccountMenuOpen(false); }, [location.pathname]);
+  // Lokationer · Moduler · Abonnement & betaling — through the SAME filter as
+  // the rail (owner-only, module, tier), never for the revisor's read-only view
+  // or a personal account.
+  const accountRows = (isAccountant || mode !== "business")
+    ? []
+    : filterDestinations(accountMenuDestinations(), {
+        businessTypes: branchType ? [branchType] : businessTypes,
+        enabledModules,
+        hasFeature,
+        featReady: entReady !== false,
+        hiddenPillars: hiddenPillars instanceof Set ? hiddenPillars : new Set(),
+        archetypeId,
+        isStaffMember: _ownerFinancialsHidden,
+      }).filter((item) => !(isNativeApp() && item.locked));
+  const ownerInitials = (() => {
+    const src = String(user?.full_name || user?.business_name || "").trim();
+    const parts = src.split(/\s+/).filter(Boolean);
+    if (!parts.length) return "·";
+    return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  })();
+  // One rail row. A plain render function (not a component) so rows keep
+  // their identity — and focus — across renders. `top` = the daily-jobs
+  // section (44px rows, the only ones that carry a badge).
+  const renderRailRow = (item, top, badge) => {
+    const label = item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey);
+    if (item.locked) {
+      return (
+        <NavLink
+          key={item.to}
+          to="/subscription"
+          onClick={closeSidebar}
+          title={t("proFeatureUpgrade") || "Pro feature — upgrade to unlock"}
+          aria-label={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock") + " (" + label + ")"}
+          className={`td-rail-row${top ? " is-top" : ""} ${NAV_MUTED} ${NAV_FOCUS_RING}`}
+        >
+          <Icon name="Lock" size={18} className="shrink-0" />
+          <span className="flex-1 truncate">{label}</span>
+        </NavLink>
+      );
+    }
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        end={item.to === "/dashboard" || item.to === "/daily-close"}
+        onClick={closeSidebar}
+        className={({ isActive }) => `td-rail-row${top ? " is-top" : ""}${isActive ? " is-active" : ""} ${NAV_FOCUS_RING}`}
+      >
+        <Icon name={item.icon} size={18} className="shrink-0" />
+        <span className="flex-1 truncate">{label}</span>
+        {badge && (
+          <span className={`td-badge b-${badge.tone}`} aria-label={badge.count != null ? t("tdBadgeAria", { count: badge.count }) : t("tdBadgeMissing")}>
+            {badge.count != null ? badge.count : t("tdBadgeMissing")}
+          </span>
+        )}
+      </NavLink>
+    );
+  };
 
   const handleLogout = () => {
     logout();
@@ -721,6 +803,25 @@ export default function Layout() {
           {/* Shared-device ("Delt enhed") reveal/hide chip — only shows when the
               owner flagged THIS device shared (#379). */}
           <DeviceShareChip />
+          {/* QuickAdd "+" — moved here from the tab bar's centre slot with the
+              I dag tab bar (Nov 2026): log a sale, add an expense, Smart skan,
+              one tap from every page. Same hidden trigger the centre "+" used,
+              and the same fallback when the sheet is not mounted yet. */}
+          <button
+            type="button"
+            onClick={() => {
+              if (clickHiddenTrigger("[data-quickadd-toggle]")) return;
+              navigate(mode === "personal" ? "/personal" : "/sales");
+            }}
+            aria-label={t("add")}
+            className="-my-2 w-11 h-11 flex items-center justify-center rounded-full active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+          >
+            {/* 44px hit area, a 30px disc inside it (the coarse-pointer
+                min-height would otherwise stretch the disc into a pill). */}
+            <span className="w-[30px] h-[30px] rounded-full bg-gray-900 dark:bg-gray-600 text-white flex items-center justify-center" aria-hidden="true">
+              <Icon name="Plus" size={17} strokeWidth={2.25} />
+            </span>
+          </button>
           {/* Help — moved out of the floating bottom-left chip (which sat over
               content above the tab bar) into the header, where the other global
               actions live. Dispatches the same OPEN_SUPPORT_EVENT the sidebar's
@@ -824,7 +925,7 @@ export default function Layout() {
            bar and bottom nav, .bar-paper) so light reads as one cream sheet with
            white content on it — the /login look. The active row is the white
            one (activeClass). Dark is unchanged: still the card rung. */
-        className={`fixed top-0 left-0 h-full w-56 bg-[rgb(var(--surface-shell))] border-r border-[rgb(var(--surface-line))] flex flex-col ${
+        className={`td-rail fixed top-0 left-0 h-full w-56 bg-[rgb(var(--surface-shell))] border-r border-[rgb(var(--surface-line))] flex flex-col ${
           sidebarOpen ? "z-[60]" : "z-50"
         } ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -983,213 +1084,76 @@ export default function Layout() {
               ))}
             </div>
           ) : (
-            /* Business mode — grouped navigation (filtered by branch type).
+            /* Business mode — THE I DAG RAIL (Nov 2026 redesign).
 
-               ROW RHYTHM LADDER (C2, Sep 2026). Twenty rows only read as five
-               groups if the gaps say so, and they did not: the gap between one
-               group and the next was `space-y-0.5` (2px) — the SAME 2px used
-               between two rows INSIDE a group — and a group header sat 2px
-               above its own first row. Every gap on the rail was one value, so
-               the eye got a list, not groups. Three steps now, and only three:
+               Sections from railSectionsFor(): the headerless daily jobs
+               (I dag · Reservationer · Vagtplan · Kasserapport · Timer & løn),
+               "Administration" (always open), the Værksted vertical, and
+               "Mere" — every other sidebar row, collapsible, closed until the
+               owner opens it or stands on a page inside it. The accountant's
+               slim nav and the super-admin Platform group render through the
+               same loop (a labelled group = collapsible, open by default).
 
-                 2px  (space-y-0.5) between rows inside a group
-                 6px  (mt-1.5)      between a group header and its first row
-                12px  (mt-3)        between one group and the next
-
-               No new surface, no icon rail, and NO type-scale change — the
-               rhythm is entirely whitespace, which is the one lever that makes
-               a dense rail readable without making it taller per row. */
-            <div className="space-y-0.5 py-1">
-              {/* RESUME (Fortsæt) — quiet "pick up where you left off" cluster
-                  pinned at the TOP of the nav, above the groups. Shows up to 2
-                  genuinely-recent OTHER destinations as one-tap links, resolved
-                  through the SAME visibility/tier filter the sidebar uses.
-                  Renders null when there's no qualifying history (new owners,
-                  or only the current page in history) and for accountant-view —
-                  never a placeholder, never a fabricated suggestion. */}
+               Badges are ACTIONABLE counts only (useNavBadges): bookings
+               waiting for the owner's answer, draft shifts nobody can see, a
+               missing kasserapport. Never a total, never a guess. */
+            <div className="py-1">
               {!isAccountant && (
                 <ResumeRow enabledModules={enabledModules} onNavigate={closeSidebar} />
               )}
               {visibleGroups.map((group) => {
-                // Stored choice wins; no stored choice = open (which is what
-                // reveals the group the owner just navigated into).
-                const isOpen = isNavGroupOpen(openGroups, group.id);
-                const hasActiveChild = group.items.some((i) => location.pathname.startsWith(i.to));
+                const hasActiveChild = group.items.some((i) => location.pathname === i.to || location.pathname.startsWith(i.to + "/"));
+                const defaultOpen = group.defaultOpen === false ? hasActiveChild : true;
+                const isOpen = isNavGroupOpen(openGroups, group.id, defaultOpen);
+                const rows = (top) => group.items.map((item) => renderRailRow(item, top, top ? navBadgesByRoute[item.to] : null));
 
-                // Core group has no header — always visible
                 if (!group.labelKey) {
                   return (
-                    <div key={group.id} className="space-y-0.5">
-                      {group.items.map((item) => (
-                        item.locked ? (
-                          // L1 — visible-but-locked entry (Pro feature
-                          // for non-Pro user). Lock icon replaces the
-                          // normal icon; clicking routes to /subscription
-                          // so the owner sees what their tier unlocks.
-                          //
-                          // The row used to say "dead" and behave "live":
-                          // `cursor-not-allowed` sat on the one row that turns
-                          // a Free owner into a paying one, so the owner was
-                          // told not to click the upgrade path they had just
-                          // been shown. `opacity-60` compounded it — gray-600
-                          // washed to ~3.1:1 on the white rail, under the AA
-                          // floor. Now a pointer cursor and the full-opacity
-                          // muted tier (4.83:1 light / 5.78:1 dark), which
-                          // still reads a step quieter than an unlocked row.
-                          // The Lock icon carries "locked" on its own; it does
-                          // not need the row to pretend to be inert.
-                          <NavLink
-                            key={item.to}
-                            to="/subscription"
-                            onClick={closeSidebar}
-                            title={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock")}
-                            aria-label={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock") + " (" + (item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)) + ")"}
-                            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition cursor-pointer ${NAV_MUTED} ${NAV_MUTED_HOVER} hover:bg-gray-50 dark:hover:bg-gray-700 ${NAV_FOCUS_RING}`}
-                          >
-                            <Icon name="Lock" size={18} className="shrink-0" />
-                            <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
-                          </NavLink>
-                        ) : (
-                          <NavLink
-                            key={item.to}
-                            to={item.to}
-                            end={item.to === "/dashboard"}
-                            onClick={closeSidebar}
-                            className={({ isActive }) =>
-                              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${isActive ? activeClass : inactiveClass}`
-                            }
-                          >
-                            <Icon name={item.icon} size={18} className="shrink-0" />
-                            {/* `truncate`, like the locked variant above
-                                already had. Measured on the real 224px rail:
-                                "Abonnement & betaling" is 148.7px in a 142px
-                                slot — the one label that still overflows once
-                                multiClose stops saying "Kasserapport · ". A
-                                locked row clipped it and an unlocked row spilled
-                                it, which is the asymmetry, not the width. */}
-                            <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
-                          </NavLink>
-                        )
-                      ))}
-                      {/* KOM I GANG — switched-on-but-unused features (Vagtplan,
-                          Reservationer) right under the core spine, not pinned
-                          under the drawer footer where a phone had to scroll
-                          inside the drawer to find them. Null when there are
-                          none, and for the revisor view. */}
+                    <div key={group.id} className="flex flex-col gap-0.5">
+                      {rows(true)}
                       {!isAccountant && (
                         <PillarDiscovery variant="sidebar" only="setup" onNavigate={closeSidebar} />
                       )}
-                      {/* The core spine's closing rule. `mb-0` because the next
-                          group brings its own 12px step (see the ladder above);
-                          `my-1.5` here stacked with it and opened a gap wider
-                          than any other on the rail. */}
-                      <div className="h-px bg-gray-100 dark:bg-gray-700 mt-2 mb-0" />
                     </div>
                   );
                 }
 
-                // Collapsible groups — `mt-3` is the ladder's between-groups
-                // step. It sits on the wrapper rather than on the header so a
-                // COLLAPSED group keeps the same step as an open one.
+                if (group.collapsible === false) {
+                  return (
+                    <div key={group.id} className="mt-3">
+                      <p className="td-rail-sec">{t(group.labelKey)}</p>
+                      <div className="flex flex-col gap-0.5">{rows(false)}</div>
+                    </div>
+                  );
+                }
+
                 return (
-                  <div key={group.id} className="mt-3">
+                  <div key={group.id} className="mt-1">
                     <button
-                      onClick={() => toggleGroup(group.id)}
-                      /* The header IS the disclosure control for the rows under
-                         it, and it said so to sighted users only (the chevron
-                         rotates) — a screen-reader user got an unlabelled
-                         button with no state at all. */
+                      type="button"
+                      onClick={() => setOpenGroups((prev) => toggleNavGroup(prev, group.id, defaultOpen))}
                       aria-expanded={isOpen}
-                      /* Group headers are the organising layer — the thing that
-                         makes a dense rail scannable at all. On the AA-passing
-                         muted tier, not the 2.54:1 gray-400 they used to be.
-                         `py-1` + the 6px step below it (mt-1.5 on the item
-                         list) replaces the old `py-1.5` + 2px: the header now
-                         hugs its own label and the AIR lands between the header
-                         and its rows, which is what makes it read as a label
-                         for what follows rather than as the first row of it. */
-                      className={`w-full flex items-center gap-2 px-3 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition ${NAV_FOCUS_RING} ${
-                        hasActiveChild
-                          ? "text-gray-900 dark:text-gray-100"
-                          : `${NAV_MUTED} ${NAV_MUTED_HOVER}`
-                      }`}
+                      className={`td-rail-sec-btn ${NAV_FOCUS_RING}`}
                     >
-                      <Icon name={group.icon} size={14} className="shrink-0 opacity-70" />
+                      {group.icon && <Icon name={group.icon} size={14} className="shrink-0 opacity-70" />}
                       <span>{t(group.labelKey)}</span>
-                      {/* "Your page is inside this collapsed group" dot — the
-                          only thing standing in for the active row when the
-                          group is shut, so it is an INFORMATIVE graphic and
-                          owes the 3:1 non-text floor. As a fixed emerald-500 it
-                          measured 2.54:1 on the white rail; on the accent token
-                          it is 3.77:1 in light and 7.64:1 in dark. */}
                       {hasActiveChild && !isOpen && (
                         <span className="w-1.5 h-1.5 rounded-full bg-[rgb(var(--brand-green-accent))] ml-0.5" />
                       )}
                       <svg
                         className={`w-3 h-3 ml-auto transition-transform ${isOpen ? "rotate-180" : ""}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true"
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                       </svg>
                     </button>
-                    {isOpen && (
-                      /* 6px under the header (ladder step 2); no mb — the next
-                         group's own mt-3 is the between-groups step, and the
-                         old mb-1 made that gap depend on whether the PREVIOUS
-                         group happened to be open. */
-                      <div className="space-y-0.5 mt-1.5">
-                        {group.items.map((item) => (
-                          item.locked ? (
-                            // L1 — visible-but-locked Pro feature entry.
-                            // Lucide Lock icon; click routes to
-                            // /subscription so the owner sees the upsell
-                            // path. Multi-barrier defense: even if the L3
-                            // router gate breaks, the frontend still sends
-                            // the click somewhere that explains the tier
-                            // instead of into a bare 402.
-                            //
-                            // Same repair as the core-group locked row
-                            // above: `cursor-not-allowed opacity-60` told
-                            // the owner the upgrade row was dead while it
-                            // navigated, and washed the label under the AA
-                            // floor. Pointer cursor + the full-opacity
-                            // muted tier; the Lock icon is the signal.
-                            <NavLink
-                              key={item.to}
-                              to="/subscription"
-                              onClick={closeSidebar}
-                              title={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock")}
-                              aria-label={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock") + " (" + (item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)) + ")"}
-                              className={`flex items-center gap-2.5 pl-5 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition cursor-pointer ${NAV_MUTED} ${NAV_MUTED_HOVER} hover:bg-gray-50 dark:hover:bg-gray-700 ${NAV_FOCUS_RING}`}
-                            >
-                              <Icon name="Lock" size={16} className="shrink-0" />
-                              <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
-                            </NavLink>
-                          ) : (
-                            <NavLink
-                              key={item.to}
-                              to={item.to}
-                              onClick={closeSidebar}
-                              className={({ isActive }) =>
-                                `flex items-center gap-2.5 pl-5 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition ${isActive ? activeClass : inactiveClass}`
-                              }
-                            >
-                              <Icon name={item.icon} size={16} className="shrink-0" />
-                              <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
-                            </NavLink>
-                          )
-                        ))}
-                      </div>
-                    )}
+                    {isOpen && <div className="flex flex-col gap-0.5 mt-1">{rows(false)}</div>}
                   </div>
                 );
               })}
-              {/* DISCOVERY FLOOR (C10) — pinned "Tilføj funktioner" at the
-                  bottom of the nav. Lists the owner's OFF pillars as muted
-                  one-tap "Slå til" rows so a hidden pillar is always re-
-                  findable. Renders null when nothing is hidden, and for
-                  accountant-view (empty hiddenPillars Set upstream), so a
-                  revisor never sees it. */}
+              {/* DISCOVERY FLOOR (C10) — unchanged: the owner's OFF pillars as
+                  one-tap "Slå til" rows. Null when nothing is hidden and for
+                  the revisor view. */}
               {!isAccountant && (
                 <PillarDiscovery variant="sidebar" only="off" onNavigate={closeSidebar} />
               )}
@@ -1197,62 +1161,113 @@ export default function Layout() {
           )}
         </nav>
 
-        {/* Footer */}
-        <div className="px-3 py-1.5 border-t border-gray-100 dark:border-gray-700 space-y-0.5" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 8px)" }}>
-          <NavLink
-            to="/profile"
-            onClick={closeSidebar}
-            className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${isActive ? activeClass : inactiveClass}`
-            }
-          >
-            <span className="w-5 flex items-center justify-center"><Icon name="User" size={14} /></span>
-            {t("profile")}
-          </NavLink>
-          {/* Help & feedback — the discoverable desktop entry to the support
-              composer (the floating "?" is mobile-only). Dispatches
-              SupportChip.OPEN_SUPPORT_EVENT ("bonbox:open-support"); the chip's
-              global listener opens the modal (z-50) over everything. */}
+        {/* Footer — "Spørg BonBox" + the owner card (Nov 2026). The owner
+            card opens the account menu, which carries everything the old
+            footer rows did (Profil, Hjælp & feedback, tema, sprog, Log ud)
+            plus Lokationer · Moduler · Abonnement & betaling. */}
+        <div className="px-3 pt-2 border-t border-[rgb(var(--surface-line))] flex flex-col gap-2 relative" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 10px)" }}>
           <button
-            onClick={() => { closeSidebar(); window.dispatchEvent(new Event("bonbox:open-support")); }}
-            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition ${NAV_FOCUS_RING}`}
+            type="button"
+            onClick={() => {
+              closeSidebar();
+              if (clickHiddenTrigger("[data-bonbox-agent-toggle]")) return;
+              navigate("/feedback");
+            }}
+            className={`td-ask ${NAV_FOCUS_RING}`}
           >
-            <span className="w-5 flex items-center justify-center"><Icon name="MessageSquare" size={14} /></span>
-            {t("helpFeedback") || "Help & feedback"}
+            <span className="td-ask-ic" aria-hidden="true"><Icon name="Sparkles" size={16} /></span>
+            <span className="min-w-0">
+              {t("tdAskBonBox")}
+              <span className="td-ask-s">{t("tdAskBonBoxSub")}</span>
+            </span>
           </button>
-          <button
-            onClick={toggleDark}
-            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition ${NAV_FOCUS_RING}`}
-          >
-            <span className="w-5 flex items-center justify-center"><Icon name={dark ? "Sun" : "Moon"} size={14} /></span>
-            {dark ? t("lightMode") : t("darkMode")}
-          </button>
-          {/* Language — same footer-row treatment as Profile / Dark mode:
-              a Lucide Globe + the short code (EN / DK), no flag emoji, no
-              bordered box. Keeps the footer one consistent icon+text set so
-              the dark-mode glyph sits flush with its neighbours. */}
-          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-            <span className="w-5 flex items-center justify-center"><Icon name="Globe" size={14} /></span>
-            <select
-              value={lang}
-              onChange={(e) => setLang(e.target.value)}
-              aria-label="Language"
-              className={`bg-transparent text-xs font-medium outline-none cursor-pointer pr-1 rounded ${NAV_FOCUS_RING}`}
+          <div ref={accountMenuRef} className="relative">
+            {accountMenuOpen && (
+              <div id="bb-account-menu" role="menu" aria-label={t("tdAccountMenu")} className="td-menu">
+                {accountRows.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    role="menuitem"
+                    to={item.locked ? "/subscription" : item.to}
+                    onClick={() => { setAccountMenuOpen(false); closeSidebar(); }}
+                    className={`td-menu-row ${NAV_FOCUS_RING}`}
+                  >
+                    <Icon name={item.locked ? "Lock" : item.icon} size={16} className="shrink-0" />
+                    <span className="flex-1 truncate">{t(item.labelKey)}</span>
+                  </NavLink>
+                ))}
+                <NavLink
+                  role="menuitem"
+                  to="/profile"
+                  onClick={() => { setAccountMenuOpen(false); closeSidebar(); }}
+                  className={`td-menu-row ${NAV_FOCUS_RING}`}
+                >
+                  <Icon name="User" size={16} className="shrink-0" />
+                  <span className="flex-1">{t("profile")}</span>
+                </NavLink>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setAccountMenuOpen(false); closeSidebar(); window.dispatchEvent(new Event("bonbox:open-support")); }}
+                  className={`td-menu-row ${NAV_FOCUS_RING}`}
+                >
+                  <Icon name="MessageSquare" size={16} className="shrink-0" />
+                  <span className="flex-1">{t("helpFeedback") || "Help & feedback"}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={toggleDark}
+                  className={`td-menu-row ${NAV_FOCUS_RING}`}
+                >
+                  <Icon name={dark ? "Sun" : "Moon"} size={16} className="shrink-0" />
+                  <span className="flex-1">{dark ? t("lightMode") : t("darkMode")}</span>
+                </button>
+                <div className="td-menu-row" style={{ cursor: "default" }}>
+                  <Icon name="Globe" size={16} className="shrink-0" />
+                  <select
+                    value={lang}
+                    onChange={(e) => setLang(e.target.value)}
+                    aria-label="Language"
+                    className={`flex-1 bg-transparent text-[13.5px] font-medium outline-none cursor-pointer rounded ${NAV_FOCUS_RING}`}
+                  >
+                    {LANGUAGES.map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.short}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="td-menu-sep" aria-hidden="true" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setAccountMenuOpen(false); handleLogout(); }}
+                  className={`td-menu-row is-danger ${NAV_FOCUS_RING}`}
+                >
+                  <Icon name="LogOut" size={16} className="shrink-0" />
+                  <span className="flex-1">{t("signOut")}</span>
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setAccountMenuOpen((o) => !o)}
+              aria-expanded={accountMenuOpen}
+              aria-controls="bb-account-menu"
+              aria-label={t("tdAccountMenuAria")}
+              className={`td-owner ${NAV_FOCUS_RING}`}
             >
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.short}
-                </option>
-              ))}
-            </select>
+              <span className="td-owner-ava" aria-hidden="true">{ownerInitials}</span>
+              <span className="flex flex-col min-w-0">
+                <span className="text-[13.5px] font-semibold truncate">{isAccountant ? t("tdRoleAccountant") : t("tdRoleOwner")}</span>
+                <span className="text-[12px] truncate" style={{ color: "var(--td-muted)" }}>{t("tdOwnerCardSub")}</span>
+              </span>
+              <svg className={`w-3.5 h-3.5 ml-auto shrink-0 transition-transform ${accountMenuOpen ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
           </div>
-          <button
-            onClick={handleLogout}
-            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium ${NAV_FOCUS_RING}`}
-          >
-            <span className="w-5 flex items-center justify-center"><Icon name="LogOut" size={14} /></span>
-            {t("signOut")}
-          </button>
         </div>
       </aside>
 
@@ -1318,7 +1333,7 @@ export default function Layout() {
       </main>
 
       {/* Mobile bottom nav — iOS tab bar pattern */}
-      <MobileBottomNav enabledModules={modulesKnown ? enabledModules : null} />
+      <MobileBottomNav enabledModules={modulesKnown ? enabledModules : null} badges={navBadgesByRoute} />
 
       {/* Floating widgets — MOUNTED ON EVERY ROUTE.
           The quiet-on-/subscription rule still holds, but it is now each

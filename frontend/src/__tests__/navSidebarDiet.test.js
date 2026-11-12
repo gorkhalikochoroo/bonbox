@@ -213,7 +213,11 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
   // business_type "restaurant" → archetype food_service (config/archetypes.js).
   const opts = { businessType: "restaurant", archetypeId: "food_service" };
 
-  it("renders 20 rows, in order, with the six jobs on the spine", () => {
+  // Nov 2026 (the I dag rail): this is sidebarGroupsFor — the PREVIOUS rail
+  // projection, kept as the one-line revert path — and the manifest gained two
+  // sidebar rows: "Fuldt overblik" (/home, the previous Home) and "Alle
+  // sider" (/more). The new rail's own order is pinned in todayNavMap.test.js.
+  it("renders 22 rows, in order, with the six jobs on the spine", () => {
     expect(sidebarRoutes(opts)).toEqual([
       // ── the spine: Home + Sales + Expenses, then jobs 1-5 in landing order.
       //    Everything below the hairline is the detail.
@@ -239,8 +243,10 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
       "/tax",
       "/bookkeeping-export",
       "/insights",
+      "/home",      // Nov 2026 — the previous Home, kept whole
       // settings — Lokationer + Funktioner moved to More
       "/subscription",
+      "/more",          // Nov 2026 — the desktop door to the More sheet
     ]);
   });
 
@@ -257,11 +263,12 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
     ]);
   });
 
-  it("is 20 rows whether or not this owner runs Events", () => {
+  it("is 22 rows whether or not this owner runs Events", () => {
     // Before the promotion this was 20 / 21 — the founder's own account
-    // carried the extra row. It no longer can.
-    expect(sidebarRoutes(opts)).toHaveLength(20);
-    expect(sidebarRoutes({ ...opts, usageDormant: new Set() })).toHaveLength(20);
+    // carried the extra row. It no longer can. (+2 in Nov 2026: /home,
+    // /more — the same for every owner.)
+    expect(sidebarRoutes(opts)).toHaveLength(22);
+    expect(sidebarRoutes({ ...opts, usageDormant: new Set() })).toHaveLength(22);
   });
 
   it("dropped exactly the four C12b rows and nothing else", () => {
@@ -283,6 +290,7 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
     const reports = sidebarGroups(opts).find((g) => g.id === "reports");
     expect(reports.items).toEqual([
       "/reports", "/daily-close/multi", "/tax", "/bookkeeping-export", "/insights",
+      "/home", // Nov 2026: after the trio, never inside it
     ]);
   });
 });
@@ -301,9 +309,9 @@ describe("the resolved sidebar — a retail owner keeps their C12b rows", () => 
     expect(sidebarRoutes(opts)).toEqual(sidebarRoutes({ ...opts, archetypeId: "__none__" }));
   });
 
-  it("is 24 rows — one fewer than before, and Events is the one", () => {
-    expect(sidebarRoutes(opts)).toHaveLength(24);
-    expect(sidebarRoutes({ ...opts, usageDormant: new Set() })).toHaveLength(24);
+  it("is 26 rows — Events off, /home + /more on (Nov 2026)", () => {
+    expect(sidebarRoutes(opts)).toHaveLength(26);
+    expect(sidebarRoutes({ ...opts, usageDormant: new Set() })).toHaveLength(26);
   });
 });
 

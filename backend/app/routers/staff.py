@@ -670,7 +670,14 @@ def list_shifts_today(
            empty state in copy, no 404)
     """
     today = business_today_local(user)
+    return {"date": today.isoformat(), "shifts": shifts_payload_for_day(db, user, today)}
 
+
+def shifts_payload_for_day(db: Session, user: User, today: date) -> list[dict]:
+    """The `/staff/today` shift rows for one day — shared with the owner's
+    "I dag" page (routers/today.py) so the two can never disagree about who
+    is on, what was seen, or which shifts are still drafts. Same filters, same
+    fields, byte for byte; the endpoint above only adds the date."""
     # Inner join — only rows where staff_member.user_id matches the
     # caller AND staff_member.is_deleted is not True.  Belt-and-braces
     # tenant filter on top of the schedule.user_id filter below.
@@ -726,7 +733,7 @@ def list_shifts_today(
             }
         )
 
-    return {"date": today.isoformat(), "shifts": payload}
+    return payload
 
 
 # ═══════════════════════════════════════════════════════════════════════════
