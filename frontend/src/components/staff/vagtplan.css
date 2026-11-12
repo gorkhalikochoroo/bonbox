@@ -459,6 +459,15 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
 .vp-busy[data-state="done"] > .vp-busy-check { opacity: 1; animation: vp-pop var(--dur-spring) var(--spring) backwards; }
 @keyframes vp-spin { to { transform: rotate(360deg); } }
 
+/* ── Chat (premium feel 1.8) ───────────────────────────────────────────── */
+/* Chat: your bubble rises from the composer and settles (short travel, so it
+   may spring); opacity never springs. A new message from someone else just
+   fades in. */
+.vp-bubble-in { animation: vp-bubble-rise var(--dur-spring) var(--spring-soft) backwards, vp-fade-in var(--dur-fast) var(--ease-out) backwards; transform-origin: 100% 100%; }
+@keyframes vp-bubble-rise { from { transform: translateY(14px) scale(.98); } }
+.vp-msg-new { animation: vp-fade-in var(--dur-fast) var(--ease-out) backwards; }
+.vp-pending-fade { transition: opacity var(--dur-fast) var(--ease-out); }
+
 /* ── The clock beat (components/staff/clockBeat.js) ──────────────────────
  * The ONE ceremonial beat: clock-in. Clock-out is its quiet reverse; a
  * pause only fades the arc. It plays only after the server said yes, never
@@ -575,6 +584,10 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
   .vp-busy[data-state="done"] > .vp-busy-check { animation: none; }
   .vp-busy-label,
   .vp-busy > .vp-busy-spin { transition: none; }
+  /* Chat: a bubble just appears; pending is 60 % then 100 %, at once. */
+  .vp-bubble-in,
+  .vp-msg-new { animation: none; }
+  .vp-pending-fade { transition: none; }
   /* RollingDigits draws no roll here at all; if one is ever on screen, only
      the new digit shows. */
   .vp-roll-out,

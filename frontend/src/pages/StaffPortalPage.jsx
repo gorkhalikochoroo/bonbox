@@ -6504,6 +6504,32 @@ function ThreadListView({ token, onOpen, onRead }) {
 }
 
 
+// What the server said, plus what only this phone knows: the bubble keys of sent messages
+// (_ck), which messages are new since the last answer (_new, not on first load, not mine),
+// and bubbles still pending or failed (they stay until sent or tapped). Premium feel 1.8:
+// the 6 s poll used to replace the whole list and dropped failed and pending bubbles.
+function mergeThread(prev, server) {
+  const ck = new Map();
+  for (const m of prev || []) if (m._ck) ck.set(m.id, m._ck);
+  const known = new Set((prev || []).map((m) => m.id));
+  const first = prev == null;
+  const merged = server.map((m) => {
+    const c = ck.get(m.id);
+    const fresh = !first && !known.has(m.id) && !m.mine;
+    return c || fresh ? { ...m, ...(c ? { _ck: c } : null), ...(fresh ? { _new: true } : null) } : m;
+  });
+  return [...merged, ...(prev || []).filter((m) => m._pending || m._failed)];
+}
+
+// The server's answer to a send takes the optimistic bubble's place under the
+// same key (_ck), so the row is never re-mounted.
+const attach = (prev, tmpId, real) => {
+  const list = prev || [];
+  // A poll brought the server copy first: drop the local copy (one re-mount, no duplicate).
+  if (list.some((m) => m.id === real.id)) return list.filter((m) => m.id !== tmpId);
+  return list.map((m) => (m.id === tmpId ? { ...real, _ck: tmpId } : m));
+};
+
 /** One open conversation. Same bubbles and composer for the owner thread and
     for a group — the only difference is that a group names who spoke. */
 function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft }) {
@@ -6550,6 +6576,11 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
     }
   };
   const scrollRef = useRef(null);
+  // Never yanked (premium feel 1.8a): the stream follows new messages only
+  // while the reader is at the bottom (within 72 px), on the first paint, and
+  // right after their own send. Someone reading older messages stays put.
+  const nearBottom = useRef(true);
+  const pinNext = useRef(true);
   // px the on-screen keyboard covers (web: visual viewport; Scheduler app:
   // the Keyboard plugin). The composer is position:fixed, and the shell's
   // Keyboard resize mode is "body", which never moves a fixed bar — so it sat
@@ -6572,14 +6603,24 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   const threadId = thread.thread_id;
   const isGroup = (meta?.kind || thread.kind) === "group";
 
+  // The last answer's signature: an unchanged poll writes nothing (no render
+  // of the stream, no scroll write, no layout read) — premium feel 1.8b.
+  const lastSig = useRef(null);
   const load = useCallback(
     (markRead = true) => {
       portalApi
         .get(`/portal/${token}/chat/threads/${threadId}`)
         .then((res) => {
-          setMeta((prev) => ({ ...prev, ...res.data }));
-          setMessages(res.data.messages || []);
-          remember(token, `thread:${threadId}`, res.data.messages || []);
+          const d = res.data;
+          const sig = JSON.stringify([d.title, d.member_ids, (d.messages || []).map((m) => [m.id, m.body, m.photo_count])]);
+          if (sig !== lastSig.current) {
+            lastSig.current = sig;
+            setMeta((prev) => ({ ...prev, ...res.data }));
+            // Merge, never replace: a pending or failed bubble only this
+            // phone knows stays until it is sent or tapped.
+            setMessages((prev) => mergeThread(prev, res.data.messages || []));
+            remember(token, `thread:${threadId}`, res.data.messages || []);
+          }
           if (markRead) onRead?.();
         })
         .catch(() => setMessages((prev) => prev || []));
@@ -6595,10 +6636,14 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
     return () => clearInterval(id);
   }, [load]);
 
-  // Keep pinned to the newest message.
-  useEffect(() => {
+  // Follow the newest message only on the first paint, after an own send, or
+  // while the reader is already at the bottom. A layout effect, so the first
+  // open lands at the bottom before it is painted (no visible jump). The
+  // first-paint pin waits for a list (the skeleton is not the first load).
+  useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && (pinNext.current || nearBottom.current)) el.scrollTop = el.scrollHeight;
+    if (messages) pinNext.current = false;
   }, [messages]);
 
   const send = async () => {
@@ -6620,6 +6665,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       created_at: new Date().toISOString(),
       _pending: true,
     };
+    pinNext.current = true;   // your own words always come into view
     setMessages((prev) => [...(prev || []), optimistic]);
     setText("");
     picker.clear();
@@ -6638,9 +6684,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           client_msg_id: cmid,
         });
       }
-      setMessages((prev) =>
-        (prev || []).map((m) => (m.id === optimistic.id ? res.data : m)),
-      );
+      // Same key from the tap to the server's copy: the bubble is not
+      // re-mounted, it only eases from 60 % to full. Send is silent; the
+      // bubble is the feedback.
+      setMessages((prev) => attach(prev, optimistic.id, res.data));
     } catch {
       feel.fail();
       setMessages((prev) =>
@@ -6735,6 +6782,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       <div
         ref={scrollRef}
         data-testid="portal-chat-stream"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 72;
+        }}
         className="flex flex-col overflow-y-auto"
         style={{
           maxHeight: kbOpen
@@ -6771,9 +6822,15 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           </CalmEmpty>
         ) : (
           messages.map((m) => (
+            // One key from the tap to the server's copy (_ck), so a sent
+            // bubble is never re-mounted. Its entrance class is there from
+            // mount and never changes on that node, so it plays once: your
+            // own bubble rises from the composer, someone else's new message
+            // fades in. Memory never holds these flags, so a return replays
+            // nothing (premium feel 1.8c).
             <div
-              key={m.id}
-              className={`flex ${m.mine ? "justify-end" : "justify-start"}`}
+              key={m._ck || m.id}
+              className={`flex ${m.mine ? "justify-end" : "justify-start"}${m._pending || m._failed || m._ck ? " vp-bubble-in" : m._new ? " vp-msg-new" : ""}`}
             >
               <div className={`max-w-[80%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
                 {!m.mine && isGroup && (
@@ -6786,7 +6843,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
                   </span>
                 )}
                 {(m.photo_count > 0 || m._localPreviews) && (
-                  <div className={m._pending ? "opacity-60" : ""}>
+                  <div className={`vp-pending-fade${m._pending ? " opacity-60" : ""}`}>
                     <PhotoGrid
                       client={portalApi}
                       photos={m.photos}
@@ -6811,7 +6868,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
                     }
                     data-testid="portal-chat-bubble"
                     data-mine={m.mine ? "" : undefined}
-                    className={`whitespace-pre-wrap break-words ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer" : ""}`}
+                    className={`whitespace-pre-wrap break-words vp-pending-fade ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer" : ""}`}
                     style={{
                       padding: "10px 14px",
                       // Own words are pine with ivory text; everyone else's

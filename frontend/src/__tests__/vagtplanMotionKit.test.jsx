@@ -703,6 +703,41 @@ describe("Premium feel 1.6: tab change feel", () => {
   });
 });
 
+// Premium feel, Release A Step 9 (1.8): chat. Your bubble rises from the
+// composer on the soft spring (short travel, so it may spring; opacity never
+// springs); someone else's new message only fades in; a pending bubble eases
+// from 60 % to full. Behaviour is pinned on the page in
+// StaffPortalPage.chatFeel.test.jsx.
+describe("Premium feel 1.8: chat", () => {
+  const start = CSS.indexOf("@media (prefers-reduced-motion: reduce)");
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const outside = strip(CSS.slice(0, start));
+  const body = strip(CSS.slice(start));
+  const PAGE = read("pages/StaffPortalPage.jsx");
+
+  it("the bubble rise, the new-message fade and the pending ease, as the spec writes them", () => {
+    expect(outside).toContain(".vp-bubble-in { animation: vp-bubble-rise var(--dur-spring) var(--spring-soft) backwards, vp-fade-in var(--dur-fast) var(--ease-out) backwards; transform-origin: 100% 100%; }");
+    expect(CSS).toContain("@keyframes vp-bubble-rise { from { transform: translateY(14px) scale(.98); } }");
+    expect(outside).toContain(".vp-msg-new { animation: vp-fade-in var(--dur-fast) var(--ease-out) backwards; }");
+    expect(outside).toContain(".vp-pending-fade { transition: opacity var(--dur-fast) var(--ease-out); }");
+  });
+
+  it(".vp-bubble-in, .vp-msg-new and .vp-pending-fade are in the reduce block with the SAME selector text, still exactly one block", () => {
+    const off = body.match(/([^{}]*)\{\s*animation: none;\s*\}/g).join("\n");
+    expect(off).toMatch(/\.vp-bubble-in,\s*\.vp-msg-new \{ animation: none; \}/);
+    expect(body).toContain(".vp-pending-fade { transition: none; }");
+    expect(CSS.match(/@media \(prefers-reduced-motion: reduce\)/g)).toHaveLength(1);
+  });
+
+  it("source pin: the poll merges (never a whole-list replace), one key per bubble, the pin is a layout effect", () => {
+    expect(PAGE).toContain("setMessages((prev) => mergeThread(prev, res.data.messages || []));");
+    expect(PAGE).not.toContain("setMessages(res.data.messages || []);");
+    expect(PAGE).toContain("setMessages((prev) => attach(prev, optimistic.id, res.data));");
+    expect(PAGE).toContain("key={m._ck || m.id}");
+    expect(PAGE).toContain("if (el && (pinNext.current || nearBottom.current)) el.scrollTop = el.scrollHeight;");
+  });
+});
+
 describe("RollingDigits", () => {
   // The digits that roll in, with their direction.
   const rolled = (el) => [...el.querySelectorAll(".vp-roll-up, .vp-roll-down")]
