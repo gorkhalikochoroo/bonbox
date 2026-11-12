@@ -7,7 +7,9 @@
  *
  * Why (Android 14 walk, 12 Nov 2026): switching DA in the staff app's profile
  * took 2-3 s to repaint on a slow WebView, while the other dictionary's chunk
- * loaded. The staff portal asks for its two offered languages, DA and EN.
+ * loaded. The staff portal asks for its two offered languages, DA and EN,
+ * when its profile sheet (where the language changes) opens — never at boot
+ * (fix round, PLAT-2: ~200 KB on every web visit, and a long task early).
  *
  * Its own module, on localeStore's public API only: the door screen's build
  * swaps localeStore for stand/standLocales.js, which must export everything

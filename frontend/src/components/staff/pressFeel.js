@@ -31,7 +31,9 @@ function down(e) {
   if (e.pointerType === "mouse" || !e.isPrimary) return;
   const t = e.target?.closest?.(TARGET);
   // [inert] by attribute, so also on iOS 15.0-15.4 where inert itself does nothing.
-  if (!t || t.disabled || t.getAttribute("aria-disabled") === "true" || t.closest("[inert],[data-closing]")) return;
+  // A sheet's scrim is a full-screen <button>: pressed, it would shrink 3 % and
+  // show the bare page at its edges (fix round, scrim-press). Tapping it only closes.
+  if (!t || t.matches(".vp-scrim") || t.disabled || t.getAttribute("aria-disabled") === "true" || t.closest("[inert],[data-closing]")) return;
   if (t.matches(WARMS)) feel.warm();
   x0 = e.clientX; y0 = e.clientY; el = t;
   if (t.matches(LATE)) timer = setTimeout(() => { timer = 0; if (el === t) t.dataset.pressed = ""; }, PRESS.WAIT);

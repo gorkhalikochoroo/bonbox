@@ -64,6 +64,14 @@ vi.mock("../hooks/useNativePush", () => ({
 }));
 vi.mock("../utils/haptics", () => ({ haptic: Object.assign(vi.fn(), { light: vi.fn(), warning: vi.fn(), success: vi.fn(), error: vi.fn() }) }));
 vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn() }));
+// Fix round (PLAT-2): the other language is fetched when the profile sheet
+// opens, not at boot. A spy stands in for the loader (lib/localePreload is
+// pinned in localePreload.test.js).
+const preload = vi.hoisted(() => ({ fn: null }));
+vi.mock("../lib/localePreload", () => {
+  preload.fn = vi.fn(() => () => {});
+  return { preloadLocalesWhenIdle: (...a) => preload.fn(...a) };
+});
 
 const StaffPortalPage = (await import("../pages/StaffPortalPage")).default;
 const { LanguageProvider } = await import("../hooks/useLanguage");
@@ -371,5 +379,24 @@ describe("A pull inside a sheet never also reloads the page behind it", () => {
     act(() => { e("touchstart", 0); e("touchmove", 40); });
     expect(screen.getByTestId("portal-pull-status").textContent).toContain("Slip for at opdatere");
     act(() => { e("touchend"); });
+  });
+});
+
+describe("The other language is fetched when the profile sheet opens, never at boot (fix round, PLAT-2)", () => {
+  const wait = (ms) => act(() => new Promise((r) => { setTimeout(r, ms); }));
+  it("nothing at boot; opened and closed at once: nothing; opened: DA and EN once its 0.32 s entrance has played", async () => {
+    preload.fn.mockClear();
+    await mount();
+    await wait(400);
+    expect(preload.fn).not.toHaveBeenCalled();
+    const button = screen.getByTitle("Rediger profil");
+    fireEvent.click(button);                           // open
+    fireEvent.click(button);                           // and closed again at once
+    await wait(400);
+    expect(preload.fn).not.toHaveBeenCalled();
+    await openProfile();
+    expect(preload.fn).not.toHaveBeenCalled();         // not during the entrance
+    await waitFor(() => expect(preload.fn).toHaveBeenCalledTimes(1));
+    expect(preload.fn).toHaveBeenCalledWith(["da", "en"]);
   });
 });

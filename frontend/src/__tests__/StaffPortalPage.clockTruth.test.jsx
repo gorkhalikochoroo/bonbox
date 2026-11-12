@@ -319,8 +319,12 @@ describe("b) The wait has a look", () => {
     await mount();
     const out = () => screen.getByTestId("portal-clock-out");
     const pause = () => screen.getByTestId("portal-break-btn");
-    expect(out().style.opacity).toBe("1");
-    expect(pause().style.opacity).toBe("1");
+    // Fix round (reduce-no-press-live-card): at rest and on the tapped one,
+    // NO inline opacity (it was an inline "1"). An inline 1 beat the Reduce
+    // Motion press dim (.72), so these buttons showed no press at all. Full
+    // opacity is still what shows: nothing else sets one.
+    expect(out().style.opacity).toBe("");
+    expect(pause().style.opacity).toBe("");
     expect(out().className).not.toMatch(/disabled:opacity/);
     expect(pause().className).not.toMatch(/disabled:opacity/);
     holdPost();
@@ -328,12 +332,37 @@ describe("b) The wait has a look", () => {
     await advance(400);
     expect(busyOf(out())).toBe("busy");
     expect(out().getAttribute("aria-busy")).toBe("true");
-    expect(out().style.opacity).toBe("1");
+    expect(out().style.opacity).toBe("");
     expect(busyOf(pause())).toBe("idle");
     expect(pause().hasAttribute("aria-busy")).toBe(false);
     expect(pause().style.opacity).toBe("0.6");
     expect(out().disabled).toBe(true);
     expect(pause().disabled).toBe(true);
+  });
+
+  // Fix round (reduce-no-press-live-card): the inline opacity 1 used to beat
+  // the reduce block's press dim, so the two most-touched buttons gave no
+  // feedback at all under Reduce Motion.
+  it("Reduce Motion, nothing busy: a touch press marks Stempl ud and Start pause (data-pressed) with no inline opacity, so the CSS dim (.72) shows", async () => {
+    motionPref({ reduce: true });
+    at(12, 14);
+    clockImpl = () => ok(CLOCKED);
+    await mount();
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "components", "staff", "vagtplan.css"), "utf8");
+    const reduce = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(reduce).toMatch(/html\[data-modality="touch"\] \.vp-press\[data-pressed\]:not\(:disabled\),[\s\S]*?\{ scale: none; opacity: \.72; \}/);
+    for (const id of ["portal-clock-out", "portal-break-btn"]) {
+      const btn = screen.getByTestId(id);
+      expect(btn.style.opacity).toBe("");
+      const e = new Event("pointerdown", { bubbles: true, cancelable: true });
+      Object.assign(e, { pointerType: "touch", isPrimary: true, clientX: 5, clientY: 5 });
+      act(() => { btn.dispatchEvent(e); });
+      expect(btn.hasAttribute("data-pressed")).toBe(true);
+      expect(btn.style.opacity).toBe("");
+      const up = new Event("pointerup", { bubbles: true });
+      Object.assign(up, { pointerType: "touch", isPrimary: true });
+      act(() => { btn.dispatchEvent(up); });
+    }
   });
 
   it("live card: the pause tapped rings; Stempl ud dims", async () => {

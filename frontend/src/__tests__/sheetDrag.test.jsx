@@ -21,6 +21,7 @@ import { act, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DRAG, releaseOf, rubber, scrimAt, useSheetDrag } from "../components/staff/sheetDrag";
+import { springKeyframes } from "../components/staff/spring";
 
 function motionPref({ reduce }) {
   window.matchMedia = (q) => ({
@@ -116,8 +117,9 @@ afterEach(() => {
 });
 
 describe("the numbers and the pure parts", () => {
-  it("slop 8, dismiss at 30 %, flick 0.5 px/ms after 16 px, rubber 64, 6 samples", () => {
-    expect(DRAG).toEqual({ SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6 });
+  it("slop 8, dismiss at 30 %, flick 0.5 px/ms after 16 px, rubber 64, 6 samples, a finger still for 40 ms has stopped", () => {
+    // Fix round (drag-stale-velocity / PLAT-1): STOPPED added, the others unchanged.
+    expect(DRAG).toEqual({ SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 40 });
   });
 
   it("rubber: 40 → about 16 px, 200 → about 40.5 px, never 64 or more", () => {
@@ -358,6 +360,55 @@ describe("release", () => {
     const back = anims.find((a) => a.el === scrim);
     expect(back.opts).toEqual({ duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" });
     expect(back.frames.at(-1)).toEqual({ opacity: 1 });
+  });
+
+  // Fix round (drag-stale-velocity / PLAT-1): a resting finger sends no
+  // touchmove, so the last samples still read as a throw. The lift's own time
+  // now counts: still for more than 40 ms before it lifted = speed 0.
+  it("a fast pull, then held still, then lifted (100 px in 100 ms, the lift 400 ms later): no dismiss, a spring back from rest", () => {
+    const onDismiss = vi.fn();
+    render(<Sheet onDismiss={onDismiss} />);
+    const { sheet, root } = prime();
+    grab(sheet);
+    dragTo(sheet, 100, { step: 20, every: 20 });  // 1 px/ms: a throw if it lifted now
+    touch(sheet, "touchend", 0, 0, 400);
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(root.hasAttribute("data-dragged-out")).toBe(false);
+    const spring = anims.find((a) => a.el === sheet);
+    expect(spring.frames[0].transform).toBe("translateY(100px)");
+    expect(spring.frames.at(-1)).toEqual({ transform: "translateY(0px)", offset: 1 });
+    // It starts from rest: the same keyframes as a release at speed 0.
+    expect(spring.frames).toEqual(springKeyframes(100, 0, 0).keyframes);
+  });
+
+  it("the review's numbers: 60 px in about 50 ms, held 800 ms, lifted: it springs back (60 px is short of 30 %)", () => {
+    const onDismiss = vi.fn();
+    render(<Sheet onDismiss={onDismiss} />);
+    const { sheet } = prime();
+    grab(sheet);
+    dragTo(sheet, 60, { step: 12, every: 10 });   // 1.2 px/ms
+    touch(sheet, "touchend", 0, 0, 800);
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(anims.find((a) => a.el === sheet).frames.at(-1).transform).toBe("translateY(0px)");
+  });
+
+  it("lifted 40 ms after the last move still throws; 41 ms is a stop", () => {
+    const first = vi.fn();
+    const { unmount } = render(<Sheet onDismiss={first} />);
+    let { sheet } = prime();
+    grab(sheet);
+    dragTo(sheet, 40, { step: 8, every: 10 });    // 0.8 px/ms
+    touch(sheet, "touchend", 0, 0, 40);
+    expect(first).toHaveBeenCalledTimes(1);
+    unmount();
+    anims = [];
+    const second = vi.fn();
+    render(<Sheet onDismiss={second} />);
+    ({ sheet } = prime());
+    grab(sheet);
+    dragTo(sheet, 40, { step: 8, every: 10 });
+    touch(sheet, "touchend", 0, 0, 41);
+    expect(second).not.toHaveBeenCalled();
   });
 
   it("touchcancel at 50 % (the system took the touch): never a dismiss, a spring back", () => {

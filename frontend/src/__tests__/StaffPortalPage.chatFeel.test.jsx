@@ -9,7 +9,8 @@
  *   b) The poll merges; it never throws away what only this phone knows. An
  *      unchanged answer writes nothing at all. A pending bubble survives a
  *      poll; a failed one stays until it is tapped (a deliberate change: it
- *      used to vanish within 6 s).
+ *      used to vanish within 6 s), or until a poll brings the copy the server
+ *      did store (d, fix round).
  *   c) Sending has weight: one key from the tap to the server's copy, so the
  *      bubble is the SAME node after the answer and after the next poll. It
  *      rises in (vp-bubble-in); someone else's new message fades in
@@ -393,5 +394,175 @@ describe("c) Sending has weight", () => {
     await flush(4);
     expect(replay()).toHaveLength(0);
     expect(pinned(stream())).toBe(true);
+  });
+});
+
+// Fix round (12 Nov 2026), three review findings on 1.8:
+//   • chat-failed-duplicate: a send the server stored but the phone saw fail
+//     showed twice (the delivered copy and "Ikke sendt"), and the retry made a
+//     NEW client_msg_id, so the group got it twice. The retry now reuses the
+//     id when the words are unchanged, and a poll that brings the stored copy
+//     turns the failed bubble into it.
+//   • chat-photo-failed-stuck: the retry tap was only on the words; a failed
+//     photo-only send could never be tapped and stayed.
+//   • chat-stale-poll-drops-sent: a poll that asked before a send answered
+//     and arrived after it dropped the just-sent bubble for up to 6 s and
+//     re-mounted it on the next poll.
+const cmidOf = (call) => (call[1] instanceof FormData ? call[1].get("client_msg_id") : call[1]?.client_msg_id);
+const chatPosts = () => post.mock.calls.filter(([u]) => u.startsWith(`/portal/${TOK}/chat/threads/t1`));
+const NOT_SENT = "Ikke sendt — tryk for at prøve igen";
+
+describe("d) A failed send is never sent twice, and never stuck", () => {
+  it("retry unchanged: the second POST carries the first client_msg_id (the server returns its stored copy); edited: a new one", async () => {
+    await mount();
+    await openThread();
+    postImpl = () => Promise.reject(new Error("offline"));
+    await type("Jeg kommer 10 min senere");
+    await click(sendBtn());
+    expect(screen.getByText(NOT_SENT)).toBeInTheDocument();
+    const first = cmidOf(chatPosts()[0]);
+    expect(first).toBeTruthy();
+
+    // The tap puts the words back; sent unchanged it reuses the id.
+    await click(bubbleWith("Jeg kommer 10 min senere")[0]);
+    expect(screen.getByPlaceholderText("Skriv en besked…").value).toBe("Jeg kommer 10 min senere");
+    postImpl = () => ok(msg(77, "Jeg kommer 10 min senere", true));
+    await click(sendBtn());
+    expect(chatPosts()).toHaveLength(2);
+    expect(cmidOf(chatPosts()[1])).toBe(first);
+    expect(bubbleWith("Jeg kommer 10 min senere")).toHaveLength(1);
+
+    // Fail again, then edit before sending: a new id (it is a new message).
+    postImpl = () => Promise.reject(new Error("offline"));
+    await type("Er der mad?");
+    await click(sendBtn());
+    const third = cmidOf(chatPosts()[2]);
+    await click(bubbleWith("Er der mad?")[0]);
+    await type("Er der personalemad?");
+    postImpl = () => ok(msg(78, "Er der personalemad?", true));
+    await click(sendBtn());
+    expect(cmidOf(chatPosts()[3])).not.toBe(third);
+  });
+
+  it("the server DID store it (the answer was lost): the poll's copy takes the failed bubble's place — one bubble, the same node, no 'Ikke sendt'", async () => {
+    await mount();
+    await openThread();
+    postImpl = () => Promise.reject(new Error("offline"));
+    await type("Jeg kommer 10 min senere");
+    await click(sendBtn());
+    const node = bubbleWith("Jeg kommer 10 min senere")[0];
+    expect(screen.getByText(NOT_SENT)).toBeInTheDocument();
+    data.thread.messages.push(msg(80, "Jeg kommer 10 min senere", true));
+    await poll();
+    expect(bubbleWith("Jeg kommer 10 min senere")).toHaveLength(1);
+    expect(bubbleWith("Jeg kommer 10 min senere")[0]).toBe(node);
+    expect(node.style.boxShadow).not.toContain("0 0 0 1.5px");
+    expect(screen.queryByText(NOT_SENT)).toBeNull();
+    await poll();
+    data.thread.messages.push(msg(81, "Ok"));
+    await poll();
+    expect(bubbleWith("Jeg kommer 10 min senere")).toHaveLength(1);
+    expect(bubbleWith("Jeg kommer 10 min senere")[0]).toBe(node);
+  });
+
+  it("the copy came in a poll while the send was pending, then the POST failed: the next poll (the same list) removes 'Ikke sendt'; the copy keeps its node", async () => {
+    await mount();
+    await openThread();
+    const d = holdPost();
+    await type("Jeg kommer 10 min senere");
+    await click(sendBtn());
+    data.thread.messages.push(msg(80, "Jeg kommer 10 min senere", true));
+    await poll();
+    const copy = bubbleWith("Jeg kommer 10 min senere")[0];
+    expect(bubbleWith("Jeg kommer 10 min senere")).toHaveLength(2);   // the copy + the pending bubble
+    await act(async () => { d.reject(new Error("offline")); });
+    await flush(4);
+    expect(screen.getByText(NOT_SENT)).toBeInTheDocument();
+    await poll();                                      // nothing new on the server
+    expect(bubbleWith("Jeg kommer 10 min senere")).toHaveLength(1);
+    expect(bubbleWith("Jeg kommer 10 min senere")[0]).toBe(copy);
+    expect(screen.queryByText(NOT_SENT)).toBeNull();
+  });
+
+  it("an earlier send's copy is never taken: the same words sent twice, the second truly failed, stays 'Ikke sendt'", async () => {
+    await mount();
+    await openThread();
+    // The first "Ok": a poll brings its copy before its POST answers (poll first).
+    const d = holdPost();
+    await type("Ok");
+    await click(sendBtn());
+    data.thread.messages.push(msg(90, "Ok", true));
+    await poll();
+    await act(async () => { d.resolve({ data: msg(90, "Ok", true) }); });
+    await flush(4);
+    expect(bubbleWith("Ok")).toHaveLength(1);
+    // The second "Ok" never reached the server.
+    postImpl = () => Promise.reject(new Error("offline"));
+    await type("Ok");
+    await click(sendBtn());
+    data.thread.messages.push(msg(91, "Godt"));
+    await poll();
+    expect(bubbleWith("Ok")).toHaveLength(2);
+    expect(screen.getByText(NOT_SENT)).toBeInTheDocument();
+  });
+
+  it("a photo-only send that failed: still there after two polls; a tap on it (or its line) removes it and puts the photo back in the composer", async () => {
+    if (!URL.createObjectURL) URL.createObjectURL = () => "blob:x";
+    if (!URL.revokeObjectURL) URL.revokeObjectURL = () => {};
+    await mount();
+    await openThread();
+    const photo = new File([new Uint8Array([1, 2, 3])], "p.jpg", { type: "image/jpeg" });
+    const input = screen.getByTestId("chat-photo-attach").querySelector('input[type="file"]');
+    await act(async () => { fireEvent.change(input, { target: { files: [photo] } }); });
+    expect(screen.getAllByTestId("chat-photo-remove")).toHaveLength(1);
+    postImpl = () => Promise.reject(new Error("offline"));
+    await click(sendBtn());
+    expect(screen.queryAllByTestId("chat-photo-remove")).toHaveLength(0);
+    const firstId = cmidOf(chatPosts()[0]);
+    data.thread.messages.push(msg(4, "Ja, kl. 15"));
+    await poll();
+    await poll();
+    const line = screen.getByText(NOT_SENT);
+    expect(line).toBeInTheDocument();
+    await click(line);
+    expect(screen.queryByText(NOT_SENT)).toBeNull();
+    expect(screen.getAllByTestId("chat-photo-remove")).toHaveLength(1);
+    // Sent again as it was: the same id.
+    postImpl = () => ok({ ...msg(95, null, true), photo_count: 1 });
+    await click(sendBtn());
+    expect(chatPosts()[1][1].getAll("photos")[0]).toBe(photo);
+    expect(cmidOf(chatPosts()[1])).toBe(firstId);
+  });
+});
+
+describe("e) A poll that asked before a send answered never drops the sent bubble", () => {
+  it("poll GET held, send answers, then the stale poll answers: the bubble stays, the same node; the next poll keeps it", async () => {
+    await mount();
+    await openThread();
+    const stale = deferred();
+    threadImpl = () => stale.promise;
+    await advance(6000);                               // the poll asks; its answer is held
+    const d = holdPost();
+    await type("Hej hej");
+    await click(sendBtn());
+    const node = bubbleWith("Hej hej")[0];
+    await act(async () => { d.resolve({ data: msg(42, "Hej hej", true) }); });
+    await flush(4);
+    expect(bubbleWith("Hej hej")[0]).toBe(node);
+    // The stale answer: the list from before the send, with something new in
+    // it (an unchanged list is skipped by its signature anyway).
+    const before = JSON.parse(JSON.stringify(data.thread));
+    before.messages.push(msg(5, "Ok"));
+    await act(async () => { stale.resolve({ data: before }); });
+    await flush(4);
+    expect(bubbleWith("Hej hej")).toHaveLength(1);
+    expect(bubbleWith("Hej hej")[0]).toBe(node);
+    // The next poll has both.
+    data.thread.messages.push(msg(5, "Ok"), msg(42, "Hej hej", true));
+    threadImpl = () => ok(JSON.parse(JSON.stringify(data.thread)));
+    await poll();
+    expect(bubbleWith("Ok")).toHaveLength(1);
+    expect(bubbleWith("Hej hej")).toHaveLength(1);
+    expect(bubbleWith("Hej hej")[0]).toBe(node);
   });
 });

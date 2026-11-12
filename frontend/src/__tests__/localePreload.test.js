@@ -2,8 +2,9 @@
  * Preloading the other language once the page is idle (Android 14 walk,
  * 12 Nov 2026, P7): switching DA in the staff app's profile took 2-3 s to
  * repaint on a slow WebView while the da dictionary's chunk loaded. The
- * portal now fetches its two offered languages (DA, EN) when idle after the
- * first paint — only the ones not loaded yet, nothing renders, cancellable.
+ * portal fetches its two offered languages (DA, EN) when idle after the
+ * profile sheet has opened (fix round, PLAT-2; it used to be after the first
+ * paint) — only the ones not loaded yet, nothing renders, cancellable.
  *
  * The test setup primes en + da (src/test/setup.js), so a not-yet-loaded
  * language here is a real one from the catalog's loaders (de).
@@ -99,10 +100,17 @@ describe("cancel and fallback (fresh module: nothing of de loaded yet)", () => {
 });
 
 describe("wired into the staff portal", () => {
-  it("StaffPortalPage preloads its two offered languages in a mount effect", () => {
+  // Fix round (PLAT-2): no longer a mount effect. At boot it cost every web
+  // visit ~200 KB nobody asked for, and its evaluation a long task in the
+  // first seconds. It now runs when the profile sheet (the only place the
+  // language changes) opens, after its 0.32 s entrance; the behaviour on the
+  // real page is pinned in StaffPortalPage.sheetFeel.test.jsx.
+  it("StaffPortalPage preloads its two offered languages when the profile sheet opens, never at boot", () => {
     const page = fs.readFileSync(path.join(SRC, "pages/StaffPortalPage.jsx"), "utf8");
     expect(page).toContain('import { preloadLocalesWhenIdle } from "../lib/localePreload";');
-    expect(page).toContain('useEffect(() => preloadLocalesWhenIdle(["da", "en"]), []);');
+    expect(page).not.toContain('useEffect(() => preloadLocalesWhenIdle(["da", "en"]), []);');
+    expect(page.match(/preloadLocalesWhenIdle\(/g)).toHaveLength(1);
+    expect(page).toMatch(/if \(!showEmailEdit\) return undefined;[\s\S]{0,120}preloadLocalesWhenIdle\(\["da", "en"\]\); \}, 320\);[\s\S]{0,80}\}, \[showEmailEdit\]\);/);
     // The toggle it serves offers exactly those two.
     expect(page).toContain('{["da", "en"].map((code) => (');
   });

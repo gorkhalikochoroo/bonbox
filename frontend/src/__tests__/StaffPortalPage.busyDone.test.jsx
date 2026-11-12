@@ -42,8 +42,11 @@ const INCOMING = {
 };
 
 let data;
+// A read held open (a slow reload on 4G): { part, d }. Fix round, busy-done-window.
+let heldGet = null;
 const get = vi.fn((url) => {
   const sub = url.slice(`/portal/${TOK}`.length);
+  if (heldGet && sub.startsWith(heldGet.part)) return heldGet.d.promise;
   if (sub === "") return ok({ has_pin: false, staff_name: "Freja M.", role: "waiter", restaurant_name: "Café Solsikke" });
   if (sub.startsWith("/schedule")) return ok({ shifts: data.shifts });
   if (sub.startsWith("/open-shifts")) return ok(data.open);
@@ -148,6 +151,7 @@ beforeEach(() => {
   post.mockClear();
   Object.values(spy.feel).forEach((f) => f.mockClear());
   postImpl = () => ok({});
+  heldGet = null;
   data = {
     shifts: [{ id: "f1", date: FRI, start_time: "16:00", end_time: "22:00", status: "published", net_hours: 5.5 }],
     open: [OPEN],
@@ -229,6 +233,140 @@ describe("Tag den (an open shift)", () => {
     expect(screen.getByText("Den vagt blev lige taget.")).toBeInTheDocument();
     expect(feelCalls()).toEqual({ warn: 1 });
     expect(reads("/open-shifts")).toBe(before + 1);
+  });
+});
+
+// Fix round (busy-done-window): the check used to clear at 900 ms while the
+// reload was still out, so the old row showed an ENABLED label again and a
+// second tap POSTed a second time ("That shift was just taken", a warn
+// haptic for a shift you just got). It now holds until the reload answers.
+function holdGet(part) {
+  const d = deferred();
+  heldGet = { part, d };
+  return d;
+}
+async function release(d, part) {
+  heldGet = null;
+  await act(async () => {
+    d.resolve({ data: part === "/schedule" ? { shifts: data.shifts } : part === "/open-shifts" ? data.open : part === "/give-aways" ? data.pool : data.swaps });
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  });
+  await flush(4);
+}
+
+describe("busy → done holds until the reload has answered (slow 4G)", () => {
+  it("Tag den, motion: at 901 ms, with the reload still out, the check still shows, the pill is disabled, a second tap sends nothing; the row goes when the reload lands", async () => {
+    motionPref({ reduce: false });
+    await mount();
+    const take = () => within(screen.getByTestId("portal-open-shifts")).getByRole("button", { name: "Tag den" });
+    await click(take());
+    await flush(2);
+    expect(busyOf(take())).toBe("done");
+    const slow = holdGet("/open-shifts");
+    data.open = [];
+    await advance(901);
+    await flush(2);
+    expect(get.mock.calls.some(([u]) => u === `/portal/${TOK}/open-shifts`)).toBe(true);
+    expect(busyOf(take())).toBe("done");
+    expect(take().disabled).toBe(true);
+    await click(take());
+    await advance(2000);
+    expect(busyOf(take())).toBe("done");
+    expect(posts("/open-shifts/o1/claim")).toBe(1);
+    expect(spy.feel.warn).not.toHaveBeenCalled();
+    await release(slow, "/open-shifts");
+    expect(within(screen.getByTestId("portal-open-shifts")).queryByRole("button", { name: "Tag den" })).toBeNull();
+    expect(posts("/open-shifts/o1/claim")).toBe(1);
+  });
+
+  it("Tag den, no motion: the reload runs at once and the pill stays disabled until it answers", async () => {
+    delete window.matchMedia;
+    await mount();
+    const take = () => within(screen.getByTestId("portal-open-shifts")).getByRole("button", { name: "Tag den" });
+    const slow = holdGet("/open-shifts");
+    data.open = [];
+    await click(take());
+    await advance(901);
+    expect(take().disabled).toBe(true);
+    await click(take());
+    expect(posts("/open-shifts/o1/claim")).toBe(1);
+    await release(slow, "/open-shifts");
+    expect(within(screen.getByTestId("portal-open-shifts")).queryByRole("button", { name: "Tag den" })).toBeNull();
+  });
+
+  it("the check lets go when the reload answers, if the row is still there (nothing removed it)", async () => {
+    motionPref({ reduce: false });
+    await mount();
+    const take = () => within(screen.getByTestId("portal-open-shifts")).getByRole("button", { name: "Tag den" });
+    await click(take());
+    await flush(2);
+    const slow = holdGet("/open-shifts");
+    await advance(901);
+    expect(busyOf(take())).toBe("done");
+    await release(slow, "/open-shifts");       // data.open still offers it
+    expect(busyOf(take())).toBe("idle");
+    expect(take().disabled).toBe(false);
+  });
+
+  it("Jeg har set det, motion: the check holds past 900 ms while the schedule reload is out; the dashed card when it lands", async () => {
+    motionPref({ reduce: false });
+    await mount();
+    const seen = () => screen.getByTestId("portal-seen-it");
+    postImpl = () => ok({ confirmed_count: 1 });
+    data.shifts = data.shifts.map((x) => ({ ...x, confirmed_at: "2026-11-11T09:50:00" }));
+    await click(seen());
+    await flush(2);
+    const slow = holdGet("/schedule");
+    await advance(901);
+    expect(busyOf(seen())).toBe("done");
+    expect(seen().disabled).toBe(true);
+    await click(seen());
+    expect(posts("/confirm-schedule")).toBe(1);
+    await release(slow, "/schedule");
+    expect(screen.queryByTestId("portal-seen-it")).toBeNull();
+    expect(screen.getByTestId("portal-hero-confirmed")).toBeInTheDocument();
+  });
+
+  it("Byt: Accepter, motion: both buttons stay disabled past 900 ms while the re-read is out", async () => {
+    motionPref({ reduce: false });
+    await mount();
+    await click(screen.getByTestId("portal-tab-swaps"));
+    await flush(4);
+    const row = screen.getAllByTestId("swap-row")[0];
+    const accept = () => within(row).getByTestId("swap-accept");
+    await click(accept());
+    await flush(2);
+    expect(busyOf(accept())).toBe("done");
+    const slow = holdGet("/swap-requests");
+    await advance(901);
+    expect(busyOf(accept())).toBe("done");
+    expect(accept().disabled).toBe(true);
+    expect(within(row).getByTestId("swap-decline").disabled).toBe(true);
+    await click(accept());
+    expect(posts("/swap-requests/in/respond")).toBe(1);
+    await release(slow, "/swap-requests");
+    expect(busyOf(accept())).toBe("idle");
+  });
+
+  it("Byt: a give-away's Tag den, motion: the check holds while the pool re-read is out", async () => {
+    motionPref({ reduce: false });
+    data.swaps = [];
+    data.pool = [{ id: "ga-1", from_staff_name: "Ida Hansen", from_shift_date: "2026-11-18", from_shift_time: "16:00–22:00", reason: "" }];
+    await mount();
+    await click(screen.getByTestId("portal-tab-swaps"));
+    await flush(4);
+    const take = () => within(screen.getByTestId("swap-pool-row")).getByRole("button", { name: "Tag den" });
+    await click(take());
+    await flush(2);
+    const slow = holdGet("/give-aways");
+    data.pool = [];
+    await advance(901);
+    expect(busyOf(take())).toBe("done");
+    expect(take().disabled).toBe(true);
+    await click(take());
+    expect(posts("/give-aways/ga-1/claim")).toBe(1);
+    await release(slow, "/give-aways");
+    expect(screen.queryByTestId("swap-pool-row")).toBeNull();
   });
 });
 

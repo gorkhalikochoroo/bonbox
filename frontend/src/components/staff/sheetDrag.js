@@ -6,7 +6,11 @@ import { springKeyframes } from "./spring";
 // review fixes: a handle instead of a fixed 76 px zone, no preventDefault
 // before the direction is clear, no WAAPI fill that could outlive a reopen,
 // and a system cancel never dismisses).
-export const DRAG = { SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6 };
+// STOPPED: a finger that sent no move for 40 ms before it lifted was resting,
+// so the release speed is 0 (Android's VelocityTracker and Flutter use 40 ms).
+// A resting finger sends no touchmove (iOS, Chrome), so the last samples
+// would still read as a throw (fix round, drag-stale-velocity / PLAT-1).
+export const DRAG = { SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 40 };
 // BeloBag's rule: a control never starts a drag.
 const CONTROL = 'input,textarea,select,button,a[href],label,[role="button"],[role="slider"],[role="switch"],[contenteditable="true"],[contenteditable=""]';
 /** Past the top: a rubber band that never gives more than DRAG.RUBBER px. */
@@ -88,14 +92,15 @@ export function useSheetDrag(sheetRef, onDismiss, { enabled = true } = {}) {
       if (g.s.length > DRAG.SAMPLES) g.s.shift();
       if (!raf) raf = requestAnimationFrame(draw);          // one write per frame
     };
-    const finish = (cancelled) => {
+    const finish = (cancelled, at) => {
       const was = g; g = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       if (!was?.on) return;
       const s = was.s;
       const a = s[0];
       const b = s[s.length - 1];
-      const v = s.length > 1 ? (b[1] - a[1]) / Math.max(1, b[0] - a[0]) : 0;
+      const rested = b && at != null && at - b[0] > DRAG.STOPPED;   // held still, then lifted
+      const v = s.length > 1 && !rested ? (b[1] - a[1]) / Math.max(1, b[0] - a[0]) : 0;
       const from = was.dy >= 0 ? was.dy : -rubber(-was.dy);
       const fade = scrimAt(Math.max(0, was.dy), was.h);
       const r = cancelled ? { dismiss: false } : releaseOf(was.dy, v, was.h);   // the system took the touch: never dismiss
@@ -115,7 +120,7 @@ export function useSheetDrag(sheetRef, onDismiss, { enabled = true } = {}) {
         play(scrim, [{ opacity: fade }, { opacity: 1 }], { duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" });
       }
     };
-    const end = () => finish(false);
+    const end = (e) => finish(false, e?.timeStamp);
     const cancel = () => finish(true);
     const passive = { passive: true };
     sheet.addEventListener("touchstart", start, passive);

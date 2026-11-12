@@ -168,6 +168,26 @@ describe("never", () => {
     }
   });
 
+  // Fix round (scrim-press): four sheets close from a full-screen <button
+  // class="vp-scrim">. Pressed, the plain-button rule shrank it to .97 and the
+  // bare page showed at its edges (under reduce it lightened to .72 instead).
+  it("a sheet's scrim button: never pressed, and a tap on it still closes (it is only a click)", () => {
+    const root = document.createElement("div");
+    root.setAttribute("data-vp-overlay", "");
+    root.innerHTML = '<button type="button" id="scrim" class="vp-scrim" aria-label="Luk"></button>';
+    document.body.appendChild(root);
+    const onClick = vi.fn();
+    $("scrim").addEventListener("click", onClick);
+    pointer($("scrim"), "pointerdown");
+    expect(pressed($("scrim"))).toBe(false);
+    vi.advanceTimersByTime(100);
+    expect(pressed($("scrim"))).toBe(false);
+    pointer($("scrim"), "pointerup");
+    $("scrim").click();
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(pressed($("scrim"))).toBe(false);
+  });
+
   it("a mouse: no press (it keeps :active), and the modality is mouse", () => {
     pointer($("small"), "pointerdown", { pointerType: "mouse" });
     expect(pressed($("small"))).toBe(false);

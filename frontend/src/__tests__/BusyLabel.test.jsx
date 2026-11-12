@@ -102,6 +102,51 @@ describe("done", () => {
     expect(state()).toBe("idle");
     expect(screen.getByRole("button").disabled).toBe(false);
   });
+
+  // Fix round (busy-done-window): flash(settled) also waits for the reload
+  // that removes the row, so a slow reload never shows an enabled label.
+  function Held({ settled }) {
+    const [done, flash] = useDoneFlash();
+    return (
+      <button type="button" onClick={() => flash(settled)} disabled={done}>
+        <BusyLabel done={done}>Tag den</BusyLabel>
+      </button>
+    );
+  }
+  async function answer(fn) {
+    await act(async () => { fn(); for (let i = 0; i < 4; i += 1) await Promise.resolve(); });
+  }
+
+  it("flash(settled): the check holds past 900 ms until the promise settles, then the label", async () => {
+    let done;
+    render(<Held settled={new Promise((r) => { done = r; })} />);
+    fireEvent.click(screen.getByRole("button"));
+    later(900);
+    expect(state()).toBe("done");
+    later(5000);
+    expect(state()).toBe("done");
+    expect(screen.getByRole("button").disabled).toBe(true);
+    await answer(() => done());
+    expect(state()).toBe("idle");
+    expect(screen.getByRole("button").disabled).toBe(false);
+  });
+
+  it("flash(settled): a reload that fails ends the hold too; one that answers early still gets its 900 ms", async () => {
+    let fail;
+    const { unmount } = render(<Held settled={new Promise((_, r) => { fail = r; })} />);
+    fireEvent.click(screen.getByRole("button"));
+    later(1000);
+    await answer(() => fail(new Error("offline")));
+    expect(state()).toBe("idle");
+    unmount();
+    render(<Held settled={Promise.resolve()} />);
+    fireEvent.click(screen.getByRole("button"));
+    await answer(() => {});
+    later(899);
+    expect(state()).toBe("done");
+    later(1);
+    expect(state()).toBe("idle");
+  });
 });
 
 describe("one object", () => {

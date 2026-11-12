@@ -1379,12 +1379,12 @@ function useScheduleConfirm({ token, shifts, onConfirmed, allShifts }) {
         shift_ids: publishedShifts.filter((sh) => !sh.confirmed_at).map((sh) => sh.id),
       });
       feel.soft(); // a quiet physical ack — confirm is routine, not ceremonial
-      flashDone();
       const n = res?.data?.confirmed_count ?? 0;
       setFeedback(n > 0
         ? `✓ ${n === 1 ? t("portalConfirmCountOne", "{n} shift confirmed", { n }) : t("portalConfirmCount", "{n} shifts confirmed", { n })}`
         : `✓ ${t("portalConfirmAlready", "Already confirmed")}`);
-      afterDoneHold(() => onConfirmed?.());
+      // The check holds until the reload has answered, not just 900 ms.
+      flashDone(afterDoneHold(() => onConfirmed?.()));
       setTimeout(() => setFeedback(""), 4000);
     } catch (e) {
       setError(errText(e, t("portalConfirmFailed", "Couldn't confirm. Try again.")));
@@ -1937,17 +1937,28 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
 // only when motion is allowed. Without it (and in jsdom, which has no
 // matchMedia) it runs at once, exactly as before. The haptic and the line
 // that says what happened are immediate either way.
+// It returns a promise that settles when the reload has (fn's promise), and
+// the check is held until then (useDoneFlash's flash(settled)): a slow reload
+// never shows an enabled button over the row it is about to remove. Fix round,
+// busy-done-window.
 function afterDoneHold(fn) {
-  if (motionAllowed()) setTimeout(fn, DONE_HOLD_MS);
-  else fn();
+  let settled;
+  const after = new Promise((r) => { settled = r; });
+  const run = () => {
+    try { Promise.resolve(fn()).then(settled, settled); }
+    catch (e) { settled(); throw e; }   // the hold ends; the error goes where it always went
+  };
+  if (motionAllowed()) setTimeout(run, DONE_HOLD_MS);
+  else run();
+  return after;
 }
 
-/** useDoneFlash for one row among many: [doneId, flash(id)]. doneId is the
-    row whose check is showing (DONE_HOLD_MS), else null. */
+/** useDoneFlash for one row among many: [doneId, flash(id, settled)]. doneId is the
+    row whose check is showing (DONE_HOLD_MS, and until `settled` has), else null. */
 function useDoneFor() {
   const [shown, flash] = useDoneFlash();
   const [id, setId] = useState(null);
-  return [shown ? id : null, (x) => { setId(x); flash(); }];
+  return [shown ? id : null, (x, settled) => { setId(x); flash(settled); }];
 }
 
 // ── Åbne vagter — staff claim ───────────────────────────────────────────────
@@ -1974,10 +1985,11 @@ function useOpenShiftClaim(token, onClaimed) {
     try {
       await portalApi.post(`/portal/${token}/open-shifts/${id}/claim`);
       feel.done();
-      flashDone(id);   // the check lands with the haptic; the pill stays disabled while it shows
       setMsg(t("portalOpenClaimed", "Added to your schedule."));
       setTimeout(() => setMsg(""), 3500);  // clear the confirmation after the moment
-      afterDoneHold(() => onClaimed?.());
+      // The check lands with the haptic; the pill stays disabled while it shows
+      // and until the reload that drops the row has answered.
+      flashDone(id, afterDoneHold(() => onClaimed?.()));
     } catch (err) {
       const code = err?.response?.data?.detail?.code;
       if (code === "already_taken" || code === "shift_overlap") feel.warn();   // refused
@@ -3616,7 +3628,9 @@ function LiveShiftCard({ clock, live, menuBtn }) {
   // Stempl ud and the pause button share clock.busy: the one tapped shows the
   // wait (premium feel 1.2b), its siblings dim as a real "not now".
   const [lastTap, setLastTap] = useState(null);
-  const dimUnlessTapped = (kind) => (clock.busy && lastTap !== kind ? 0.6 : 1);
+  // Inline opacity only while a sibling is dimmed: an inline 1 would beat the
+  // Reduce Motion press dim (.72) and leave these buttons with no press at all.
+  const dimUnlessTapped = (kind) => (clock.busy && lastTap !== kind ? 0.6 : undefined);
   const st = clock.st || {};
   const shift = live?.shift || null;
   const elapsed = clock.liveSec ?? st.elapsed_sec ?? 0;
@@ -5198,10 +5212,8 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
 
   useEffect(() => { fetchInbox(); }, [token]);
 
-  const reload = () => {
-    fetchInbox();
-    onChanged?.();
-  };
+  // A promise for the whole re-read (a check waits for it; busy-done-window).
+  const reload = () => Promise.allSettled([fetchInbox(), onChanged?.()]);
 
   const claimGiveaway = async (id) => {
     setClaimBusy(id);
@@ -5209,8 +5221,8 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
     try {
       await portalApi.post(`/portal/${token}/give-aways/${id}/claim`);
       feel.done(); // you just picked up a shift — a real moment
-      flashClaimDone(id);
-      afterDoneHold(reload);   // it leaves the pool on the reload: after its check (1.7)
+      // It leaves the pool on the reload: after its check (1.7), which holds until then.
+      flashClaimDone(id, afterDoneHold(reload));
     } catch (err) {
       const st = err?.response?.status;
       if (st === 409 || st === 422) feel.warn();   // refused (taken, overlaps you)
@@ -5411,8 +5423,7 @@ function SwapRow({ swap, token, onChanged }) {
       );
       if (accept) {
         feel.done();
-        flashAccept();
-        afterDoneHold(onChanged);
+        flashAccept(afterDoneHold(onChanged));   // held until the re-read has answered
       } else {
         feel.soft();
         onChanged();
@@ -6509,16 +6520,38 @@ function ThreadListView({ token, onOpen, onRead }) {
 // and bubbles still pending or failed (they stay until sent or tapped). Premium feel 1.8:
 // the 6 s poll used to replace the whole list and dropped failed and pending bubbles.
 function mergeThread(prev, server) {
+  const list = prev || [];
   const ck = new Map();
-  for (const m of prev || []) if (m._ck) ck.set(m.id, m._ck);
-  const known = new Set((prev || []).map((m) => m.id));
+  for (const m of list) if (m._ck) ck.set(m.id, m._ck);
+  // A failed send the server DID store (only its answer was lost, e.g. in a
+  // cellar): its copy comes in a poll, mine, the same words and photo count,
+  // after the message that was last when it was sent (sends go one at a time,
+  // so an earlier send's copy is never after it), and not already some
+  // bubble's. It takes the failed bubble's place and key, so no "Not sent"
+  // twin hangs under the delivered message (fix round, chat-failed-duplicate).
+  // Only with words: photos cannot be compared. A copy already on screen keeps
+  // its own node; a new one takes the failed bubble's.
+  const known = new Set(list.map((m) => m.id));
+  const taken = new Set(ck.keys());
+  const gone = new Set();
+  for (const f of list) {
+    if (!f._failed || !f.body) continue;
+    const from = f._after == null ? 0 : server.findIndex((m) => m.id === f._after) + 1;
+    if (f._after != null && from === 0) continue;
+    const twin = server.slice(from).find((m) => m.mine && !taken.has(m.id)
+      && m.body === f.body && (m.photo_count || 0) === (f.photo_count || 0));
+    if (!twin) continue;
+    taken.add(twin.id);
+    gone.add(f.id);
+    if (!known.has(twin.id)) ck.set(twin.id, f.id);
+  }
   const first = prev == null;
   const merged = server.map((m) => {
     const c = ck.get(m.id);
     const fresh = !first && !known.has(m.id) && !m.mine;
     return c || fresh ? { ...m, ...(c ? { _ck: c } : null), ...(fresh ? { _new: true } : null) } : m;
   });
-  return [...merged, ...(prev || []).filter((m) => m._pending || m._failed)];
+  return [...merged, ...list.filter((m) => (m._pending || m._failed) && !gone.has(m.id))];
 }
 
 // The server's answer to a send takes the optimistic bubble's place under the
@@ -6528,6 +6561,14 @@ const attach = (prev, tmpId, real) => {
   // A poll brought the server copy first: drop the local copy (one re-mount, no duplicate).
   if (list.some((m) => m.id === real.id)) return list.filter((m) => m.id !== tmpId);
   return list.map((m) => (m.id === tmpId ? { ...real, _ck: tmpId } : m));
+};
+/** The newest message the server has sent this phone (the id a send follows). */
+const lastServerId = (list) => {
+  for (let i = (list || []).length - 1; i >= 0; i -= 1) {
+    const m = list[i];
+    if (!m._pending && !m._failed) return m.id;
+  }
+  return null;
 };
 
 /** One open conversation. Same bubbles and composer for the owner thread and
@@ -6606,11 +6647,18 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   // The last answer's signature: an unchanged poll writes nothing (no render
   // of the stream, no scroll write, no layout read) — premium feel 1.8b.
   const lastSig = useRef(null);
+  // Bumped when a send answers. A poll that asked before that answer carries
+  // a list without the message just sent: it is not applied (the next one
+  // is), so a sent bubble never vanishes and comes back re-mounted (fix
+  // round, chat-stale-poll-drops-sent; the same guard as useClock's punchSeq).
+  const sendSeq = useRef(0);
   const load = useCallback(
     (markRead = true) => {
+      const asked = sendSeq.current;
       portalApi
         .get(`/portal/${token}/chat/threads/${threadId}`)
         .then((res) => {
+          if (asked !== sendSeq.current) { if (markRead) onRead?.(); return; }
           const d = res.data;
           const sig = JSON.stringify([d.title, d.member_ids, (d.messages || []).map((m) => [m.id, m.body, m.photo_count])]);
           if (sig !== lastSig.current) {
@@ -6646,14 +6694,33 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
     if (messages) pinNext.current = false;
   }, [messages]);
 
+  // A failed bubble's retry tap: what it put back in the composer, and the
+  // send id it had. Sent unchanged, the retry reuses that id, so a send the
+  // server DID store (only its answer was lost) comes back as the stored
+  // message, never a second copy for the group (fix round, chat-failed-duplicate).
+  const retryOf = useRef(null);
+  const retryFailed = (m) => {
+    // Refill the composer (words and photos) and drop the failed bubble — no
+    // silent retry, the staffer decides.
+    if (m.body) setText(m.body);
+    if (m._files?.length) picker.addFiles(m._files);
+    retryOf.current = { cmid: m._cmid, body: m.body || "", files: m._files || [] };
+    setMessages((prev) => (prev || []).filter((x) => x.id !== m.id));
+  };
+
   const send = async () => {
     const body = text.trim();
     const photoFiles = picker.files.map((f) => f.file);
     if ((!body && photoFiles.length === 0) || sending) return;
     setSending(true);
-    const cmid =
-      (typeof crypto !== "undefined" && crypto.randomUUID && crypto.randomUUID()) ||
-      `c-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const r = retryOf.current;
+    retryOf.current = null;
+    const unchanged = !!r?.cmid && r.body === body && r.files.length === photoFiles.length
+      && r.files.every((f, i) => f === photoFiles[i]);
+    const cmid = unchanged
+      ? r.cmid
+      : (typeof crypto !== "undefined" && crypto.randomUUID && crypto.randomUUID()) ||
+        `c-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     const localPreviews = picker.files.map((f) => f.preview);
     const optimistic = {
       id: `tmp-${cmid}`,
@@ -6664,9 +6731,11 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       _localPreviews: localPreviews,
       created_at: new Date().toISOString(),
       _pending: true,
+      _cmid: cmid,
+      _files: photoFiles,
     };
     pinNext.current = true;   // your own words always come into view
-    setMessages((prev) => [...(prev || []), optimistic]);
+    setMessages((prev) => [...(prev || []), { ...optimistic, _after: lastServerId(prev) }]);
     setText("");
     picker.clear();
     setPhotoNote("");
@@ -6687,8 +6756,11 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       // Same key from the tap to the server's copy: the bubble is not
       // re-mounted, it only eases from 60 % to full. Send is silent; the
       // bubble is the feedback.
+      sendSeq.current += 1;
       setMessages((prev) => attach(prev, optimistic.id, res.data));
     } catch {
+      sendSeq.current += 1;
+      lastSig.current = null;   // the next poll merges even if unchanged: it may hold this send's copy
       feel.fail();
       setMessages((prev) =>
         (prev || []).map((m) =>
@@ -6832,7 +6904,13 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               key={m._ck || m.id}
               className={`flex ${m.mine ? "justify-end" : "justify-start"}${m._pending || m._failed || m._ck ? " vp-bubble-in" : m._new ? " vp-msg-new" : ""}`}
             >
-              <div className={`max-w-[80%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
+              <div
+                // The retry tap is the whole failed row — its photos and its
+                // "Ikke sendt" line too — so a photo-only send that failed can
+                // be tapped as well (fix round, chat-photo-failed-stuck).
+                onClick={m._failed ? () => retryFailed(m) : undefined}
+                className={`max-w-[80%] ${m.mine ? "items-end" : "items-start"} flex flex-col${m._failed ? " cursor-pointer" : ""}`}
+              >
                 {!m.mine && isGroup && (
                   <span data-testid="portal-chat-sender" style={{ font: "600 12px/1.2 var(--font-text)", color: MUTED, padding: "0 6px", marginBottom: 4 }}>
                     {/* In a group the sender is the point; in the owner thread
@@ -6854,18 +6932,6 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
                 )}
                 {m.body && (
                   <div
-                    onClick={
-                      m._failed
-                        ? () => {
-                            // Refill the composer so they can resend, drop the
-                            // failed bubble — no silent retry, the staffer decides.
-                            setText(m.body);
-                            setMessages((prev) =>
-                              (prev || []).filter((x) => x.id !== m.id),
-                            );
-                          }
-                        : undefined
-                    }
                     data-testid="portal-chat-bubble"
                     data-mine={m.mine ? "" : undefined}
                     className={`whitespace-pre-wrap break-words vp-pending-fade ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer" : ""}`}
@@ -9180,10 +9246,6 @@ export default function StaffPortalPage() {
   // only as long as this page: a disconnect or another token starts empty.
   // So does the clock's last answer (premium feel 1.2a, `lastClock`).
   useEffect(() => () => { forgetAll(); lastClock = null; }, []);
-  // The profile sheet offers DA and EN. On a slow phone a switch waited 2-3 s
-  // for the other dictionary's chunk (Android 14 walk, 12 Nov 2026), so it is
-  // fetched once the page is idle after its first paint. Nothing renders.
-  useEffect(() => preloadLocalesWhenIdle(["da", "en"]), []);
   // Native keyboard height (0 on the web and while it is down). The shell ends
   // at the keyboard's top edge instead of behind it, the profile sheets ride
   // on top of it (KB_LIFT_STYLE), and the focused field — any field — is
@@ -9400,6 +9462,18 @@ export default function StaffPortalPage() {
   useSheetDrag(photoSheetRef, () => setPhotoMenu(false), { enabled: photoSheet.mounted && !photoSheet.closing });
   useSheetDrag(deptSheetRef, () => setDeptOpen(false), { enabled: deptSheet.mounted && !deptSheet.closing });
   useSheetDrag(profileSheetRef, () => setShowEmailEdit(false), { enabled: profileSheet.mounted && !profileSheet.closing });
+  // The profile sheet offers DA and EN. On a slow phone a switch waited 2-3 s
+  // for the other dictionary's chunk (Android 14 walk, 12 Nov 2026), so it is
+  // fetched when the sheet opens — the only place the language changes — once
+  // its entrance (0.32 s) has played and the page is idle. Never at boot: on
+  // the web link that was ~200 KB nobody asked for, and its evaluation a long
+  // task in the first seconds (fix round, PLAT-2). Nothing renders.
+  useEffect(() => {
+    if (!showEmailEdit) return undefined;
+    let cancel = () => {};
+    const id = setTimeout(() => { cancel = preloadLocalesWhenIdle(["da", "en"]); }, 320);
+    return () => { clearTimeout(id); cancel(); };
+  }, [showEmailEdit]);
   // The header gets its hairline and loses the date line once the page has
   // scrolled (canvas "Hjem – rullet"). The row keeps its height, so nothing
   // under the sticky header moves.
