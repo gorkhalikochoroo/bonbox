@@ -661,7 +661,7 @@ export default function WaitlistSection({
                       const fit = fitFor ? fitFor(e) : null;
                       if (!fit?.label) return null;
                       return (
-                        <p className="mt-0.5 inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-700 dark:text-emerald-400" data-wl-fit="">
+                        <p className="mt-0.5 flex items-center gap-1.5 text-[12px] font-medium text-emerald-700 dark:text-emerald-400" data-wl-fit="">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 shrink-0" aria-hidden="true" />
                           {t("rsvpWlFitNow", "Free now and fits: {table}", { table: fit.label })}
                         </p>

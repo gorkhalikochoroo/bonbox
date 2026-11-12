@@ -76,7 +76,9 @@ describe("what the door screen reaches", () => {
       // The stand-in's own (lazy) import reaches these — the plan, and the
       // two sheets loaded on first use (fix round 27 Oct).
       if (["components/FloorPlan.jsx", "components/reservations/NoTableFitsSheet.jsx",
-        "components/reservations/EditBookingSheet.jsx"].includes(f)) continue;
+        "components/reservations/EditBookingSheet.jsx",
+        // Reservations v2 (12 Nov 2026): the month rail, on first use.
+        "components/reservations/DayRail.jsx"].includes(f)) continue;
       expect(files, f).not.toContain(f);
     }
     expect(files.some((f) => f.startsWith("i18n/"))).toBe(false);

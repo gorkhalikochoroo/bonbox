@@ -24,7 +24,7 @@ const LINK =
   "dark:shadow-[inset_0_0_0_1px_var(--color-gray-700)] transition-colors focus-visible:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-[rgb(var(--brand-green-accent))] focus-visible:ring-offset-2";
 
-export default function BookingLogoRow({ t, publicName = null }) {
+export default function BookingLogoRow({ t, publicName = null, apptWords = false }) {
   // loading | ready (logoUrl may be null)
   const [status, setStatus] = useState("loading");
   const [logoUrl, setLogoUrl] = useState(null);
@@ -76,7 +76,7 @@ export default function BookingLogoRow({ t, publicName = null }) {
       <div className="min-w-0 flex-1">
         <h2 className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("rsvpLogoLabel")}</h2>
         {status === "ready" && !hasLogo && (
-          <p className="mt-0.5 text-[13px] text-gray-600 dark:text-gray-300 leading-snug">{t("rsvpLogoNone")}</p>
+          <p className="mt-0.5 text-[13px] text-gray-600 dark:text-gray-300 leading-snug">{apptWords ? t("rsvpLogoNoneAppt") : t("rsvpLogoNone")}</p>
         )}
       </div>
       <Link to="/profile#brand" data-testid="rsvp-booking-logo-link" className={LINK}>

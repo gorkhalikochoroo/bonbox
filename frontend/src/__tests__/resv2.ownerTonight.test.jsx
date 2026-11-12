@@ -209,3 +209,37 @@ describe("the waitlist's table suggestion", () => {
     expect(document.querySelector("[data-wl-fit]")).toBeNull();
   });
 });
+
+describe("the host stand header (canvas Host.dc.html)", () => {
+  const renderStand = () =>
+    render(
+      <MemoryRouter initialEntries={["/reservations/stand"]}>
+        <ReservationsPage />
+      </MemoryRouter>,
+    );
+
+  it("the time, who is waiting — and Find guest focuses the search", async () => {
+    renderStand();
+    await waitFor(() => expect(document.querySelector("[data-stand-clock]")).not.toBeNull());
+    expect(document.querySelector("[data-stand-clock]").textContent).toBe("18.20");
+    await waitFor(() => expect(document.querySelector("[data-stand-waiting]")?.textContent).toBe("1Waiting"));
+    fireEvent.click(document.querySelector("[data-stand-find]"));
+    await waitFor(() => expect(document.activeElement?.id).toBe("fb-search"));
+  });
+
+  it("nobody waiting: no count is drawn (never '0 waiting')", async () => {
+    mockApi({ wait: [] });
+    renderStand();
+    await waitFor(() => expect(document.querySelector("[data-stand-clock]")).not.toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-covers="seated"]')).not.toBeNull());
+    expect(document.querySelector("[data-stand-waiting]")).toBeNull();
+  });
+
+  it("the drop-in row keeps its six sizes, the last one 6+", async () => {
+    renderStand();
+    await waitFor(() => expect(document.querySelectorAll("[data-walkin]").length).toBe(6));
+    const labels = [...document.querySelectorAll("[data-walkin]")].map((b) => b.textContent);
+    expect(labels[0]).toMatch(/^1/);
+    expect(labels[5]).toMatch(/^6\+/);
+  });
+});

@@ -11710,8 +11710,7 @@ export const en = {
     rsvpLiveDueNow: "Due now",
     rsvpLiveSoon: "In {n} min",
     rsvpLiveMin: "{n} min",
-    rsvpSideFloorAria: "Floor plan, live",
     rsvpSideFloorTitle: "Floor plan",
     rsvpStandFindGuest: "Find guest",
-    rsvpStandWaiting: "waiting",
+    rsvpLogoNoneAppt: "No logo yet: customers see your initials.",
 };

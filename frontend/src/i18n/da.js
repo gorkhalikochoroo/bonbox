@@ -11386,8 +11386,7 @@ export const da = {
     rsvpLiveDueNow: "Kommer nu",
     rsvpLiveSoon: "Om {n} min",
     rsvpLiveMin: "{n} min",
-    rsvpSideFloorAria: "Bordplan, live",
     rsvpSideFloorTitle: "Bordplan",
     rsvpStandFindGuest: "Find gæst",
-    rsvpStandWaiting: "venter",
+    rsvpLogoNoneAppt: "Intet logo endnu: kunderne ser dine forbogstaver.",
 };

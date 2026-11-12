@@ -48,7 +48,7 @@ function Cell({ label, shortLabel, value, unit, helper, tone = "ink", onClick, s
       </span>
       {children}
       {helper ? (
-        <span className="text-[12px] lg:text-[12.5px] leading-snug text-[var(--rv-muted)] truncate" title={typeof helper === "string" ? helper : undefined}>
+        <span className="text-[12px] lg:text-[12.5px] leading-snug text-[var(--rv-muted)] max-lg:line-clamp-2 lg:truncate" title={typeof helper === "string" ? helper : undefined}>
           {helper}
         </span>
       ) : null}
@@ -134,7 +134,7 @@ export default function TonightStrip({
             </span>
           ) : null
         }
-        className="order-first col-span-3 max-lg:border-b max-lg:border-[var(--rv-hair)] lg:order-none lg:col-span-1 max-lg:[&_.rv2-num]:text-[34px]"
+        className="order-first col-span-3 max-lg:border-b max-lg:border-[var(--rv-hair)] lg:order-none lg:col-span-1 max-lg:[&_.rv2-num]:text-[30px]"
       >
         {known && totalTables > 0 && (
           <span className="rv2-bar mt-0.5" aria-hidden="true">

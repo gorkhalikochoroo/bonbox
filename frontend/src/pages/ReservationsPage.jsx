@@ -112,7 +112,8 @@ import DataTable from "../components/ui/DataTable";
 import StatStrip from "../components/ui/StatStrip";
 import UpcomingRail from "../components/reservations/UpcomingRail";
 import { selectUpcoming } from "../utils/upcomingArrivals";
-import { monthName } from "../utils/monthlyRecord";
+import DayRail from "../components/reservations/DayRail";
+import { serviceDayIso, shiftDay, relativeDayLabel } from "../utils/serviceDay";
 import FilterBar from "../components/ui/FilterBar";
 import Empty from "../components/ui/Empty";
 import FloorPlan from "../components/FloorPlan";
@@ -181,8 +182,6 @@ import StylistAddCard from "../components/reservations/StylistAddCard";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
-import { businessTodayIso } from "../utils/dateFormat";
-import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { parseServerTime } from "../utils/serverTime";
 import { guestText } from "../utils/guestText";
 
@@ -270,12 +269,9 @@ function ZoneDot({ dot }) {
 
 // The statuses whose party sizes the server counts as the day's covers.
 const COVER_STATUSES = ["confirmed", "seated", "completed"];
+// Reservations v2: "needs you" before (or without) the book — nothing.
+const NO_NEEDS = { late: [], requested: 0, total: 0 };
 
-// Local YYYY-MM-DD for the book's day picker (defaults to today).
-function isoDay(d) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 // Table pickers in the order the floor and timeline use: "Bord 2" before
 // "Bord 10", not API insertion order.
@@ -283,15 +279,6 @@ function byTableLabel(a, b) {
   return String(a?.label || "").localeCompare(String(b?.label || ""), "da", { numeric: true, sensitivity: "base" });
 }
 
-// The venue's SERVICE day. The server files every booking by business day
-// (06:00 cutoff for food service); the page asked for the calendar day, so a
-// drop-in seated at 00:20 vanished from "I dag" and the stand jumped to an
-// empty tomorrow at midnight with guests still at the tables. Table venues
-// all close their day at 06:00; a salon booking nothing between midnight and
-// six loses nothing by the same rule.
-function serviceDayIso() {
-  return businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
-}
 
 // dd/mm/yyyy for DK-style display where a date is shown.
 function fmtDkDate(isoStr) {
@@ -300,32 +287,7 @@ function fmtDkDate(isoStr) {
   return `${d}/${m}/${y}`;
 }
 
-// Step a YYYY-MM-DD day by ±n calendar days (local, DST-safe).
-function shiftDay(iso, delta) {
-  const [y, m, d] = (iso || "").split("-").map(Number);
-  if (!y || !m || !d) return iso;
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() + delta);
-  return isoDay(dt);
-}
 
-// Friendly label for the date stepper: "I dag" / "I morgen" / "I går" for the
-// immediate neighbours, otherwise the capitalised weekday in the active locale.
-function relativeDayLabel(iso, t, locale) {
-  const today = serviceDayIso();
-  if (iso === today) return t("rsvpToday", "Today");
-  if (iso === shiftDay(today, 1)) return t("rsvpDayTomorrow", "Tomorrow");
-  if (iso === shiftDay(today, -1)) return t("rsvpDayYesterday", "Yesterday");
-  try {
-    const [y, m, d] = iso.split("-").map(Number);
-    const wd = new Date(y, m - 1, d).toLocaleDateString(locale || "en", {
-      weekday: "long",
-    });
-    return wd.charAt(0).toUpperCase() + wd.slice(1);
-  } catch {
-    return "";
-  }
-}
 
 // Same, short — "I morgen 2/10", "Lør. 4/10" — for a row that also carries a
 // time and a name ("Søndag 27/9 · 1…" truncated in the search results).
@@ -3432,280 +3394,6 @@ function SalonFirstRunCard({
   );
 }
 
-/* ─── DayRail — the desktop day rail (≥1280px only) ────────────────────
-   The single-day book can't answer "how's Saturday looking", and on a wide
-   screen the page was leaving ~400px of dead pixels (it was capped at
-   max-w-5xl). This fills that space with the two questions an owner actually
-   has: WHICH DAY, and AM I COVERED.
-
-   The second half is the part a booking tool can't do. BonBox holds the
-   roster as well as the book, so the rail can say "48 covers · 3 on shift"
-   and flag the mismatch. DinnerBooking knows the covers; Planday knows the
-   roster; only this knows both.
-
-   Density comes from the page's EXISTING type scale (10/11/12/13px — no new
-   sizes), tabular numerals so the counts line up in a column, and tight
-   leading so a whole month plus a per-day count fits in 300px. Days with
-   nothing booked render blank, not "0" — 31 zeros is noise.
-
-   Colour stays meaningful: gray-900 for the selected day, a heavier grey ONLY where
-   covers outrun the roster. No heatmap — a rainbow month would look like a
-   dashboard and say less than one marked Saturday does. (Amber is the
-   request colour now — Manoj, 1 Oct 2026.) */
-// `apptWords`: a salon, a shop, a workshop — its days hold appointments and
-// customers, not reservations and guests.
-function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist, apptWords = false }) {
-  const { lang } = useLanguage();
-  const [month, setMonth] = useState(() => (day || serviceDayIso()).slice(0, 7));
-  const [load, setLoad] = useState({});
-  const [totals, setTotals] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  // Follow the book when the owner jumps to a date in another month (arrows,
-  // date picker, deep link) so the rail never shows a different month than
-  // the day that's open.
-  useEffect(() => {
-    if (day && day.slice(0, 7) !== month) setMonth(day.slice(0, 7));
-  }, [day]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Refetch when a booking is created or changes status elsewhere on the page —
-  // the rail said "I morgen 0 gæster" right after a 4-top was booked for tomorrow.
-  const [railNonce, setRailNonce] = useState(0);
-  useEffect(() => {
-    const bump = () => setRailNonce((n) => n + 1);
-    window.addEventListener("bonbox-reservations-changed", bump);
-    return () => window.removeEventListener("bonbox-reservations-changed", bump);
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    api
-      .get("/reservations/month-load", { params: { month } })
-      .then((res) => {
-        if (!alive) return;
-        const map = {};
-        (res.data?.days || []).forEach((d) => { map[d.date] = d; });
-        setLoad(map);
-        setTotals(res.data?.month_totals || null);
-      })
-      .catch(() => { if (alive) { setLoad({}); setTotals(null); } })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [month, railNonce]);
-
-  const [y, m] = month.split("-").map(Number);
-  const first = new Date(y, m - 1, 1);
-  // Monday-first, matching the Danish week (getDay() is Sunday-first).
-  const lead = (first.getDay() + 6) % 7;
-  const daysInMonth = new Date(y, m, 0).getDate();
-  // The APP's language, not the browser's — a Danish owner on an English-locale
-  // laptop must still read "juli 2026". Same convention the date stepper uses.
-  const monthLabel = first.toLocaleDateString(lang, { month: "long", year: "numeric" });
-
-  const shiftMonth = (delta) => {
-    const d = new Date(y, m - 1 + delta, 1);
-    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  };
-
-  const sel = load[day] || null;
-  // "Heavy" = more covers than the roster can plausibly carry. 12 covers per
-  // person on shift is a deliberately forgiving rule of thumb — it should fire
-  // on the obvious Saturday, not nag on an ordinary Tuesday. Never fires when
-  // no roster exists (nothing to compare against ⇒ no honest claim to make).
-  const isHeavy = (d) => d && d.staff_on > 0 && d.covers > d.staff_on * 12;
-
-  return (
-    <aside
-      className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-3 tabular-nums"
-      aria-label={t("rsvpRailAria", "Day overview")}
-    >
-      <div className="flex items-center justify-between mb-2.5">
-        <span className="text-[11px] uppercase tracking-[0.06em] text-gray-400 dark:text-gray-500">
-          {monthLabel}
-        </span>
-        <span className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => shiftMonth(-1)}
-            aria-label={t("rsvpRailPrevMonth", "Previous month")}
-            className="w-6 h-6 inline-flex items-center justify-center rounded text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => shiftMonth(1)}
-            aria-label={t("rsvpRailNextMonth", "Next month")}
-            className="w-6 h-6 inline-flex items-center justify-center rounded text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </span>
-      </div>
-
-      <div className="grid grid-cols-7 gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 text-center mb-1">
-        {t("rsvpRailWeekdays", "M,T,W,T,F,S,S")
-          .split(",")
-          .map((w, i) => <div key={i}>{w}</div>)}
-      </div>
-
-      <div className="grid grid-cols-7 gap-0.5 text-center relative">
-        {Array.from({ length: lead }).map((_, i) => <div key={`p${i}`} />)}
-        {Array.from({ length: daysInMonth }).map((_, i) => {
-          const dnum = i + 1;
-          const iso = `${month}-${String(dnum).padStart(2, "0")}`;
-          const info = load[iso];
-          const selected = iso === day;
-          const heavy = isHeavy(info);
-          return (
-            <button
-              key={iso}
-              type="button"
-              onClick={() => onPick(iso)}
-              aria-label={`${iso}${info?.covers ? ` — ${info.covers}` : ""}`}
-              aria-current={selected ? "date" : undefined}
-              className={
-                "group relative rounded-md py-1 leading-[1.1] transition-colors " +
-                (selected
-                  ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
-                  : heavy
-                    ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700"
-                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800")
-              }
-            >
-              <span className="block text-[11px]">{dnum}</span>
-              <span
-                className={
-                  "block text-[10px] " +
-                  (selected
-                    ? "text-white/70 dark:text-gray-900/70"
-                    : heavy
-                      ? "text-gray-700 dark:text-gray-200"
-                      : "text-gray-400 dark:text-gray-500")
-                }
-              >
-                {info?.covers ? info.covers : " "}
-              </span>
-
-              {/* Peek. The grid could always show covers; what it could not show
-                  was the SHAPE of a day without opening it — how many separate
-                  bookings those covers arrive in, and whether anyone is
-                  rostered. Both numbers are already in this response, so this
-                  reads nothing new; it stops the owner clicking thirty-one days
-                  to find the one that needs them.
-                  Silent on empty days — an empty tooltip is worse than none. */}
-              {info && (info.bookings || info.staff_on) ? (
-                <span
-                  role="tooltip"
-                  className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1 z-20
-                             hidden group-hover:block group-focus-visible:block
-                             whitespace-nowrap rounded-lg px-2 py-1
-                             bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900
-                             text-[10.5px] font-medium shadow-lg"
-                >
-                  {info.bookings || 0}&nbsp;{apptWords ? t("rsvpPeekBookingsAppt", "appointments") : t("rsvpPeekBookings", "bookings")}
-                  {info.covers
-                    ? ` \u00b7 ${info.covers} ${
-                        apptWords
-                          ? info.covers === 1 ? t("rsvpPeekCustomerOne", "customer") : t("rsvpPeekCustomers", "customers")
-                          : info.covers === 1 ? t("rsvpPeekGuestOne", "guest") : t("rsvpPeekGuests", "guests")
-                      }`
-                    : ""}
-                  {/* Roster only when we HAVE one. "0 on shift" would read as a
-                      staffing alarm when it usually means the week is unplanned. */}
-                  {info.staff_on ? ` \u00b7 ${info.staff_on} ${t("rsvpPeekOnShift", "on shift")}` : ""}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* The month as a record — "how did September go?". Same definitions as
-          Indsigt → Måned for måned (cancelled bookings don't count; guests
-          are confirmed/seated/completed parties), so the two always agree. */}
-      {!loading && totals?.bookings > 0 && (
-        <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
-          {(() => {
-            // One key per singular/plural shape — both counts can be 1.
-            const vars = { month: monthName(month, lang, false), bookings: totals.bookings, guests: totals.guests };
-            if (apptWords) {
-              if (totals.bookings === 1) {
-                return totals.guests === 1
-                  ? t("rsvpRailMonthOneApptOneCustomer", "{month}: 1 appointment · 1 customer", vars)
-                  : t("rsvpRailMonthOneAppt", "{month}: 1 appointment · {guests} customers", vars);
-              }
-              return totals.guests === 1
-                ? t("rsvpRailMonthApptOneCustomer", "{month}: {bookings} appointments · 1 customer", vars)
-                : t("rsvpRailMonthAppt", "{month}: {bookings} appointments · {guests} customers", vars);
-            }
-            if (totals.bookings === 1) {
-              return totals.guests === 1
-                ? t("opsRsvpRailMonthOneBookingOneGuest", "{month}: 1 booking · 1 guest", vars)
-                : t("rsvpRailMonthTotalOne", "{month}: 1 booking · {guests} guests", vars);
-            }
-            return totals.guests === 1
-              ? t("opsRsvpRailMonthOneGuest", "{month}: {bookings} bookings · 1 guest", vars)
-              : t("rsvpRailMonthTotal", "{month}: {bookings} bookings · {guests} guests", vars);
-          })()}
-        </p>
-      )}
-
-      {/* Selected day — covers vs roster, the answer the book alone can't give */}
-      <div className="mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[13px] font-medium text-gray-900 dark:text-gray-100 truncate">
-            {relativeDayLabel(day, t, lang)}
-          </span>
-          <span className="text-[13px] text-gray-900 dark:text-gray-100">
-            {loading ? "" : sel?.covers || 0}
-          </span>
-        </div>
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-          {apptWords
-            ? (sel?.covers || 0) === 1
-              ? t("rsvpRailDayLineOneAppt", "1 customer · {staff} on shift", { staff: sel?.staff_on || 0 })
-              : t("rsvpRailDayLineAppt", "{covers} customers · {staff} on shift", {
-                  covers: sel?.covers || 0,
-                  staff: sel?.staff_on || 0,
-                })
-            : (sel?.covers || 0) === 1
-              ? t("rsvpRailDayLineOne", "1 guest · {staff} on shift", { staff: sel?.staff_on || 0 })
-              : t("rsvpRailDayLine", "{covers} guests · {staff} on shift", {
-                  covers: sel?.covers || 0,
-                  staff: sel?.staff_on || 0,
-                })}
-        </p>
-        {isHeavy(sel) && (
-          <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-2.5 py-1.5 flex items-start gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300 shrink-0 mt-px" aria-hidden />
-            <p className="text-[11px] text-gray-700 dark:text-gray-200 leading-snug">
-              {t("rsvpRailHeavy", "Busy day for this roster — check staffing.")}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Venteliste lives here on desktop: you act on it DURING service, while
-          looking at the book — not from the bottom of the page. */}
-      {waitlistCount > 0 && (
-        <button
-          type="button"
-          onClick={onOpenWaitlist}
-          className="mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 w-full text-left group"
-        >
-          <span className="text-[11px] uppercase tracking-[0.06em] text-gray-400 dark:text-gray-500">
-            {t("rsvpWaitlistTitle", "Venteliste")} · {waitlistCount}
-          </span>
-          <span className="block text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 group-hover:text-gray-900 dark:group-hover:text-gray-100">
-            {t("rsvpRailWaitlistJump", "Show the waiting parties")}
-          </span>
-        </button>
-      )}
-    </aside>
-  );
-}
 
 /**
  * Live audibility chip for the host stand.
@@ -6380,16 +6068,21 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // ── Reservations v2: "I dag" (utils/tonight.js) ─────────────────────
   // A table venue's day being served gets the canvas's six numbers; another
   // day, a salon, a shop and a workshop keep the cockpit strip as it was.
-  const tonightOn = isViewingToday && tableFloor && !isProvider && !apptWords;
-  const needs = useMemo(() => needsAction(reservations, nowTs, isViewingToday), [reservations, nowTs, isViewingToday]);
+  // The door screen keeps its header counts and the cockpit strip (canvas
+  // Host.dc.html draws no KPI row) — and its own build leaves this out.
+  const tonightOn = !__STAND_BUILD__ && !standalone && isViewingToday && tableFloor && !isProvider && !apptWords;
+  const needs = useMemo(
+    () => (__STAND_BUILD__ || !tonightOn ? NO_NEEDS : needsAction(reservations, nowTs, isViewingToday)),
+    [tonightOn, reservations, nowTs, isViewingToday],
+  );
   const peak = useMemo(
-    () => ({ ...peakSeats(reservations, { groupThreshold: publicPage?.groupThreshold }), seats: totalCapacity }),
-    [reservations, publicPage?.groupThreshold, totalCapacity],
+    () => (__STAND_BUILD__ || !tonightOn ? null : { ...peakSeats(reservations, { groupThreshold: publicPage?.groupThreshold }), seats: totalCapacity }),
+    [tonightOn, reservations, publicPage?.groupThreshold, totalCapacity],
   );
   // The Venteliste's own rows, reported up by WaitlistSection (it owns the
   // fetch): who waited longest, and which of them a table seats right now.
   const [waitlistEntries, setWaitlistEntries] = useState([]);
-  const wlFirst = useMemo(() => firstWaiting(waitlistEntries), [waitlistEntries]);
+  const wlFirst = useMemo(() => (__STAND_BUILD__ ? null : firstWaiting(waitlistEntries)), [waitlistEntries]);
   const wlFits = useMemo(() => {
     if (!isViewingToday || !tableFloor || isProvider || !rulesLoaded) return new Map();
     return waitlistFits({
@@ -6412,11 +6105,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const [weekStart, setWeekStart] = useState(() => day);
   useEffect(() => {
     // Follow the book when the day is moved elsewhere (stepper, rail, link).
+    if (__STAND_BUILD__) return;
     if (day < weekStart || day > addDays(weekStart, 6)) setWeekStart(day);
   }, [day]); // eslint-disable-line react-hooks/exhaustive-deps
   const [monthLoads, setMonthLoads] = useState({});
   useEffect(() => {
-    if (!weekOn) return undefined;
+    if (__STAND_BUILD__ || !weekOn) return undefined;
     const months = [...new Set([weekStart.slice(0, 7), addDays(weekStart, 6).slice(0, 7)])];
     let alive = true;
     Promise.all(
@@ -6448,7 +6142,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     };
   }, [weekOn, weekStart, bookTick]);
   const weekDays = useMemo(() => {
-    if (!weekOn) return null;
+    if (__STAND_BUILD__ || !weekOn) return null;
     return weekStrip({
       start: weekStart,
       loads: Object.assign({}, ...Object.values(monthLoads)),
@@ -6467,12 +6161,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // visible one (the phone's own field, or the filter bar's from sm up).
   const focusGuestSearch = () => {
     pickView("liste");
-    setTimeout(() => {
-      const el = ["rsvp-search-phone", "fb-search"]
-        .map((id) => document.getElementById(id))
-        .find((x) => x && x.offsetParent !== null);
-      (el || document.getElementById("fb-search"))?.focus();
-    }, 60);
+    setTimeout(() => document.getElementById(window.innerWidth < 640 ? "rsvp-search-phone" : "fb-search")?.focus(), 60);
   };
   // Click the waitlist tile → jump to the Venteliste (it renders below the
   // whole booking list). Every other cockpit tile navigates; this one was the
@@ -6733,23 +6422,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               </div>
             </div>
           )
-          : (() => {
+          : (
             // Reservations v2: the live word under the pill — minutes at the
             // table (from seated_at, never guessed) or "in 10 min".
-            const live = liveStatus(r, nowTs, isViewingToday);
-            const word =
-              live.kind === "seated" && live.min != null
-                ? <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400 tabular-nums whitespace-nowrap" data-live="seated">{t("rsvpLiveAtTable", "{n} min at the table", { n: live.min })}</div>
-                : live.kind === "soon"
-                  ? <div className="mt-1 text-[11px] font-medium text-[var(--rv-brass-ink)] tabular-nums whitespace-nowrap" data-live="soon">{live.min === 0 ? t("rsvpLiveDueNow", "Due now") : t("rsvpLiveSoon", "In {n} min", { n: live.min })}</div>
-                  : null;
-            return word ? (
-              <div className="leading-tight">
-                <StatusPill status={r.status} label={labels[r.status] || r.status} />
-                {word}
-              </div>
-            ) : <StatusPill status={r.status} label={labels[r.status] || r.status} />;
-          })();
+            <div className="leading-tight">
+              <StatusPill status={r.status} label={labels[r.status] || r.status} />
+              <LiveWord live={liveStatus(r, nowTs, isViewingToday)} t={t} long={!apptWords} className="block mt-1 text-[11px]" />
+            </div>
+          );
       },
     },
     {
@@ -6981,20 +6661,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               : <span className="shrink-0"><StatusInline status={r.status} label={labels[r.status] || r.status} /></span>}
             {/* Reservations v2: the live word — "in 10 min" for the next
                 party, minutes at the table for a seated one. */}
-            {!overMin && !lateMin && (() => {
-              const live = liveStatus(r, nowTs, isViewingToday);
-              if (live.kind === "soon") {
-                return (
-                  <span className="shrink-0 whitespace-nowrap font-medium text-[var(--rv-brass-ink)]" data-live="soon">
-                    {live.min === 0 ? t("rsvpLiveDueNow", "Due now") : t("rsvpLiveSoon", "In {n} min", { n: live.min })}
-                  </span>
-                );
-              }
-              if (live.kind === "seated" && live.min != null) {
-                return <span className="shrink-0 whitespace-nowrap" data-live="seated">{t("rsvpLiveMin", "{n} min", { n: live.min })}</span>;
-              }
-              return null;
-            })()}
+            {!overMin && !lateMin && <LiveWord live={liveStatus(r, nowTs, isViewingToday)} t={t} className="shrink-0" />}
             {/* A finished party: seated → left with the time at the table.
                 Only from the two recorded stamps — a row finished before they
                 were kept shows no time, not a guess. */}
@@ -7358,7 +7025,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             // Compact rows below 1360: at 1024–1279 the table was 25–48px
             // wider than its card ("Afslut" cut in half), and at 1280 a late
             // party's extra no-show button pushed every ✕ past the edge.
-            mobileBreakpoint="wide"
+            mobileBreakpoint={sideFloorOn ? "split" : "wide"}
             mobileRow={compactRow}
             empty={
               // Nothing today, but found on other days (listed above): a
@@ -7492,7 +7159,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           only beside the floor PLAN: there the host sees the room but not the
           queue. Beside Liste or Tidslinje it repeated what the page already
           shows. A day that is over has nothing coming, so no list at all. */}
-      {weekDays &&
+      {!__STAND_BUILD__ && weekDays &&
         createPortal(
           <WeekStrip
             t={t}
@@ -7635,10 +7302,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               to be: the gear was one tap and the sound was invisible. */}
           <div className="flex items-center gap-1 shrink-0">
             {/* Reservations v2 (canvas Host.dc.html): find a guest in one tap,
-                who is waiting, and the time — read at arm's length. "Live"
-                only while this screen's last read of the book answered; when
-                it did not, the offline line by the refresh says how old the
-                book is instead. */}
+                who is waiting, and the time — read at arm's length. (The
+                room beside the list says "Live" while the book's reads
+                answer; when they do not, the offline line by the refresh
+                says how old the book is.) */}
             {showStandNow && (
               <>
                 <button
@@ -7648,7 +7315,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   className="rv2-press inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-[13px] font-semibold text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
                   <Search className="w-4 h-4" aria-hidden />
-                  <span className="max-lg:sr-only">{t("rsvpStandFindGuest", "Find guest")}</span>
+                  <span className="max-xl:sr-only">{apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpStandFindGuest", "Find guest")}</span>
                 </button>
                 {typeof waitlistCount === "number" && waitlistCount > 0 && (
                   <button
@@ -7658,20 +7325,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                     className="rv2-press inline-flex items-center gap-1 h-10 px-2.5 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 whitespace-nowrap"
                   >
                     <span className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{waitlistCount}</span>
-                    {t("rsvpStandWaiting", "waiting")}
+                    <span className="lowercase">{t("rsvpWlWaiting", "Waiting")}</span>
                   </button>
                 )}
-                {!!data && !bookOffline && (
-                  <span className="max-md:hidden inline-flex items-center gap-1.5 px-1.5 text-[12px] font-semibold text-[var(--rv-sage)]" data-stand-live="">
-                    <span className="rv2-live-dot w-1.5 h-1.5 rounded-full bg-[var(--rv-sage)]" aria-hidden="true" />
-                    {t("rsvpTnLive", "Live")}
-                  </span>
-                )}
-                <time
-                  className="max-md:hidden rv2-num px-1.5 text-[15px] font-semibold text-gray-900 dark:text-gray-100"
-                  data-stand-clock=""
-                  dateTime={new Date(nowTs).toISOString()}
-                >
+                <time className="max-md:hidden rv2-num px-1.5 text-[15px] font-semibold" data-stand-clock="">
                   {fmtTime(new Date(nowTs).toISOString())}
                 </time>
               </>
@@ -8149,7 +7806,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {!__STAND_BUILD__ && isProvider && !standalone && !salonNeedsSetup && (
         <SalonDayCapacity t={t} lang={lang} day={day} />
       )}
-      {tonightOn ? (
+      {!__STAND_BUILD__ && tonightOn ? (
         <TonightStrip
           t={t}
           known={!!data}
@@ -8394,15 +8051,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           reads the night and the room at once. Below that, exactly as
           before: the list, with the room one lens away. */}
       {sideFloorOn ? (
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(340px,420px)] 2xl:grid-cols-[minmax(0,1fr)_480px] gap-5 items-start" data-rv2-split="">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(360px,42%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(520px,40%)] gap-5 items-start" data-rv2-split="">
           <div className="min-w-0 space-y-4">{listBlock}</div>
           <aside
-            aria-label={t("rsvpSideFloorAria", "Floor plan, live")}
+            aria-labelledby="rv2-side-floor-h"
             className="sticky top-4 rounded-[14px] border border-[var(--rv-hair)] bg-[var(--rv-card)] p-3"
             data-rv2-side-floor=""
           >
             <div className="flex items-center gap-2 px-1 pb-2">
-              <h2 className="text-[15px] font-semibold text-[var(--rv-ink)]">{t("rsvpSideFloorTitle", "Floor plan")}</h2>
+              <h2 id="rv2-side-floor-h" className="text-[15px] font-semibold text-[var(--rv-ink)]">{t("rsvpSideFloorTitle", "Floor plan")}</h2>
               {!bookOffline && (
                 <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--rv-sage)]">
                   <span className="rv2-live-dot w-1.5 h-1.5 rounded-full bg-[var(--rv-sage)]" aria-hidden="true" />
@@ -8421,6 +8078,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               // Arranging the room is the Floor tab's (and the Plan lens's)
               // job; beside the list the room is for reading and seating.
               canArrange={false}
+              // The whole room in the column, tables drawn smaller rather
+              // than a sideways scroll (the door screen's fit).
+              fitToScreen
               fixtures={fixtures}
             />
           </aside>
@@ -8677,6 +8337,21 @@ const STATUS_INLINE = {
     text: "text-gray-500 dark:text-gray-400 line-through decoration-gray-400 dark:decoration-gray-600",
   },
 };
+
+// Reservations v2: a row's live word — "in 10 min" (brass: the next to
+// arrive) or the minutes at the table; nothing when there is nothing true
+// to say (no seated_at, another day).
+function LiveWord({ live, t, long = false, className = "" }) {
+  const soon = live.kind === "soon";
+  if (!soon && !(live.kind === "seated" && live.min != null)) return null;
+  return (
+    <span className={"whitespace-nowrap " + (soon ? "font-medium text-[var(--rv-brass-ink)] " : "text-gray-500 dark:text-gray-400 ") + className} data-live={live.kind}>
+      {soon
+        ? live.min === 0 ? t("rsvpLiveDueNow", "Due now") : t("rsvpLiveSoon", "In {n} min", { n: live.min })
+        : long ? t("rsvpLiveAtTable", "{n} min at the table", { n: live.min }) : t("rsvpLiveMin", "{n} min", { n: live.min })}
+    </span>
+  );
+}
 
 function StatusInline({ status, label }) {
   const s = STATUS_INLINE[status] || STATUS_INLINE.completed;
@@ -10683,6 +10358,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           booking page shows, or its monogram; the logo is changed in Profil. */}
       <BookingLogoRow
         t={t}
+        apptWords={apptWords}
         publicName={data && "public_name" in data ? data.public_name || null : data?.business_name || null}
       />
 
