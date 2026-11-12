@@ -5,9 +5,9 @@ The middlewares in app.main (accountant_write_guard, member_read_guard,
 shared_device_pin_gate, sliding_refresh_middleware) and the global
 exception handler are ``async def``: they run ON the event loop. Each used
 to open a session and run its one query right there. A synchronous query
-first checks a connection out of the pool, and when all 15 pooled
-connections are out it WAITS for one — up to the pool's 30 s timeout — with
-the whole event loop frozen. The requests holding those connections can
+first checks a connection out of the pool, and when every pooled
+connection is out (15 then, 7 since 20 Oct) it WAITS for one — up to the
+pool's 30 s timeout — with the whole event loop frozen. The requests holding those connections can
 then not hand them back either (FastAPI closes a sync dependency's session
 from the loop), so every venue's requests and /api/health stop until the
 timeout fires (R-d load test, 10 Oct: py-spy showed the main thread parked

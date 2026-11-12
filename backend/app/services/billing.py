@@ -1439,6 +1439,21 @@ def _record_gate_refusal(user: User, event_type: str, detail: dict[str, Any]) ->
         # without paying the SQLAlchemy startup cost.
         from app.database import SessionLocal
         from app.models.security_event import SecurityEvent
+        from app.utils.off_loop import pool_exhausted
+
+        # The caller's request still holds its own connection (get_db via
+        # get_current_user), so this is a SECOND checkout. With every pooled
+        # connection held by such requests, each of them would wait here for
+        # one more that never frees: all stall for the full pool_timeout
+        # (30 s), and every venue's requests with them. 7 gated calls at once
+        # are enough since the pool is 7 (20 Oct). Skip the row instead; the
+        # 402 still goes out and this warning stays in the server log.
+        if pool_exhausted(SessionLocal):
+            _logger.warning(
+                "gate refusal SecurityEvent skipped (%s): DB pool exhausted",
+                event_type,
+            )
+            return
 
         db = SessionLocal()
         # Detail is a small dict — JSON-encode with str fallback so any

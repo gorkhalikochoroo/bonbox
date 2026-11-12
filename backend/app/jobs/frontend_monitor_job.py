@@ -48,9 +48,13 @@ def run_frontend_monitor_tick() -> dict:
     """One monitor tick. Never raises."""
     db = SessionLocal()
     try:
-        st = _load_or_create(db)
+        # Crawl BEFORE the first query: the crawl is up to 90 sequential HTTP
+        # fetches (seconds), and a session holds its pooled connection from
+        # its first query on — one of only 7 (database.DEPLOY_SAFE_PEAK).
+        # check_prod_frontend never raises.
         base = os.environ.get("HEALTHCHECK_BASE", "https://www.bonbox.dk")
         result = check_prod_frontend(base)
+        st = _load_or_create(db)
         st.last_check_at = utc_now()
         st.last_summary = (result.summary or "")[:2000]
 

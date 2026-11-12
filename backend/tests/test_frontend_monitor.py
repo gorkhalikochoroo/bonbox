@@ -128,3 +128,31 @@ def test_second_incident_can_alert_again(harness):
     assert calls["alert"] == 2        # two distinct incidents
     assert calls["recovered"] == 1
     assert incidents == 2
+
+
+def test_no_pooled_connection_is_held_while_the_frontend_is_crawled(tmp_path, monkeypatch):
+    """The crawl is up to 90 sequential HTTP fetches of bonbox.dk, every 5 min,
+    all day. It must run before the job's first query, so it never pins one of
+    the process's 7 pooled connections (app.database.DEPLOY_SAFE_PEAK) while
+    it waits on the network. Measured on a real QueuePool, not a StaticPool."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'monitor.db'}",
+                           connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(fmj, "SessionLocal", sessionmaker(bind=engine))
+    monkeypatch.setattr(fmj, "_send_alert", lambda db, st, r: None)
+    monkeypatch.setattr(fmj, "_send_recovered", lambda db, st: None)
+
+    checked_out_during_crawl = []
+
+    def crawl(base=""):
+        checked_out_during_crawl.append(engine.pool.checkedout())
+        return OK
+
+    monkeypatch.setattr(fmj, "check_prod_frontend", crawl)
+    try:
+        fmj.run_frontend_monitor_tick()  # first tick: creates the state row
+        fmj.run_frontend_monitor_tick()  # later ticks: the row exists
+        assert checked_out_during_crawl == [0, 0]
+        assert engine.pool.checkedout() == 0  # and the tick hands it back
+    finally:
+        engine.dispose()

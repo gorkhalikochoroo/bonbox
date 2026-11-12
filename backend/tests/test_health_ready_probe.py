@@ -148,3 +148,75 @@ def test_a_cached_ready_answer_needs_no_worker_thread(monkeypatch):
     assert r.status_code == 200 and r.json()["status"] == "ok"
     assert took < 0.5, f"the cached answer waited {took:.2f}s for a worker thread"
 
+
+
+# ─── Single flight (20 Oct, pool 7) ───────────────────────────────────
+#
+# On a saturated pool the SELECT 1 waits up to pool_timeout (30 s). The cache
+# stamp used to be written only after the probe returned, so every poll in
+# that wait started another probe: one more worker thread and one more place
+# in the pool queue each. Now the stamp is written first and polls during a
+# probe answer from the last result. A fresh process has no result yet, so
+# those polls answer 503, never an unproven 200.
+
+class _SlowOkEngine:
+    def __init__(self, delay: float):
+        self.delay = delay
+        self.calls = 0
+
+    def connect(self):
+        import time
+        self.calls += 1
+        time.sleep(self.delay)
+        return _OkConn()
+
+
+class _OkConn:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, *_a, **_k):
+        return None
+
+
+def test_polls_during_a_slow_probe_do_not_start_another(monkeypatch):
+    import asyncio
+
+    import httpx
+
+    slow = _SlowOkEngine(delay=0.6)
+    monkeypatch.setattr(main, "engine", slow)
+    _reset_probe(ok=False)  # a fresh process: no probe has finished yet
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+            first = asyncio.ensure_future(c.get("/api/health/ready"))
+            await asyncio.sleep(0.15)  # the first probe is now waiting
+            during = await asyncio.wait_for(c.get("/api/health/ready"), timeout=5)
+            return await first, during
+
+    first, during = asyncio.run(run())
+    assert slow.calls == 1, "a poll during the probe started a second probe"
+    assert first.status_code == 200 and first.json()["status"] == "ok"
+    # No probe had finished when it arrived: not an unproven 200.
+    assert during.status_code == 503
+
+
+def test_a_fresh_process_has_no_proven_ready_answer():
+    """The module starts with ok=False, so the single flight above can never
+    answer 200 before one SELECT 1 has passed (pinned from the source: the
+    live dict is shared by every test in the run)."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(main))
+    initial = [
+        ast.literal_eval(node.value) for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_ready_probe" for t in node.targets)
+    ]
+    assert initial == [{"ts": 0.0, "ok": False}]
