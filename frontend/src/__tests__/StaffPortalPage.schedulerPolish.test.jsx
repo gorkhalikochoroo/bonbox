@@ -216,6 +216,18 @@ describe("PIN gate", () => {
 });
 
 describe("One Danish weekday style", () => {
+  // The dated row this checks is the shift "tomorrow". It said "tor." only
+  // when the suite ran on a Wednesday (the 11 Nov baseline did); on Thursday
+  // 12 Nov the row said "fre." and the test failed with nothing broken. The
+  // clock is pinned to a Wednesday, like the blocks above, so the row is a
+  // Thursday on any real day. The assertions are unchanged.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-04T12:00:00")); // a Wednesday
+    shifts = [{ ...shifts[0], date: iso(new Date(Date.now() + 86400000)) }]; // Thu 5 Nov
+  });
+  afterEach(() => vi.useRealTimers());
+
   it("the week strip and rows use 'tor.'-style abbreviations, never ICU's 'tirs.'/'tors.'", async () => {
     mount("da");
     await waitFor(() => expect(document.body.textContent).toContain("11:00–20:00"));
