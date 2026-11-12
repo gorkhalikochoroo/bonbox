@@ -137,9 +137,10 @@ const BUILT = INDEX
   .replace('<script type="module" src="/src/main.jsx"></script>', "")
   .replace("</head>", '<script type="module" crossorigin src="/assets/index-1.js"></script>\n<link rel="modulepreload" crossorigin href="/assets/vendor-react-2.js">\n<link rel="stylesheet" crossorigin href="/assets/index-3.css">\n</head>');
 const BUNDLE = {
-  "assets/LandingV6Page-abc.js": {
-    type: "chunk", fileName: "assets/LandingV6Page-abc.js", facadeModuleId: "/repo/frontend/src/pages/LandingV6Page.jsx",
-    imports: ["assets/index-1.js"], viteMetadata: { importedCss: new Set(["assets/LandingV6Page-abc.css"]) },
+  // landing v7 (12 Nov 2026): the routed page is LandingV7Page; the plugins find its chunk (vite.config.js LANDING_PAGE)
+  "assets/LandingV7Page-abc.js": {
+    type: "chunk", fileName: "assets/LandingV7Page-abc.js", facadeModuleId: "/repo/frontend/src/pages/LandingV7Page.jsx",
+    imports: ["assets/index-1.js"], viteMetadata: { importedCss: new Set(["assets/LandingV7Page-abc.css"]) },
   },
   "assets/index-1.js": { type: "chunk", fileName: "assets/index-1.js", facadeModuleId: "/repo/frontend/index.html", imports: [] },
   "assets/da-x.js": { type: "chunk", fileName: "assets/da-x.js", facadeModuleId: "/repo/frontend/src/i18n/da.js" },
@@ -227,7 +228,7 @@ describe("the transformed index.html", () => {
     // the body (the head's title and description carry the headline on purpose: seoHead.test.js)
     const body = out.slice(out.indexOf("<body"));
     const outside = body.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "").replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, "");
-    for (const k of ["landingV6.h1.shifts", "landingV6.sub", "landingV6.seePrices"]) {
+    for (const k of ["landingV7.h1.shifts", "landingV7.hero.lede", "landingV7.ctaDay"]) {
       expect(outside, k).not.toContain(da[k]);
       expect(outside, k).not.toContain(en[k]);
     }

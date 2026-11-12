@@ -152,7 +152,7 @@ describe("parity with the landing's first screen (vite.config.js preloadLanding 
     const { default: config } = await import("../../vite.config.js");
     const p = config.plugins.flat().find((x) => x && x.name === "bonbox-preload-landing");
     const bundle = {
-      "assets/L.js": { type: "chunk", fileName: "assets/L.js", facadeModuleId: "/r/frontend/src/pages/LandingV6Page.jsx", imports: [], viteMetadata: { importedCss: new Set() } },
+      "assets/L.js": { type: "chunk", fileName: "assets/L.js", facadeModuleId: "/r/frontend/src/pages/LandingV7Page.jsx", imports: [], viteMetadata: { importedCss: new Set() } },
     };
     const out = await p.transformIndexHtml.handler('<head><meta charset="UTF-8" /></head>', { bundle });
     return out.match(/<script>([\s\S]*?)<\/script>/)[1];

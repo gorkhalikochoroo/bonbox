@@ -107,8 +107,10 @@ describe("the v6 tree's keys", () => {
     }
   });
 
-  it("every key is a boot key, in the boot dictionary in da and en (the first paint is in the visitor's language)", () => {
-    for (const k of used) expect([k, isBootKey(k), !!BOOT.da[k], !!BOOT.en[k]]).toEqual([k, true, true, true]);
+  // landing v7 (12 Nov 2026): the v6 page is unrouted (the front door is pages/LandingV7Page.jsx), so its keys left the
+  // boot dictionary, as landingV2's did; the v7 page's keys are the boot keys now (landingPush9Speed.test.jsx)
+  it("no key is a boot key any more: the v6 page is unrouted and the first paint is the v7 page's", () => {
+    for (const k of used) expect([k, isBootKey(k), !!BOOT.da[k], !!BOOT.en[k]]).toEqual([k, false, false, false]);
   });
 
   it("no emoji flag (regional indicators) in the page's source or its text", () => {

@@ -149,7 +149,9 @@ export function takeFirstScreen() {
  * A control is { r: "top" | "hero", s: selector, i: index }; only the
  * selectors the first screen can produce are accepted.
  */
-const REPLAYABLE = /^(?:button\[lang="(?:da|en)"\]|a\[href="#(?:main|pricing|s1|s2|s6)"\])$/;
+// v7 (12 Nov 2026): its first screen's language button and its in-page links (the wordmark, the section links, "Se en dag
+// i restauranten") are replayable too; "Prøv gratis" and "Log ind" stay real links.
+const REPLAYABLE = /^(?:button\[lang="(?:da|en)"\]|button\.lang-btn|a\[href="#(?:main|pricing|s1|s2|s6|top|dag|vagterne|bordene|kassen|tilvalg|priser)"\])$/;
 export function controlIn(root, c) {
   if (!root || !c || (c.r !== "top" && c.r !== "hero") || !REPLAYABLE.test(String(c.s)) || !(c.i >= 0)) return null;
   const region = root.querySelector("." + c.r);

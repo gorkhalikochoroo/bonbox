@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { bookingGraph, buildBookingDict, pickBookingWords } from './scripts/bookingDict.mjs'
 import { bookingBootScript } from './scripts/bookingBoot.mjs'
 import { appDictionaries, standHtml, standWords } from './scripts/standBuild.mjs'
-import { firstScreenCss, firstScreenFaces, firstScreenScript } from './scripts/landingFirstScreen.mjs'
+import { HERO_IMG_V7, firstScreenCssV7, firstScreenFacesV7, firstScreenScriptV7 } from './scripts/landingFirstScreenV7.mjs'
+
+// The front door's page module (landing v7, 12 Nov 2026; App.jsx loadLanding). preloadLanding, landingFirstScreen and
+// htmlDiet find its chunk by this; the Vagtplan build has none. The v6 page (pages/LandingV6Page.jsx) is unrouted.
+const LANDING_PAGE = /[\\/]src[\\/]pages[\\/]LandingV7Page\.jsx$/
 import { LANG_RULE, pickInitialLanguage } from './src/lib/languageRule.js'
 
 // ── The landing's boot dictionary (push 9, E) ─────────────────────
@@ -117,19 +121,22 @@ function preloadLanding() {
       handler(html, ctx) {
         const chunks = Object.values(ctx.bundle || {})
         const page = chunks.find((c) => c.type === 'chunk' && c.facadeModuleId &&
-          /[\\/]src[\\/]pages[\\/]LandingV6Page\.jsx$/.test(c.facadeModuleId))
+          LANDING_PAGE.test(c.facadeModuleId))
         if (!page) return html // the Vagtplan build has no landing chunk
         const js = [page.fileName, ...(page.imports || [])]
           .filter((f, i, all) => all.indexOf(f) === i && !html.includes('/' + f))
           .map((f) => '/' + f)
         const css = [...(page.viteMetadata?.importedCss || [])].map((f) => '/' + f)
-        // Landing speed, step 6: the three Inter files the stage and the cookie banner draw with ride on __lp6First,
-        // and the first screen's script preloads them right after its first frame (scripts/landingFirstScreen.mjs),
-        // so the app's first commit is already in Inter (no swap, no second layout). Not as <link rel=preload as=font>
-        // here: Chromium holds the first paint for a font preload it knows of before that paint.
-        const fonts = chunks
-          .filter((a) => a.type === 'asset' && /(^|\/)inter-latin-(400|500|600)-normal-[^/]*\.woff2$/.test(a.fileName))
-          .map((a) => '/' + a.fileName).sort()
+        // Landing speed, step 6: the fonts the page and the cookie banner draw with ride on __lp6First, and the first
+        // screen's script preloads them (scripts/landingFirstScreenV7.mjs), so the app's first commit is already in its
+        // type (no swap, no second layout). Not as <link rel=preload as=font> here: Chromium holds the first paint for a
+        // font preload it knows of before that paint. Landing v7: `fonts` = the app's Inter 400 / 500 / 600 (the cookie
+        // banner), `later` = the page's Sora 400 / 600 and DM Sans 400 / 500 / 600 (below the first screen; the first
+        // screen draws with its own inline cuts). Both start once the hero picture is in (2.5 s at the latest): they would
+        // otherwise share the line with the first screen's largest paint.
+        const pick = (re) => chunks.filter((a) => a.type === 'asset' && re.test(a.fileName)).map((a) => '/' + a.fileName).sort()
+        const fonts = pick(/(^|\/)inter-latin-(400|500|600)-normal-[^/]*\.woff2$/)
+        const later = pick(/(^|\/)(sora-latin-(400|600)|dm-sans-latin-(400|500|600))-normal-[^/]*\.woff2$/)
         const script =
           '<script>(function(){try{' +
           'if(window.Capacitor||location.protocol==="capacitor:")return;' +
@@ -153,7 +160,13 @@ function preloadLanding() {
           'a=pick(rd,L,M).lang;' +
           'window.__lp6First={lang:a==="da"?"da":"en",app:a};' +
           'try{document.documentElement.lang=a}catch(e){}' +
-          `window.__lp6First.fonts=${JSON.stringify(fonts)}}` +
+          `window.__lp6First.fonts=${JSON.stringify(fonts)};window.__lp6First.later=${JSON.stringify(later)}}` +
+          // Landing v7: the first screen's largest picture (the week's draft on the iPad) starts with the page, at high
+          // priority, in the exact srcset / sizes the first screen and the page use, so the browser takes it once at high
+          // priority (one download). Only where the browser reads imagesrcset: elsewhere the preload would fetch the 1600 px
+          // file the page then does not use.
+          `k=document.createElement("link");if("imageSrcset" in k){k.rel="preload";k.as="image";k.href=${JSON.stringify(HERO_IMG_V7.src)};` +
+          `k.imageSrcset=${JSON.stringify(HERO_IMG_V7.srcset)};k.imageSizes=${JSON.stringify(HERO_IMG_V7.sizes)};k.fetchPriority="high";document.head.appendChild(k)}` +
           `var j=${JSON.stringify(js)},c=${JSON.stringify(css)},d=document.head,i,k;` +
           'for(i=0;i<j.length;i++){k=document.createElement("link");k.rel="modulepreload";k.crossOrigin="";k.href=j[i];d.appendChild(k)}' +
           'for(i=0;i<c.length;i++){k=document.createElement("link");k.rel="preload";k.as="style";k.crossOrigin="";k.href=c[i];d.appendChild(k)}' +
@@ -189,7 +202,7 @@ function landingFirstScreen() {
       async handler(html, ctx) {
         const chunks = Object.values(ctx.bundle || {})
         const page = chunks.find((c) => c.type === 'chunk' && c.facadeModuleId &&
-          /[\\/]src[\\/]pages[\\/]LandingV6Page\.jsx$/.test(c.facadeModuleId))
+          LANDING_PAGE.test(c.facadeModuleId))
         if (!page) return html
         const links = html.match(/<link rel="stylesheet" crossorigin href="\/assets\/index-[^"]+\.css">/g) || []
         if (links.length !== 1) throw new Error('landingFirstScreen: expected one index stylesheet link in index.html, found ' + links.length)
@@ -200,7 +213,7 @@ function landingFirstScreen() {
           ['./src/i18n/da.js', './src/i18n/en.js', './src/lib/planPrices.js'].map((f) => import(file(f).href)))
         const head =
           `<link rel="preload" as="style" crossorigin href="${href}">` +
-          `<style id="lp6-css">${firstScreenCss(firstScreenFaces())}</style>` +
+          `<style id="lp6-css">${firstScreenCssV7(firstScreenFacesV7())}</style>` +
           '<script>(function(){var d=document,h=' + JSON.stringify(href) + ';' +
           'if(window.__lp6First){var k=d.createElement("link");k.rel="stylesheet";k.crossOrigin="";k.href=h;k.setAttribute("data-bb-css","");' +
           'k.onload=k.onerror=function(){k.setAttribute("data-done","")};' +
@@ -208,7 +221,7 @@ function landingFirstScreen() {
           `else d.write('<link rel="stylesheet" crossorigin href="'+h+'">')})()</script>` +
           `<noscript><link rel="stylesheet" crossorigin href="${href}"></noscript>`
         return html.replace(links[0], () => head)
-          .replace(root, () => root + firstScreenScript({ da, en, price: FROM_PRICE }))
+          .replace(root, () => root + firstScreenScriptV7({ da, en, price: FROM_PRICE }))
       },
     },
   }
@@ -231,7 +244,7 @@ function htmlDiet() {
       async handler(html, ctx) {
         const chunks = Object.values(ctx.bundle || {})
         if (!chunks.some((c) => c.type === 'chunk' && c.facadeModuleId &&
-          /[\\/]src[\\/]pages[\\/]LandingV6Page\.jsx$/.test(c.facadeModuleId))) return html
+          LANDING_PAGE.test(c.facadeModuleId))) return html
         // loaded here, not at the top of this file: the tests import vite.config.js under jsdom, where esbuild's
         // own start-up check throws
         const { transform } = await import('esbuild')

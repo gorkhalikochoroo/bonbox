@@ -60,20 +60,22 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal (and the reservations surface) only", () => {
+describe("Fonts: Sora + DM Sans, self-hosted, loaded by the staff portal (and the reservations surface and the v7 landing) only", () => {
   const files = walk(SRC);
   const importers = (pkg) => files
     .filter((f) => read(path.relative(SRC, f)).includes(pkg))
     .map((f) => path.relative(SRC, f).split(path.sep).join("/"))
     .sort();
 
-  it("only the portal entry (the page + its vagtplan.css) references them; main.jsx does not", () => {
+  // Landing v7 (12 Nov 2026): the v7 landing draws in the same house family, from its own lazy chunk
+  // (components/landing/v7/styles.js); still never the app entry.
+  it("only the portal entry (the page + its vagtplan.css), the reservations surface and the v7 landing's chunk reference them; main.jsx does not", () => {
     // Reservations v2 (12 Nov 2026): the owner reservations page and the host
     // stand wear the same Orvexlo type, through their own scoped stylesheet
     // (components/reservations/rv2.css, imported by ReservationsPage only —
     // a lazy chunk, never main.jsx or the landing).
-    expect(importers("@fontsource/sora")).toEqual(["components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
-    expect(importers("@fontsource/dm-sans")).toEqual(["components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+    expect(importers("@fontsource/sora")).toEqual(["components/landing/v7/styles.js", "components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
+    expect(importers("@fontsource/dm-sans")).toEqual(["components/landing/v7/styles.js", "components/reservations/rv2.css", "components/staff/vagtplan.css", "pages/StaffPortalPage.jsx"]);
     expect(importers("reservations/rv2.css")).toEqual(["pages/ReservationsPage.jsx"]);
     expect(read("main.jsx")).not.toMatch(/sora|dm-sans/i);
     // The stylesheet itself is imported by the portal page and nowhere else.

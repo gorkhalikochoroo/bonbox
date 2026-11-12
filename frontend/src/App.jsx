@@ -397,8 +397,11 @@ const LandingPage = lazyRetry(() => import("./pages/LandingPage"));
 // import is folded away at build time and the chunk is not emitted into the app; /v2 there goes to "/" as well.
 // The old landing (pages/LandingV2Page.jsx, components/landing/v2) stays in the tree, unrouted, until its own
 // clean-up release.
-const loadLanding = () => import("./pages/LandingV6Page");
-const LandingV6Page = import.meta.env.VITE_APP_MODE === "scheduler"
+// Landing v7 (12 Nov 2026): the front door is now the v7 page (pages/LandingV7Page.jsx, Manoj's Claude Design page), on
+// the same boot path (modulepreload, the HTML's first screen, landingBoot, LandingRoute). The v6 page
+// (pages/LandingV6Page.jsx, components/landing/v6) stays in the tree, unrouted, like v2 before it.
+const loadLanding = () => import("./pages/LandingV7Page");
+const LandingFrontPage = import.meta.env.VITE_APP_MODE === "scheduler"
   ? function SchedulerLanding() { return <Navigate to="/" replace />; }
   : lazyRetry(loadLanding);
 // Speed (10 Nov 2026): the early import's result is kept. main.jsx mounts React once `landingBoot` has settled (the
@@ -784,7 +787,7 @@ function LandingRoute() {
   const [Now] = useState(() => LandingNow);
   return (
     <Suspense fallback={<KeepFirstScreen />}>
-      {Now ? <Now /> : <LandingV6Page />}
+      {Now ? <Now /> : <LandingFrontPage />}
       <FirstScreenHandover />
     </Suspense>
   );
@@ -797,7 +800,7 @@ function LandingRoute() {
  */
 function FirstScreenHandover() {
   useEffect(() => {
-    const root = document.querySelector('.lp6[data-page="landing"]');
+    const root = document.querySelector('[data-page="landing"]');
     if (!root) return undefined;
     const go = () => replayFirstScreen(root);
     if (typeof requestAnimationFrame !== "function") { go(); return undefined; }
