@@ -11816,9 +11816,8 @@ export default function StaffPortalPage() {
           staffer's place (portalPlace, readingPlace) — no effect on a tap. */}
       <div
         key={tab}
-        data-testid="portal-content"
+        data-testid="portal-content" className={`max-w-lg mx-auto px-3 min-[361px]:px-4 ${tab === "schedule" ? "pt-2 pb-4" : "py-4"}${nav.moved ? " vp-tab-in" : ""}`}
         data-portal-content=""
-        className={`max-w-lg mx-auto px-3 min-[361px]:px-4 ${tab === "schedule" ? "pt-2 pb-4" : "py-4"}${nav.moved ? " vp-tab-in" : ""}`}
         style={isPad ? { ...padColumn, paddingTop: 24, paddingBottom: 24 } : undefined}
         onPointerDownCapture={(e) => notePlace(e.target)}
         onFocusCapture={(e) => notePlace(e.target)}

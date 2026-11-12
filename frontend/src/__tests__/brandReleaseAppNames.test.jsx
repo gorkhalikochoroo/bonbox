@@ -224,14 +224,17 @@ describe("staff app (ios-scheduler): Vagtplan on the home screen and in all four
   });
 });
 
-describe("versions: owner 2.6, staff 1.5 (build numbers untouched, CI-driven)", () => {
+describe("versions: owner 2.6, staff 1.7 (build numbers untouched, CI-driven)", () => {
   it("MARKETING_VERSION in both configurations of each project", () => {
     const owner = read("ios/App/App.xcodeproj/project.pbxproj");
     const staff = read("ios-scheduler/App/App.xcodeproj/project.pbxproj");
     // 2.6 on purpose (12 Nov 2026 push): 2.5 is accepted in the App Store, so the next
     // owner build needs a higher version. Bump this pin with the project, never alone.
     expect(owner.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 2.6;", "MARKETING_VERSION = 2.6;"]);
-    expect(staff.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 1.5;", "MARKETING_VERSION = 1.5;"]);
+    // 1.7: the live 1.6 (24, branch vagtplan-1.6) integrated with the home v3 redesign
+    // (branch vagtplan-ios-17). 1.6's train is closed in the App Store, so the next staff
+    // build needs a higher version. Bump this pin with the project, never alone.
+    expect(staff.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 1.7;", "MARKETING_VERSION = 1.7;"]);
   });
 });
 
