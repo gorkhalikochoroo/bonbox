@@ -220,8 +220,11 @@ function Addons({ t }) {
           <p className="lede">{t("landingV7.addons.p")}</p>
         </div>
         <div className="addons">
+          {/* Egenkontrol ships (release 2026-11-15): no "Kommer snart" — the
+              founder's 12 Nov rule, each label comes off when its feature
+              ships. The other five stay "Kommer snart". */}
           <article className="addon rv fx" data-addon="egenkontrol">
-            <div className="addon-top"><span className="tag">{t("landingV7.addons.a1t")}</span><AddonSoon t={t} /></div>
+            <div className="addon-top"><span className="tag">{t("landingV7.addons.a1t")}</span></div>
             <h3>{t("landingV7.addons.a1h")}</h3>
             <p>{t("landingV7.addons.a1p")}</p>
             <div className="thumb fx"><Pic img={IMG.egen} sizes={SIZES.thumb} alt={t("landingV7.alt.egen")} /></div>

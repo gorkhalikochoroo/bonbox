@@ -569,20 +569,31 @@ def _labor_block(db: Session, user: User, day: date) -> dict:
 
 def _badges(db: Session, user: User, day: date, profile=None, skip=frozenset()) -> dict:
     """Only actionable counts: bookings waiting for the owner's answer, draft
-    shifts this week nobody can see yet, and a missing kasserapport.
+    shifts this week nobody can see yet, a missing kasserapport, and
+    Egenkontrol's readings missing today + deviations still open.
 
     The kasserapport badge follows the same two rules as the page: a day the
     owner DISMISSED ("Skjul", sent as `skip` like /diagnostics/needs-you) is not
     missing, and neither is a day the venue's own opening hours say it was shut
-    (the hero already says "nothing missing" then — the rail must agree)."""
+    (the hero already says "nothing missing" then — the rail must agree).
+
+    `egenkontrol` / `egenkontrol_deviations` are the needs-you finding's own
+    detector (egenkontrol_due: meta.count / meta.deviations), so I dag can hold
+    the "Kræver dig" row's place before /diagnostics/needs-you answers
+    (todayModel.expectedLateRows) instead of letting it push the cards below.
+    No rail badge reads them (the rail's Egenkontrol count is its own status
+    poll). 0 for a venue without active checks — one count query, nothing
+    more."""
     from app.services.diagnostics_service import (
         _detect_close_missing,
+        _detect_egenkontrol_due,
         _detect_unconfirmed_reservations,
     )
     from app.utils.time import utc_now
 
     now = utc_now()
-    out = {"reservations": 0, "schedule": 0, "daily_close": 0}
+    out = {"reservations": 0, "schedule": 0, "daily_close": 0,
+           "egenkontrol": 0, "egenkontrol_deviations": 0}
     f = _safe("badge_rsvp", lambda: _detect_unconfirmed_reservations(db, user, now), db=db)
     if f:
         out["reservations"] = int((f.get("meta") or {}).get("count") or 0)
@@ -592,6 +603,11 @@ def _badges(db: Session, user: User, day: date, profile=None, skip=frozenset()) 
     cm = _safe("badge_close", lambda: _detect_close_missing(db, user, now, skip), db=db)
     if cm and not _venue_closed_on(profile, day - timedelta(days=1)):
         out["daily_close"] = 1
+    ek = _safe("badge_egenkontrol", lambda: _detect_egenkontrol_due(db, user, now), db=db)
+    if ek:
+        meta = ek.get("meta") or {}
+        out["egenkontrol"] = int(meta.get("count") or 0)
+        out["egenkontrol_deviations"] = int(meta.get("deviations") or 0)
     return out
 
 

@@ -17,7 +17,13 @@ export const DATED_CODES = new Set(["close_missing", "stale_draft_close", "close
 
 // Stable identity per finding: the date where there is one, else the most
 // distinguishing meta (a changed reservation count re-surfaces the row).
-export const keyFor = (f) => `${f.code}|${f.meta?.date ?? f.meta?.provider ?? f.meta?.count ?? ""}`;
+// Egenkontrol also keys on whether a deviation is open: "Skjul" on a missing
+// reading must never hide a deviation opened later the same business day
+// (food may be at risk) — that is a new row, under its own key.
+export const keyFor = (f) => {
+  const base = `${f.code}|${f.meta?.date ?? f.meta?.provider ?? f.meta?.count ?? ""}`;
+  return f.code === "egenkontrol_due" && Number(f.meta?.deviations) > 0 ? `${base}|deviation` : base;
+};
 
 export function loadDismissed() {
   try {
@@ -144,7 +150,8 @@ export const RENDERERS = {
   },
   // Egenkontrol (R1a): readings missing today, or a deviation not yet closed.
   // meta.date is the venue's business day, so a dismissal hides this row for
-  // that day only (keyFor) — it is not a dated code (not in DATED_CODES).
+  // that day only (keyFor) — it is not a dated code (not in DATED_CODES). A
+  // deviation opened after a hidden "missing reading" row comes back (keyFor).
   egenkontrol_due: {
     icon: Thermometer,
     title: (t, m) => {

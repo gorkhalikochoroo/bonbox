@@ -6,7 +6,8 @@
  *   - language: Danish and English from the repo's dictionaries; the menu switches; Portuguese is not offered;
  *   - prices and plan numbers come from lib/planPrices.js and lib/planLimits.js (a changed price shows on the page);
  *     the MOMS line follows PRICE_MOMS_BASIS;
- *   - honesty: every add-on says "Kommer snart" / "Coming soon"; no "rigtige skærme" / real screens, no notification
+ *   - honesty: every add-on not yet shipped says "Kommer snart" / "Coming soon"; Egenkontrol ships (release 2026-11-15)
+ *     and says what ships, nothing more (no cooling, no authority promise); no "rigtige skærme" / real screens, no notification
  *     claim, no payroll file, no "free until" time; no competitor, founder or set-up promise;
  *   - links: real <a href> to /register (plans ?plan=starter|pro), /login, the App Store pages (not on Android),
  *     /contact, /privacy, /terms, /cookies;
@@ -196,18 +197,51 @@ describe("the MOMS sentence for every basis", () => {
 });
 
 describe("honesty (the facts Manoj approved, 12 Nov 2026)", () => {
-  it("every add-on shows Kommer snart / Coming soon", async () => {
+  // The founder's rule (12 Nov 2026): each "Kommer snart" comes off when that feature ships. Egenkontrol ships in
+  // release 2026-11-15; the other five stay "Kommer snart" / "Coming soon".
+  it("every add-on not yet shipped shows Kommer snart / Coming soon; Egenkontrol, which ships, does not", async () => {
     for (const [code, word] of [["da", "Kommer snart"], ["en", "Coming soon"]]) {
-      const { $$ } = await show(code);
+      const { $, $$ } = await show(code);
       const addons = $$("[data-addon]");
       expect(addons.map((a) => a.getAttribute("data-addon"))).toEqual(["egenkontrol", "drikkepenge", "s1", "s2", "s3", "s4"]);
-      for (const a of addons) expect(a.querySelector(".soon")?.textContent, a.getAttribute("data-addon")).toBe(word);
+      const [ek, ...soon] = addons;
+      expect(ek.querySelector(".soon"), "egenkontrol").toBeNull();
+      expect(ek.textContent).not.toMatch(/Kommer snart|Coming soon|på vej|on (its|their) way/i);
+      for (const a of soon) expect(a.querySelector(".soon")?.textContent, a.getAttribute("data-addon")).toBe(word);
+      // the section's lead names Egenkontrol as available now, and only the others as on their way
+      const lede = $("#lp7-addons-h").parentElement.querySelector(".lede").textContent;
+      expect(lede).toContain(code === "da" ? "Egenkontrol kan du bruge nu." : "Food safety is available now.");
+      expect(lede).toContain(code === "da" ? "De andre tilvalg herunder er på vej" : "The other add-ons below are on their way");
       const names = addons.map((a) => (a.querySelector(".tag") || a.querySelector("h3")).textContent);
       expect(names).toEqual(code === "da"
         ? ["Egenkontrol", "Drikkepenge", "Første uge for nye", "Køkkenskærm", "Allergener pr. ret", "Bordplan med sektioner"]
         : ["Food safety", "Tips", "First week for new starters", "Kitchen screen", "Allergens per dish", "Floor plan with sections"]);
       cleanup();
     }
+  });
+
+  it("the Egenkontrol card says what ships and promises nothing more (release 2026-11-15)", () => {
+    const keys = ["landingV7.addons.a1h", "landingV7.addons.a1p", "landingV7.addons.p", "landingV7.alt.egen"];
+    for (const dict of [da, en]) {
+      for (const k of keys) {
+        // cooling (nedkøling) is R2, not built; no authority / inspection-ready promise; no compliance claim; the
+        // folder is no longer 30 days
+        expect(dict[k], k).not.toMatch(/nedkøl|cooling|cool down/i);
+        expect(dict[k], k).not.toMatch(/Fødevarestyrelsen|Veterinary|food authority/i);
+        expect(dict[k], k).not.toMatch(/\bklar\b|\bready\b|kontrollant|inspector|godkend|approved|compliant|compliance|lovlig|overholder/i);
+        expect(dict[k], k).not.toMatch(/30 (dage|days)/);
+      }
+    }
+    // what ships: temperatures on the kitchen iPad, a deviation saved with its action and the food's fate, photos and
+    // documents, the Kontrolmappe up to 92 days and as a PDF
+    expect(da["landingV7.addons.a1p"]).toMatch(/køkkenets iPad/);
+    expect(da["landingV7.addons.a1p"]).toMatch(/handling og hvad der skete med maden/);
+    expect(da["landingV7.addons.a1p"]).toMatch(/Fotos og dokumenter/);
+    expect(da["landingV7.addons.a1p"]).toMatch(/kontrolmappen viser op til 92 dage, også som PDF/);
+    expect(en["landingV7.addons.a1p"]).toMatch(/kitchen iPad/);
+    expect(en["landingV7.addons.a1p"]).toMatch(/an action and what happened to the food/);
+    expect(en["landingV7.addons.a1p"]).toMatch(/Photos and documents/);
+    expect(en["landingV7.addons.a1p"]).toMatch(/up to 92 days, also as a PDF/);
   });
 
   const BANNED = [/rigtige skærme/i, /\brigtige\b/i, /real (BonBox )?screens/i, /får besked/i, /fået besked/i, /notified/i, /notification/i,

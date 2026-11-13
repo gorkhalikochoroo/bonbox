@@ -69,10 +69,21 @@ def rule_http(e: R.RuleError) -> HTTPException:
 # ── Venue zone, cutoff, relevance ────────────────────────────────────────
 
 def zone_and_cutoff(db: Session, owner) -> tuple[ZoneInfo, int, str]:
-    """users.timezone (fallback Europe/Copenhagen) + business_profiles.
+    """The VENUE's zone (tz_utils.owner_tz_name) + business_profiles.
     day_cutoff_hour (fallback 6) — resolved once per request, exactly like
-    dashboard._resolve_user_cutoff; never a process-wide zone."""
-    name = (getattr(owner, "timezone", None) or _DEFAULT_TZ).strip() or _DEFAULT_TZ
+    dashboard._resolve_user_cutoff; never a process-wide zone.
+
+    Never the raw users.timezone: the browser writes its own zone there at
+    every login (useAuth.syncTimezoneIfChanged), so an owner who logs in
+    abroad or from a laptop on UTC would move the kitchen's day. The 12 Nov
+    rule (tz_utils.owner_tz_name): a DKK owner's business day is
+    Europe/Copenhagen whatever is stored — the same day I dag, the daily close
+    and the reservation book use. It matters doubly here: business_date and
+    late are written once into append-only rows (088) that print in the
+    Kontrolmappe. Every Egenkontrol module (records, week, files, PDF, the
+    kitchen iPad, the needs-you finding) reads the zone through here."""
+    from app.services.tz_utils import owner_tz_name
+    name = (owner_tz_name(owner) or _DEFAULT_TZ).strip() or _DEFAULT_TZ
     try:
         tz = ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError):

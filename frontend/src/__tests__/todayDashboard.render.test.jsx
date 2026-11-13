@@ -183,10 +183,26 @@ describe("I dag — mid-service", () => {
     expect(li.querySelector(".td-li-ic").className).toContain("t-red");
     fireEvent.click(within(li).getByRole("button", { name: "nyqDismiss" }));
     await waitFor(() => expect(screen.queryByText("nyqEkDeviationMany(count=2)")).toBeNull());
-    // keyed by the business day (a new day's finding comes back); not a dated
-    // code, so it is never sent to the server scan as a skip.
-    expect(JSON.parse(localStorage.getItem("bonbox_nyq_dismissed"))).toHaveProperty(["egenkontrol_due|2026-11-12"]);
+    // keyed by the business day (a new day's finding comes back) and the open
+    // deviation; not a dated code, so it is never sent to the server scan as a skip.
+    expect(JSON.parse(localStorage.getItem("bonbox_nyq_dismissed"))).toHaveProperty(["egenkontrol_due|2026-11-12|deviation"]);
     expect(get.mock.calls.some(([u, o]) => u === "/diagnostics/needs-you" && /egenkontrol/.test(o?.params?.skip || ""))).toBe(false);
+  });
+
+  it("Skjul on a missing reading never hides a deviation opened later the same day (release 2026-11-15, S2)", async () => {
+    // The owner hid "1 måling mangler" this morning …
+    localStorage.setItem("bonbox_nyq_dismissed", JSON.stringify({ "egenkontrol_due|2026-11-12": Date.now() }));
+    const noDraft = { schedule: { week_start: "2026-11-09", week_number: 46, drafts: 0 } };
+    const missing = [{ code: "egenkontrol_due", severity: "warn", deep_link: "/egenkontrol", meta: { date: "2026-11-12", missing: 1, deviations: 0, count: 1 } }];
+    const first = mount(payload(noDraft), { findings: missing });
+    await waitFor(() => expect(screen.getByText("tdAllCaughtUp")).toBeInTheDocument());
+    expect(screen.queryByText("nyqEkMissingOne")).toBeNull();
+    first.unmount();
+    // … then a reading came in over the limit: the deviation is a new row, red.
+    const deviation = [{ code: "egenkontrol_due", severity: "urgent", deep_link: "/egenkontrol", meta: { date: "2026-11-12", missing: 1, deviations: 1, count: 2 } }];
+    mount(payload(noDraft), { findings: deviation });
+    const title = await screen.findByText("nyqEkDeviationOne");
+    expect(title.closest(".td-li").querySelector(".td-li-ic").className).toContain("t-red");
   });
 
   it("does not read /today again when the page's own read is fresh", async () => {
@@ -269,6 +285,38 @@ describe("I dag — the late reads land in places held for them", () => {
     nq.box.ok({ data: { findings: WAITING } });
     await waitFor(() => expect(rows()).toEqual(["tdNeedPublishTitle(week=46)", "tdNeedOneRequestTitle(name=Petersen)", "tdNeedRevisorTitle"]));
     expect(needsCard().querySelector(".td-count").textContent).toBe("3");
+  });
+
+  it("Egenkontrol's row (badges.egenkontrol) is held from the first paint — its arrival moves nothing (S3)", async () => {
+    const nq = later();
+    mount(payload({
+      schedule: { week_start: "2026-11-09", week_number: 46, drafts: 0 },
+      badges: { reservations: 0, schedule: 0, daily_close: 0, egenkontrol: 2, egenkontrol_deviations: 0 },
+    }), { needsYou: nq.call });
+    expect(rows()).toEqual(["held"]);
+    const held = needsCard().querySelector(".td-pending");
+    expect(held.querySelector(".td-li-ic.td-hold")).not.toBeNull();
+    expect(held.querySelector(".td-hold-btn")).not.toBeNull();
+    await waitFor(() => expect(typeof nq.box.ok).toBe("function"));
+    nq.box.ok({ data: { findings: [{ code: "egenkontrol_due", severity: "warn", deep_link: "/egenkontrol", meta: { date: "2026-11-12", missing: 2, deviations: 0, count: 2 } }] } });
+    // the finding lands in the held place: one row before, one row after
+    await waitFor(() => expect(rows()).toEqual(["nyqEkMissingMany(count=2)"]));
+    expect(needsCard().querySelector(".td-pending")).toBeNull();
+  });
+
+  it("a hidden Egenkontrol row holds no place; a deviation opened since does", async () => {
+    localStorage.setItem("bonbox_nyq_dismissed", JSON.stringify({ "egenkontrol_due|2026-11-12": Date.now() }));
+    const noDraft = { week_start: "2026-11-09", week_number: 46, drafts: 0 };
+    const a = later();
+    const first = mount(payload({ schedule: noDraft, badges: { reservations: 0, schedule: 0, daily_close: 0, egenkontrol: 1, egenkontrol_deviations: 0 } }), { needsYou: a.call });
+    // nothing that will come: only the card's own closing line waits
+    expect(needsCard().querySelectorAll(".td-pending")).toHaveLength(1);
+    expect(needsCard().querySelector(".td-pending .td-hold-btn")).toBeNull();
+    first.unmount();
+    const b = later();
+    mount(payload({ schedule: noDraft, badges: { reservations: 0, schedule: 0, daily_close: 0, egenkontrol: 2, egenkontrol_deviations: 1 } }), { needsYou: b.call });
+    expect(rows()).toEqual(["held"]);
+    expect(needsCard().querySelector(".td-pending .td-hold-btn")).not.toBeNull();
   });
 
   it("nothing announced: no held row that would only vanish — 'Tjekker …' waits where the count goes", async () => {

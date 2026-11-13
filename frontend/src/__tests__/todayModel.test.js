@@ -13,6 +13,7 @@ import {
   buildNeeds, closeSteps, defaultService, expectedLateRows, greetingKey, heatCells, isFreshAccount,
   laborLine, navBadges, plural, salesTile, shiftState, splitService, staffSummary, trendKey,
 } from "../components/today/todayModel";
+import { keyFor } from "../components/needsYouRenderers";
 
 const day = "2026-11-12";
 
@@ -185,6 +186,44 @@ describe("the needs-you rows held for, from /today's own badges (sizing only)", 
   it("no badges (an older payload) holds nothing", () => {
     expect(expectedLateRows({ business_day: day })).toBe(0);
     expect(expectedLateRows(null)).toBe(0);
+  });
+
+  // Release 2026-11-15 (merge review S3): Egenkontrol's row fires most days
+  // for a food venue — /today's badges carry the finding's own counts so its
+  // place is held instead of the row pushing the cards below.
+  it("Egenkontrol's missing readings / open deviations hold one row (badges.egenkontrol)", () => {
+    expect(expectedLateRows(today({ reservations: 0, daily_close: 0, egenkontrol: 2, egenkontrol_deviations: 0 }))).toBe(1);
+    expect(expectedLateRows(today({ reservations: 1, daily_close: 1, egenkontrol: 1, egenkontrol_deviations: 1 }))).toBe(3);
+    expect(expectedLateRows(today({ reservations: 0, daily_close: 0, egenkontrol: 0, egenkontrol_deviations: 0 }))).toBe(0);
+    // an older backend without the key holds nothing for it
+    expect(expectedLateRows(today({ reservations: 0, daily_close: 0 }))).toBe(0);
+  });
+
+  it("a hidden Egenkontrol row is not held — but a deviation opened since is (the Skjul key, keyFor)", () => {
+    const hidden = { [keyFor({ code: "egenkontrol_due", meta: { date: day, missing: 1, deviations: 0, count: 1 } })]: 1 };
+    const isDismissed = (f) => keyFor(f) in hidden;
+    expect(expectedLateRows(today({ egenkontrol: 1, egenkontrol_deviations: 0 }), { isDismissed })).toBe(0);
+    expect(expectedLateRows(today({ egenkontrol: 2, egenkontrol_deviations: 1 }), { isDismissed })).toBe(1);
+    // tomorrow's finding is a new day: held again
+    expect(expectedLateRows(today({ egenkontrol: 1, egenkontrol_deviations: 0 }, { business_day: "2026-11-13" }), { isDismissed })).toBe(1);
+  });
+});
+
+describe("the Skjul key (needsYouRenderers.keyFor)", () => {
+  it("Egenkontrol keys on the business day AND whether a deviation is open", () => {
+    const f = (deviations, missing = 1) => ({ code: "egenkontrol_due", meta: { date: day, missing, deviations, count: missing + deviations } });
+    expect(keyFor(f(0))).toBe(`egenkontrol_due|${day}`);
+    expect(keyFor(f(0, 3))).toBe(`egenkontrol_due|${day}`);          // more missing: same row, still hidden
+    expect(keyFor(f(1))).toBe(`egenkontrol_due|${day}|deviation`);   // a deviation: a new row
+    expect(keyFor(f(2, 0))).toBe(`egenkontrol_due|${day}|deviation`);
+    expect(keyFor(f(1))).not.toBe(keyFor(f(0)));
+  });
+
+  it("every other finding keeps its key", () => {
+    expect(keyFor({ code: "close_missing", meta: { date: "2026-11-11" } })).toBe("close_missing|2026-11-11");
+    expect(keyFor({ code: "unconfirmed_reservations", meta: { count: 2 } })).toBe("unconfirmed_reservations|2");
+    expect(keyFor({ code: "stale_bank_feed", meta: { provider: "aiia", days: 4 } })).toBe("stale_bank_feed|aiia");
+    expect(keyFor({ code: "close_unreconciled", meta: { date: "2026-11-10", deviations: 3 } })).toBe("close_unreconciled|2026-11-10");
   });
 });
 

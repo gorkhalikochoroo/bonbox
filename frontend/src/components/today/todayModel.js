@@ -301,8 +301,9 @@ export function buildNeeds(today, findings, { hiddenPillars } = {}) {
 /**
  * How many rows the needs-you read is expected to add to "Kræver dig" while
  * it has not answered — read off /today's own badges, which run the very same
- * server detectors: a booking request waiting for the owner's answer, and
- * yesterday's missing kasserapport. It only SIZES the "Tjekker …" place the
+ * server detectors: a booking request waiting for the owner's answer,
+ * yesterday's missing kasserapport, and Egenkontrol's missing readings / open
+ * deviations (most days for a food venue). It only SIZES the "Tjekker …" place the
  * answer will land in (TodayDashboard holds that many rows where buildNeeds
  * puts the findings), so the answer fills it instead of pushing the cards
  * below. Never shown, never a count, never "all clear": the other detectors
@@ -332,6 +333,16 @@ export function expectedLateRows(today, { hiddenPillars, isDismissed } = {}) {
     const shut = !!(yday && (today?.close?.days || []).find((d) => d && d.date === yday && d.venue_closed));
     if (!shut && !(yday && gone({ code: "close_missing", meta: { date: yday } }))) n += 1;
   }
+  // Egenkontrol (egenkontrol_due): the finding's own count + deviations, on
+  // the same business day as /today (the server reads both on the venue's
+  // zone). Its Skjul key carries the day and whether a deviation is open
+  // (needsYouRenderers.keyFor), so a hidden "missing" row still holds a place
+  // for a deviation opened since.
+  const ek = Number(b.egenkontrol) || 0;
+  if (ek > 0 && !gone({
+    code: "egenkontrol_due",
+    meta: { date: today?.business_day, deviations: Number(b.egenkontrol_deviations) || 0, count: ek },
+  })) n += 1;
   return n;
 }
 
