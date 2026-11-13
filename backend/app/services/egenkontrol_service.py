@@ -68,7 +68,21 @@ def rule_http(e: R.RuleError) -> HTTPException:
 
 # ── Venue zone, cutoff, relevance ────────────────────────────────────────
 
-def zone_and_cutoff(db: Session, owner) -> tuple[ZoneInfo, int, str]:
+# zone_and_cutoff(profile=...) default: "not read yet" — look the cutoff up.
+# None is a real answer there (the owner has no business_profiles row).
+_PROFILE_UNREAD = object()
+
+
+def _clamp_cutoff(v) -> int:
+    if v is None:
+        return _DEFAULT_CUTOFF
+    try:
+        return max(0, min(23, int(v)))
+    except (TypeError, ValueError):
+        return _DEFAULT_CUTOFF
+
+
+def zone_and_cutoff(db: Session, owner, *, profile=_PROFILE_UNREAD) -> tuple[ZoneInfo, int, str]:
     """The VENUE's zone (tz_utils.owner_tz_name) + business_profiles.
     day_cutoff_hour (fallback 6) — resolved once per request, exactly like
     dashboard._resolve_user_cutoff; never a process-wide zone.
@@ -81,25 +95,28 @@ def zone_and_cutoff(db: Session, owner) -> tuple[ZoneInfo, int, str]:
     and the reservation book use. It matters doubly here: business_date and
     late are written once into append-only rows (088) that print in the
     Kontrolmappe. Every Egenkontrol module (records, week, files, PDF, the
-    kitchen iPad, the needs-you finding) reads the zone through here."""
+    kitchen iPad, the needs-you finding) reads the zone through here.
+
+    `profile`: the owner's business_profiles row when the caller already
+    loaded it this request (I dag's badge part: GET /api/today reads it
+    first), or None for "the owner has none" — the cutoff then comes from it
+    with no second query. Left out (or another owner's row), the cutoff is
+    looked up as always."""
     from app.services.tz_utils import owner_tz_name
     name = (owner_tz_name(owner) or _DEFAULT_TZ).strip() or _DEFAULT_TZ
     try:
         tz = ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError):
         tz, name = ZoneInfo("UTC"), "UTC"
-    cutoff = _DEFAULT_CUTOFF
+    if profile is None or (profile is not _PROFILE_UNREAD
+                           and getattr(profile, "user_id", None) == owner.id):
+        return tz, _clamp_cutoff(getattr(profile, "day_cutoff_hour", None)), name
     row = (
         db.query(BusinessProfile.day_cutoff_hour)
         .filter(BusinessProfile.user_id == owner.id)
         .first()
     )
-    if row is not None and row[0] is not None:
-        try:
-            cutoff = max(0, min(23, int(row[0])))
-        except (TypeError, ValueError):
-            cutoff = _DEFAULT_CUTOFF
-    return tz, cutoff, name
+    return tz, _clamp_cutoff(row[0] if row is not None else None), name
 
 
 def relevant(business_type: Optional[str], opted_in: bool = False) -> bool:
@@ -322,12 +339,18 @@ def load_checks(db: Session, owner, *, branch_scope=None, live_only=True) -> lis
 def revs_by_check(db: Session, checks: list[FoodCheck]) -> dict[str, list[R.RevisionView]]:
     if not checks:
         return {}
-    by_id = {str(c.id): c for c in checks}
     rows = (
         db.query(FoodCheckRevision)
         .filter(FoodCheckRevision.check_id.in_([c.id for c in checks]))
         .all()
     )
+    return _group_revs(checks, rows)
+
+
+def _group_revs(checks, rows) -> dict[str, list[R.RevisionView]]:
+    """{check id: its revisions, oldest first} — revs_by_check and
+    due_counts both build the rules' input through here."""
+    by_id = {str(c.id): c for c in checks}
     out: dict[str, list[R.RevisionView]] = {k: [] for k in by_id}
     for r in rows:
         c = by_id.get(str(r.check_id))
@@ -446,17 +469,26 @@ def _entries_for_today(db: Session, owner, checks: list[FoodCheck], week_start: 
     )
 
 
+def _today_entries(db: Session, owner, checks: list[FoodCheck], today: date,
+                   tz: ZoneInfo, cutoff: int) -> tuple[list, dict[str, list]]:
+    """The readings status_today needs — this ISO week (from the day before
+    its first business day) and every deviation still open — as a list and
+    grouped by check. build_today and due_counts both read them here."""
+    week_start = R.iso_week_bounds(today, tz, cutoff)[0]
+    entries = _entries_for_today(db, owner, checks, week_start - timedelta(days=1))
+    by_check: dict[str, list] = {}
+    for e in entries:
+        by_check.setdefault(str(e.check_id), []).append(e)
+    return entries, by_check
+
+
 def build_today(db: Session, owner, *, branch_scope=None, now: Optional[datetime] = None) -> dict:
     now = now or now_utc()
     tz, cutoff, tzname = zone_and_cutoff(db, owner)
     today = R.business_date_of(now, tz, cutoff)
     checks = load_checks(db, owner, branch_scope=branch_scope)
     revs = revs_by_check(db, checks)
-    week_start = R.iso_week_bounds(today, tz, cutoff)[0]
-    entries = _entries_for_today(db, owner, checks, week_start - timedelta(days=1))
-    by_check: dict[str, list] = {}
-    for e in entries:
-        by_check.setdefault(str(e.check_id), []).append(e)
+    entries, by_check = _today_entries(db, owner, checks, today, tz, cutoff)
     photos = photos_for(db, owner, [e.id for e in entries])
 
     statuses = []
@@ -488,6 +520,47 @@ def build_today(db: Session, owner, *, branch_scope=None, now: Optional[datetime
         "checks": out_checks,
         "summary": R.summary_today(statuses),
     }
+
+
+def due_counts(db: Session, owner, *, now: Optional[datetime] = None,
+               profile=_PROFILE_UNREAD) -> Optional[dict]:
+    """The needs-you finding's numbers (egenkontrol_due) without the whole
+    today payload — I dag's badge part asks for them on every rail poll.
+
+    {"business_date", "missing", "deviations"}: build_today's
+    summary["missing"] / ["open_deviations"] for the whole venue (no branch
+    scope), from the SAME inputs through the SAME rules (R.status_today →
+    R.summary_today), so the count is the page's and the kitchen iPad's.
+    None = no active check (one statement, as active_check_count was).
+
+    Only the loading is leaner: the checks and their revisions in ONE
+    statement, the readings in one more, the cutoff from `profile` when the
+    caller already has the row (zone_and_cutoff) — no photos, no settings,
+    no serialisation. 2 statements with the profile, 3 without (build_today:
+    6, plus the old active_check_count)."""
+    rows = (
+        _active_checks(db, owner)
+        .outerjoin(FoodCheckRevision, FoodCheckRevision.check_id == FoodCheck.id)
+        .add_entity(FoodCheckRevision)
+        .all()
+    )
+    if not rows:
+        return None
+    checks: dict[str, FoodCheck] = {}
+    for c, _ in rows:
+        checks.setdefault(str(c.id), c)
+    check_list = list(checks.values())
+    revs = _group_revs(check_list, [r for _, r in rows if r is not None])
+    now = now or now_utc()
+    tz, cutoff, _ = zone_and_cutoff(db, owner, profile=profile)
+    today = R.business_date_of(now, tz, cutoff)
+    _, by_check = _today_entries(db, owner, check_list, today, tz, cutoff)
+    s = R.summary_today(
+        R.status_today(c, revs.get(k, []), by_check.get(k, []), now, tz, cutoff)
+        for k, c in checks.items()
+    )
+    return {"business_date": today.isoformat(), "missing": int(s["missing"]),
+            "deviations": int(s["open_deviations"])}
 
 
 def cap_out(db: Session, owner) -> dict:

@@ -3,7 +3,8 @@
  * footer and the phone's sticky call to action.
  *
  * Honesty (12 Nov 2026, the facts Manoj approved):
- *   - every add-on carries "Kommer snart" / "Coming soon" (AddonSoon);
+ *   - every add-on that has not shipped carries "Kommer snart" / "Coming soon" (AddonSoon); the label comes off
+ *     when its feature ships — Egenkontrol shipped (release 2026-11-15) and carries none, the other five keep it;
  *   - screens are "Skærme fra BonBox · eksempeldata", never "real";
  *   - no notification claim: the staff see the week in the Vagtplan app;
  *   - no payroll file: an export of approved hours;

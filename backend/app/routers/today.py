@@ -582,8 +582,11 @@ def _badges(db: Session, user: User, day: date, profile=None, skip=frozenset()) 
     the "Kræver dig" row's place before /diagnostics/needs-you answers
     (todayModel.expectedLateRows) instead of letting it push the cards below.
     No rail badge reads them (the rail's Egenkontrol count is its own status
-    poll). 0 for a venue without active checks — one count query, nothing
-    more."""
+    poll). 0 for a venue without active checks — one query, nothing more.
+    With checks it costs 2 statements, not the whole Egenkontrol page
+    (ek.due_counts; the profile GET /api/today already read gives the
+    cutoff): this part runs on every rail poll (5 min) and after every write
+    (tests/test_egenkontrol_today_badge.py pins the count)."""
     from app.services.diagnostics_service import (
         _detect_close_missing,
         _detect_egenkontrol_due,
@@ -603,7 +606,10 @@ def _badges(db: Session, user: User, day: date, profile=None, skip=frozenset()) 
     cm = _safe("badge_close", lambda: _detect_close_missing(db, user, now, skip), db=db)
     if cm and not _venue_closed_on(profile, day - timedelta(days=1)):
         out["daily_close"] = 1
-    ek = _safe("badge_egenkontrol", lambda: _detect_egenkontrol_due(db, user, now), db=db)
+    ek = _safe("badge_egenkontrol",
+               lambda: _detect_egenkontrol_due(db, user, now, profile=profile,
+                                               profile_known=profile is not None),
+               db=db)
     if ek:
         meta = ek.get("meta") or {}
         out["egenkontrol"] = int(meta.get("count") or 0)

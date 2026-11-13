@@ -400,30 +400,35 @@ def _detect_public_booking_dead(db: Session, user, now, skip=frozenset()):
     )
 
 
-def _detect_egenkontrol_due(db: Session, user, now, skip=frozenset()):
+def _detect_egenkontrol_due(db: Session, user, now, skip=frozenset(), *, profile=None, profile_known=False):
     """Egenkontrol: a scheduled reading is overdue, or a deviation is still
     open. Urgent when a deviation is open (food may still be at risk), warn
     for a missing reading. Read-only — it never records anything.
 
     Uses egenkontrol_service's own clock and the ONE status module, so the
-    queue says exactly what the Egenkontrol page and the kitchen iPad say.
+    queue says exactly what the Egenkontrol page and the kitchen iPad say
+    (ek.due_counts: build_today's summary, without building the payload —
+    I dag's badge part runs this on every rail poll). `profile` +
+    `profile_known`: the owner's business_profiles row (None = none) when the
+    caller already read it, so the cutoff costs no second query.
     Never for the accountant view; nothing when there are no active checks."""
     from app.services.auth import is_accountant_view
     if is_accountant_view(user):
         return None
     from app.services import egenkontrol_service as ek
-    if ek.active_check_count(db, user) == 0:
+    counts = (ek.due_counts(db, user, profile=profile) if profile_known
+              else ek.due_counts(db, user))
+    if counts is None:
         return None
-    today = ek.build_today(db, user)
-    missing = int(today["summary"]["missing"])
-    deviations = int(today["summary"]["open_deviations"])
+    missing = counts["missing"]
+    deviations = counts["deviations"]
     if missing <= 0 and deviations <= 0:
         return None
     return _finding(
         "egenkontrol_due",
         "urgent" if deviations else "warn",
         "/egenkontrol",
-        {"date": today["business_date"], "missing": missing,
+        {"date": counts["business_date"], "missing": missing,
          "deviations": deviations, "count": missing + deviations},
     )
 

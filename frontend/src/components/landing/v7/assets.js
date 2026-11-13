@@ -6,8 +6,12 @@
  * sched-pub (the published week) is the design's screen with one line changed (12 Nov 2026): "Personalet har fået besked
  * om de 6 nye vagter" now reads "Personalet ser den i Vagtplan-appen" (no notification claim). tips (Drikkepenge, coming
  * soon) is the design's screen without a payroll file or a named payroll system: "Godkend og send til Danløn" reads
- * "Godkend fordelingen", "Hent lønfil (CSV)" reads "Eksportér (CSV)", the "Danløn ›" link is gone. width / height are the full file's, so the box is
- * known before the picture arrives (no shift).
+ * "Godkend fordelingen", "Hent lønfil (CSV)" reads "Eksportér (CSV)", the "Danløn ›" link is gone. egen (Egenkontrol, shipped)
+ * is not the design's screen: it is a real screenshot of the shipped kitchen-iPad screen (/kitchen/<token>, "I dag", Danish,
+ * light, iPad landscape 1180 x 820 at 2x, scaled to 1600 x 1112) on demo data entered through the API (Bistro Nørrebro,
+ * fredag 13. november 2026 at 14:10; taken 13 Nov 2026). The design's mock showed things that are not built (a cooling
+ * section, an Allergener tab, a Service | Egenkontrol switch, 65 °C hot holding). width / height are the full file's, so
+ * the box is known before the picture arrives (no shift).
  *
  * HERO_TABLET is the page's largest picture on a phone's first screen: the HTML's first screen and its head preload use
  * these exact strings (scripts/landingFirstScreenV7.mjs, vite.config.js preloadLanding), so the browser fetches it once. */
