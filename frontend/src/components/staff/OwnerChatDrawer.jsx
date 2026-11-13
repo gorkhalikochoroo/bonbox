@@ -349,6 +349,16 @@ export default function OwnerChatDrawer({ open, onClose, onUnreadChange }) {
   const [active, setActive] = useState(null); // {endpoint, name, sub, isGroup}
   const [creating, setCreating] = useState(false);
 
+  // The parent hands a fresh arrow on every render, and reporting the count
+  // re-renders the parent. If loadThreads depended on that prop, each answer
+  // would make a new loadThreads, re-run the effect below and fetch again — a
+  // request loop (~180/s) that tripped the per-IP limit for the whole app.
+  // Read the callback through a ref so loadThreads is stable for any caller.
+  const onUnreadRef = useRef(onUnreadChange);
+  useEffect(() => {
+    onUnreadRef.current = onUnreadChange;
+  }, [onUnreadChange]);
+
   // People and groups are two reads because they are two shapes; the badge is
   // the SUM, so a group nobody has answered still shows on the launcher.
   const loadThreads = useCallback(() => {
@@ -358,11 +368,11 @@ export default function OwnerChatDrawer({ open, onClose, onUnreadChange }) {
     ]).then(([people, grps]) => {
       setThreads(people);
       setGroups(grps);
-      onUnreadChange?.(
+      onUnreadRef.current?.(
         [...people, ...grps].reduce((s, r) => s + (r.unread || 0), 0),
       );
     });
-  }, [onUnreadChange]);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -384,7 +394,15 @@ export default function OwnerChatDrawer({ open, onClose, onUnreadChange }) {
         aria-label={t("staffChatClose", "Close")}
       />
       {/* Panel */}
-      <div className="relative w-full sm:max-w-md h-full bg-gray-50 dark:bg-gray-900 shadow-2xl flex flex-col">
+      {/* Safe-area padding: on a notched phone the header (title + ✕) sat
+          under the status bar, so the drawer could not be closed. */}
+      <div
+        className="relative w-full sm:max-w-md h-full bg-gray-50 dark:bg-gray-900 shadow-2xl flex flex-col"
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}
+      >
         {active ? (
           <Conversation
             endpoint={active.endpoint}
