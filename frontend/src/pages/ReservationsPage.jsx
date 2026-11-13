@@ -193,7 +193,7 @@ import SalonAttention from "../components/reservations/SalonAttention";
 import SalonWeekCapacity, { SalonDayCapacity } from "../components/reservations/SalonCapacity";
 import StylistRow, { isOwnChair, tidyName, STYLIST_NAME_MAX } from "../components/reservations/StylistRow";
 import StylistAddCard from "../components/reservations/StylistAddCard";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, platform } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
 import { parseServerTime } from "../utils/serverTime";
@@ -6424,7 +6424,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // /reservations/stand in a new tab — a dedicated host-stand display. Hidden
   // while already inside the pop-out. On a phone it sits after the lens
   // switch, under Refresh — or beside Refresh when there is no lens switch.
-  const standPopOut = !__STAND_BUILD__ && !standalone ? (
+  //
+  // Not in the iPhone/iPad app (13 Nov 2026 device pass): WKWebView ignores
+  // window.open(…, "_blank"), so the button did nothing — a dead end. Opening
+  // the stand in place instead would leave the owner on a screen whose only
+  // exit is "Log ud" (by design — see the stand menu). Android's WebView opens
+  // it in place and BACK returns, so it stays there; the web keeps its tab.
+  const standPopOut = !__STAND_BUILD__ && !standalone && !(platform.isNative && platform.isIOS) ? (
     <button
       type="button"
       onClick={() =>
