@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/web-BYxHU6ee.js","assets/dist-CXO7fBfF.js"])))=>i.map(i=>d[i]);
+import{p as e}from"./vendor-react-BUHZeGuk.js";import{i as t}from"./dist-CXO7fBfF.js";var n=t(`App`,{web:()=>e(()=>import(`./web-BYxHU6ee.js`).then(e=>new e.AppWeb),__vite__mapDeps([0,1]))}),r;(function(e){e.Dark=`DARK`,e.Light=`LIGHT`,e.Default=`DEFAULT`})(r||={});var i;(function(e){e.Body=`body`,e.Ionic=`ionic`,e.Native=`native`,e.None=`none`})(i||={});var a=t(`Keyboard`);export{n,a as t};
