@@ -339,6 +339,11 @@ describe("the fravær sheet", () => {
   });
 
   it("lists what is registered and takes a range back in two steps", async () => {
+    // The sheet lists absences from today − 31 days on, so the fixture dates
+    // only stay in view if "today" is pinned (this went red on 13 Nov 2026).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-14T12:00:00"));
+    try {
     const onChanged = vi.fn();
     const absences = [
       { id: "a1", staff_id: "st-a", kind: "ferie", date: "2026-10-12", status: "acknowledged" },
@@ -353,6 +358,9 @@ describe("the fravær sheet", () => {
     await waitFor(() => expect(apiDelete).toHaveBeenCalledTimes(2));
     expect(apiDelete.mock.calls.map((c) => c[0])).toEqual(["/staff/absences/a1", "/staff/absences/a2"]);
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("is a form whose primary action is a submit", async () => {

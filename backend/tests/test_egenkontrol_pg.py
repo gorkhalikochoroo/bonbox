@@ -390,29 +390,39 @@ def test_r1b_erasure_walk_with_photos_documents_and_reviews(pg, clock):
     from app.database import Base
     from app.routers.auth import _owned_by_uid_predicate
 
+    from app.models.kitchen_link import KitchenLink
+
     s = pg["Session"]()
-    gone, kept = _owner(s, "Gone2"), _owner(s, "Kept2")
-    for o in (gone, kept):
-        ids = _setup(s, o)
-        e = _save(s, o, ids["fridge"], 9.0, action_code="thermostat_adjusted", fate_code="moved")
-        _r1b_rows(s, o, e)
-    uid = gone.id
-    for table in reversed(Base.metadata.sorted_tables):
-        if table.name in ("users", "audit_logs", "security_events", "error_logs",
-                          "bank_connections", "mobilepay_connections"):
-            continue
-        pred = _owned_by_uid_predicate(table, uid)
-        if pred is None:
-            continue
-        with s.begin_nested():
-            s.execute(table.delete().where(pred))
-    s.commit()
-    for t in TABLES + R1B_TABLES:
-        n_gone = s.execute(text(f"SELECT count(*) FROM {t} WHERE user_id = :u"), {"u": str(uid)}).scalar()
-        n_kept = s.execute(text(f"SELECT count(*) FROM {t} WHERE user_id = :u"), {"u": str(kept.id)}).scalar()
-        assert n_gone == 0, t
-        assert n_kept > 0, t
-    s.close()
+    try:
+        gone, kept = _owner(s, "Gone2"), _owner(s, "Kept2")
+        for o in (gone, kept):
+            ids = _setup(s, o)
+            e = _save(s, o, ids["fridge"], 9.0, action_code="thermostat_adjusted", fate_code="moved")
+            _r1b_rows(s, o, e)
+            # TABLES includes kitchen_links, so each owner needs one (as in the R1a twin).
+            s.add(KitchenLink(user_id=o.id, token=uuid.uuid4().hex, active=True))
+            s.commit()
+        uid = gone.id
+        for table in reversed(Base.metadata.sorted_tables):
+            if table.name in ("users", "audit_logs", "security_events", "error_logs",
+                              "bank_connections", "mobilepay_connections"):
+                continue
+            pred = _owned_by_uid_predicate(table, uid)
+            if pred is None:
+                continue
+            with s.begin_nested():
+                s.execute(table.delete().where(pred))
+        s.commit()
+        for t in TABLES + R1B_TABLES:
+            n_gone = s.execute(text(f"SELECT count(*) FROM {t} WHERE user_id = :u"), {"u": str(uid)}).scalar()
+            n_kept = s.execute(text(f"SELECT count(*) FROM {t} WHERE user_id = :u"), {"u": str(kept.id)}).scalar()
+            assert n_gone == 0, t
+            assert n_kept > 0, t
+    finally:
+        # A failed assert must not leave the session idle in a transaction:
+        # the module teardown's DROP SCHEMA would wait on it forever.
+        s.rollback()
+        s.close()
 
 
 def test_r1b_purges_run_on_postgres(pg, clock, monkeypatch, tmp_path):
