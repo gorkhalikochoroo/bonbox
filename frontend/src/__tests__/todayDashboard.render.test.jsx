@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 
 const get = vi.fn();
@@ -161,6 +161,32 @@ describe("I dag — mid-service", () => {
     expect(JSON.parse(localStorage.getItem("bonbox_nyq_dismissed"))).toHaveProperty(["close_missing|2026-11-11"]);
     // the dated dismissal travels to the server scan as skip
     await waitFor(() => expect(get).toHaveBeenCalledWith("/diagnostics/needs-you", { params: { skip: "close_missing:2026-11-11" } }));
+  });
+
+  it("Kræver dig carries Egenkontrol's missing reading like the other findings — its words, its tone, into /egenkontrol", async () => {
+    const ek = [{ code: "egenkontrol_due", severity: "warn", deep_link: "/egenkontrol", meta: { date: "2026-11-12", missing: 1, deviations: 0, count: 1 } }];
+    mount(payload({ schedule: { week_start: "2026-11-09", week_number: 46, drafts: 0 } }), { findings: ek });
+    const title = await screen.findByText("nyqEkMissingOne");
+    const li = title.closest(".td-li");
+    // a missing reading is the server's "warn" → amber, as Kræver dig tones it
+    expect(li.querySelector(".td-li-ic").className).toContain("t-amber");
+    expect(screen.getByText("tdNeedsLink(count=1)")).toBeInTheDocument();
+    fireEvent.click(within(li).getByRole("button", { name: "nyqEkAction" }));
+    expect(screen.getByTestId("where").textContent).toBe("/egenkontrol");
+  });
+
+  it("an open Egenkontrol deviation is red, and Skjul hides it for that day only", async () => {
+    const ek = [{ code: "egenkontrol_due", severity: "urgent", deep_link: "/egenkontrol", meta: { date: "2026-11-12", missing: 0, deviations: 2, count: 2 } }];
+    mount(payload({ schedule: { week_start: "2026-11-09", week_number: 46, drafts: 0 } }), { findings: ek });
+    const title = await screen.findByText("nyqEkDeviationMany(count=2)");
+    const li = title.closest(".td-li");
+    expect(li.querySelector(".td-li-ic").className).toContain("t-red");
+    fireEvent.click(within(li).getByRole("button", { name: "nyqDismiss" }));
+    await waitFor(() => expect(screen.queryByText("nyqEkDeviationMany(count=2)")).toBeNull());
+    // keyed by the business day (a new day's finding comes back); not a dated
+    // code, so it is never sent to the server scan as a skip.
+    expect(JSON.parse(localStorage.getItem("bonbox_nyq_dismissed"))).toHaveProperty(["egenkontrol_due|2026-11-12"]);
+    expect(get.mock.calls.some(([u, o]) => u === "/diagnostics/needs-you" && /egenkontrol/.test(o?.params?.skip || ""))).toBe(false);
   });
 
   it("does not read /today again when the page's own read is fresh", async () => {

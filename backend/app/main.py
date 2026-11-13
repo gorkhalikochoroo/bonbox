@@ -2985,10 +2985,11 @@ _migrations = [
     # REFERENCES, no ON DELETE CASCADE. FK-free on purpose: followup_of_id and
     # supersedes_id (a self-reference would FK-fail the 730-day purge at its
     # boundary), created_by_user_id and actor_user_id (actor refs).
-    # Placed at the END of the list: 087 is reserved for the unmerged
-    # reservations-v2 branch. The runner has no ledger (numbers live only in
-    # comments; _migration_already_applied reads the live catalog), so a
-    # missing 087 here is harmless and the order between them is irrelevant.
+    # Placed at the END of the list; 087 (reservations-v2's
+    # reservation_waitlist.quoted_at, live) sits with the waitlist migrations
+    # above. The runner has no ledger (numbers live only in comments;
+    # _migration_already_applied reads the live catalog), so the order
+    # between them is irrelevant.
     # Cooling (R2) is NOT created yet; food_check_reviews came in 089 (R1b).
     #
     # kitchen_links — the kitchen iPad's device credential: stand_links' shape

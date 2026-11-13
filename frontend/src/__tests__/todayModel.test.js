@@ -140,6 +140,16 @@ describe("Kræver dig — only what the owner can act on", () => {
     expect(needs[0].guest).toBeNull();
   });
 
+  it("Egenkontrol's finding (egenkontrol_due) is a Kræver-dig row like the others, into /egenkontrol", () => {
+    // The server's _detect_egenkontrol_due — the same finding the old Home's
+    // NeedsYouQueue shows. Its words come from the shared needs-you renderers.
+    const ek = { code: "egenkontrol_due", severity: "warn", deep_link: "/egenkontrol", meta: { date: day, missing: 1, deviations: 0, count: 1 } };
+    const needs = buildNeeds({ ...base, schedule: { drafts: 0 }, revisor: { has_accountant_email: true } }, [ek]);
+    expect(needs).toEqual([{ id: `nyq:egenkontrol_due:${day}`, kind: "finding", code: "egenkontrol_due", meta: ek.meta, severity: "warn", to: "/egenkontrol" }]);
+    // No row when the server has none (no active checks, nothing missing).
+    expect(buildNeeds({ ...base, schedule: { drafts: 0 }, revisor: { has_accountant_email: true } }, [])).toEqual([]);
+  });
+
   it("every item has somewhere to go or something to do", () => {
     const needs = buildNeeds(base, [
       { code: "close_missing", meta: { date: "2026-11-11" }, deep_link: "/daily-close?date=2026-11-11" },

@@ -554,6 +554,10 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
 .td-badge.b-act { background: var(--td-green-soft); color: var(--td-green); }
 .td-badge.b-draft { background: var(--td-amber-soft); color: var(--td-amber); }
 .td-badge.b-missing { border: 1px solid var(--td-brass-line); color: var(--td-amber); font-weight: 600; }
+/* Egenkontrol's count (EgenkontrolNavBadge rail): the tone Kræver dig gives
+   the same finding — a missing reading amber, an open deviation red. */
+.td-badge.b-warn { background: var(--td-amber-soft); color: var(--td-amber); }
+.td-badge.b-urgent { background: var(--td-red-soft); color: var(--td-red-ink); }
 .td-ask { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 12px; border-radius: 14px; border: 1px solid var(--td-line); background: var(--td-head); color: var(--td-ink); font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; }
 .td-ask-ic { width: 28px; height: 28px; flex: none; border-radius: 9px; background: #1A1917; color: var(--td-brass); display: grid; place-items: center; }
 .td-ask-s { display: block; font-size: 12px; font-weight: 500; color: var(--td-muted); }

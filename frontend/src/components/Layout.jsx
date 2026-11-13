@@ -636,7 +636,8 @@ export default function Layout() {
   })();
   // One rail row. A plain render function (not a component) so rows keep
   // their identity — and focus — across renders. `top` = the daily-jobs
-  // section (44px rows, the only ones that carry a badge).
+  // section (44px rows, the only ones that carry an I dag badge; Egenkontrol
+  // brings its own count, below).
   const renderRailRow = (item, top, badge) => {
     const label = item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey);
     if (item.locked) {
@@ -669,7 +670,10 @@ export default function Layout() {
             {badge.count != null ? badge.count : t("tdBadgeMissing")}
           </span>
         )}
-        {!badge && item.badge === "egenkontrol" ? <EgenkontrolNavBadge /> : null}
+        {/* Egenkontrol carries its own count wherever the rail places it
+            (Administration, after Lager): missing readings + open deviations
+            from its status poll, in the rail's badge shape. */}
+        {!badge && item.badge === "egenkontrol" ? <EgenkontrolNavBadge rail /> : null}
       </NavLink>
     );
   };

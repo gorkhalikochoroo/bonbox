@@ -531,6 +531,8 @@ export const NAV_MANIFEST = [
     // records. NOT named "I dag" — the only "I dag" in the owner app stays the
     // Today page (plan E13); the kitchen iPad's own screen is "I dag".
     // `badge` makes Layout draw the missing-readings count after the label.
+    // On the I dag rail it sits in Administration right after Lager
+    // (RAIL_BY_ROUTE); on the phone it stays under LAGER on the More page.
     to: "/egenkontrol",
     icon: "Thermometer",
     labelKey: "navEgenkontrol",
@@ -1493,6 +1495,7 @@ export function sidebarGroupsFor(archetypeId = null) {
  *   • today  — headerless: I dag · Reservationer · Vagtplan · Kasserapport ·
  *              Timer & løn (the daily jobs)
  *   • admin  — "Administration", always open: Salg · Udgifter · Lager ·
+ *              (Egenkontrol — food service + bar, retail once switched on) ·
  *              Rapporter · Skat Autopilot
  *   • workshop — the Værksted vertical, exactly as before (module-gated)
  *   • more   — "Mere", collapsible, closed until the owner opens it: every
@@ -1525,6 +1528,13 @@ export const RAIL_BY_ROUTE = Object.freeze({
   "/sales": "admin",
   "/expenses": "admin",
   "/inventory": "admin",
+  // Egenkontrol (Nov 2026 merge): the kitchen's daily check sits with Lager,
+  // the rail's other kitchen/ops row. Its archetype gates are the manifest
+  // row's own (food service + bar; retail once switched on; never a salon),
+  // so this is only WHERE it sits. Its count is drawn by Layout (the
+  // Egenkontrol status poll), and its "måling mangler" line reaches I dag's
+  // "Kræver dig" through the shared needs-you renderers. Never "I dag".
+  "/egenkontrol": "admin",
   "/reports": "admin",
   "/tax": "admin",
   "/workshop": "workshop",

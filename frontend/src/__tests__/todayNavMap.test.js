@@ -8,15 +8,19 @@
  *   2. Every manifest destination with any surface is still reachable from at
  *      least one place (rail, account menu, More, ⌘K).
  *   3. The canvas order: I dag · Reservationer · Vagtplan · Kasserapport ·
- *      Timer & løn, then Administration: Salg · Udgifter · Lager · Rapporter ·
- *      Skat Autopilot.
+ *      Timer & løn, then Administration: Salg · Udgifter · Lager ·
+ *      (Egenkontrol, a kitchen's daily check — food service + bar, retail
+ *      once switched on) · Rapporter · Skat Autopilot.
  *   4. The phone tab bar: five slots, all real destinations, never a tab for a
  *      switched-off pillar, and Salg still reachable on a phone.
  */
 import { describe, it, expect } from "vitest";
 import {
   NAV_MANIFEST, sidebarGroupsFor, railSectionsFor, accountMenuDestinations, isOnSurface, railOf,
+  filterDestinations,
 } from "../config/navManifest";
+import { archetypeIdFor } from "../config/archetypes";
+import { da } from "../i18n/da";
 import { getTabsForType } from "../config/bottomNavTabs";
 
 const ARCHETYPES = [null, "food_service", "bar", "salon", "retail", "services", "generic"];
@@ -85,21 +89,59 @@ describe("the canvas order", () => {
     const secs = railSectionsFor("food_service");
     const byId = Object.fromEntries(secs.map((s) => [s.id, s.items.map((i) => i.to)]));
     expect(byId.today).toEqual(["/dashboard", "/reservations", "/staff/schedule", "/daily-close", "/staff/hours"]);
-    expect(byId.admin).toEqual(["/sales", "/expenses", "/inventory", "/reports", "/tax"]);
+    expect(byId.admin).toEqual(["/sales", "/expenses", "/inventory", "/egenkontrol", "/reports", "/tax"]);
     expect(secs.map((s) => s.id)).toEqual(["today", "admin", "workshop", "more"]);
     const admin = secs.find((s) => s.id === "admin");
     expect(admin.collapsible).toBe(false);
     expect(secs.find((s) => s.id === "more").defaultOpen).toBe(false);
   });
 
-  it("Egenkontrol is not on the rail (not built)", () => {
-    expect(NAV_MANIFEST.some((d) => /egenkontrol/i.test(d.to))).toBe(false);
-  });
-
   it("a salon's book keeps its own word", () => {
     const salonToday = railSectionsFor("salon").find((s) => s.id === "today").items;
     expect(salonToday.find((i) => i.to === "/reservations").labelKeyByArchetype.salon).toBe("navAppointments");
   });
+});
+
+describe("Egenkontrol on the I dag rail (Nov 2026 merge)", () => {
+  // The rail an owner of this business type actually sees, per section: the
+  // projection, then the same four visibility axes Layout applies.
+  const railFor = (type, used = []) => {
+    const archetypeId = archetypeIdFor(type);
+    return Object.fromEntries(railSectionsFor(archetypeId).map((s) => [s.id, filterDestinations(s.items, {
+      businessTypes: [type], archetypeId, enabledModules: new Set(), hasFeature: () => true,
+      usedSurfaces: new Set(used),
+    }).map((i) => i.to)]));
+  };
+
+  it("has an explicit place — Administration, right after Lager — not the 'more' default", () => {
+    expect(RAIL_PLACE()).toBe("admin");
+    const admin = railFor("restaurant").admin;
+    expect(admin.indexOf("/egenkontrol")).toBe(admin.indexOf("/inventory") + 1);
+  });
+
+  it("food service and bar see it; retail only once switched on; a salon never", () => {
+    for (const type of ["restaurant", "cafe", "bakery", "bar"]) {
+      expect(railFor(type).admin, type).toContain("/egenkontrol");
+    }
+    expect(railFor("grocery").admin).not.toContain("/egenkontrol");
+    expect(railFor("grocery", ["egenkontrol"]).admin).toContain("/egenkontrol");
+    expect(railFor("clothing").admin).not.toContain("/egenkontrol");
+    expect(railFor("salon", ["egenkontrol"]).admin || []).not.toContain("/egenkontrol");
+    // It is never on the daily-jobs spine, whatever the archetype.
+    for (const a of ARCHETYPES) {
+      expect(railSectionsFor(a).find((s) => s.id === "today").items.map((i) => i.to)).not.toContain("/egenkontrol");
+    }
+  });
+
+  it("is never called 'I dag' — the owner app has one I dag (the Today page)", () => {
+    const ek = NAV_MANIFEST.find((d) => d.to === "/egenkontrol");
+    expect(ek.labelKey).toBe("navEgenkontrol");
+    expect(da.navEgenkontrol).not.toMatch(/^\s*i dag\s*$/i);
+    const iDag = NAV_MANIFEST.filter((d) => /^\s*i dag\s*$/i.test(da[d.labelKey] || ""));
+    expect(iDag.map((d) => d.to)).toEqual(["/dashboard"]);
+  });
+
+  const RAIL_PLACE = () => railOf(NAV_MANIFEST.find((d) => d.to === "/egenkontrol"));
 });
 
 describe("the phone tab bar", () => {
