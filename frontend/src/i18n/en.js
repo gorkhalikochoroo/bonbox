@@ -12297,7 +12297,7 @@ export const en = {
     ekDayMissed: "Not recorded",
     ekDayDeviation: "Deviation",
     ekDayNone: "No readings planned",
-    ekDownloadPdf: "Download PDF (30 days)",
+    ekDownloadPdf: "Download PDF",
     ekPdfReady: "PDF ready",
     ekPdfFailed: "The PDF could not be downloaded. Try again.",
     ekEditCheck: "Edit check",

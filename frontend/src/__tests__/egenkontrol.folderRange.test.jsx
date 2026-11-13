@@ -13,6 +13,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { da } from "../i18n/da";
+import { en } from "../i18n/en";
 
 const h = vi.hoisted(() => ({ get: vi.fn(), toast: vi.fn(), saveFile: vi.fn() }));
 vi.mock("../services/api", () => ({
@@ -100,6 +101,21 @@ describe("one period for the screen and the PDF", () => {
     expect(pdf[1]).toMatchObject({ params: { from: "2026-08-13", to: "2026-11-12" }, responseType: "blob" });
     expect(h.saveFile.mock.calls[0][1]).toBe("Kontrolmappe_2026-08-13_2026-11-12.pdf");
     expect(h.toast).toHaveBeenCalledWith(expect.objectContaining({ message: da.ekPdfReady }));
+  });
+
+  it("the PDF button names no fixed period: 'Seneste 3 måneder' never sits under 'Hent PDF (30 dage)'", async () => {
+    // Review M1 (15 Nov): the label said "(30 dage)" while the file followed the
+    // picker (up to 92 days). The period is shown above the button; the label
+    // itself must not promise a length, in either language.
+    expect(da.ekDownloadPdf).not.toMatch(/\d/);
+    expect(en.ekDownloadPdf).not.toMatch(/\d/);
+    render(<MemoryRouter initialEntries={["/egenkontrol?tab=folder"]}><EgenkontrolPage /></MemoryRouter>);
+    await settle();
+    fireEvent.click(screen.getByTestId("ek-range-last92"));
+    await settle();
+    const btn = screen.getByRole("button", { name: da.ekDownloadPdf });
+    expect(btn.textContent).not.toMatch(/30\s*dage/i);
+    expect(btn.textContent).toMatch(/Hent PDF/);
   });
 
   it("'Vælg datoer' over 92 days → 'Højst 92 dage ad gangen.' and no fetch", async () => {

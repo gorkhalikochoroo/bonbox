@@ -11974,7 +11974,7 @@ export const da = {
     ekDayMissed: "Ikke registreret",
     ekDayDeviation: "Afvigelse",
     ekDayNone: "Ingen målinger planlagt",
-    ekDownloadPdf: "Hent PDF (30 dage)",
+    ekDownloadPdf: "Hent PDF",
     ekPdfReady: "PDF klar",
     ekPdfFailed: "PDF'en kunne ikke hentes. Prøv igen.",
     ekEditCheck: "Redigér kontrolpunkt",
