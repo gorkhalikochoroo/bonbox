@@ -34,7 +34,14 @@ from app.services import audit_service
 from app.services import egenkontrol_rules as R
 from app.utils.time import utc_now
 
+# The plan's limit (billing.PLAN_CAPS). It counts ACTIVE TEMPERATURE checks
+# only — køl, frost, varmholdelse, genopvarmning, varemodtagelse: every kind
+# except "tick" — on every plan (Free 6, Starter / Pro / Trial 100). Ticks
+# (Rengøring, Termometertjek) never count and never give a 402; they have the
+# flat abuse ceiling R.TICKS_MAX instead (409 too_many_ticks). Founder, 13 Nov
+# 2026. The key keeps its R1a name so the 402 payload's "cap" never changes.
 CAP_KEY = "egenkontrol_active_checks"
+TICK_KIND = "tick"
 FEATURE = "egenkontrol"
 _DEFAULT_TZ = "Europe/Copenhagen"
 _DEFAULT_CUTOFF = 6
@@ -320,16 +327,48 @@ def revs_by_check(db: Session, checks: list[FoodCheck]) -> dict[str, list[R.Revi
     return out
 
 
-def active_check_count(db: Session, owner) -> int:
-    return int(
-        db.query(FoodCheck)
-        .filter(
-            FoodCheck.user_id == owner.id,
-            FoodCheck.active.is_(True),
-            FoodCheck.archived_at.is_(None),
-        )
-        .count()
+def _active_checks(db: Session, owner):
+    return db.query(FoodCheck).filter(
+        FoodCheck.user_id == owner.id,
+        FoodCheck.active.is_(True),
+        FoodCheck.archived_at.is_(None),
     )
+
+
+def active_check_count(db: Session, owner) -> int:
+    """Every active check, ticks included (diagnostics: "has any check")."""
+    return int(_active_checks(db, owner).count())
+
+
+def counts_toward_cap(kind: Optional[str]) -> bool:
+    """A temperature check counts toward the plan's limit; a tick never does.
+    Fails closed: any kind that is not "tick" (a future one too) counts."""
+    return kind != TICK_KIND
+
+
+def active_temperature_count(db: Session, owner) -> int:
+    """What the plan's limit counts: active checks that are not ticks."""
+    return int(_active_checks(db, owner).filter(FoodCheck.kind != TICK_KIND).count())
+
+
+def active_tick_count(db: Session, owner) -> int:
+    return int(_active_checks(db, owner).filter(FoodCheck.kind == TICK_KIND).count())
+
+
+def _enforce_room(db: Session, owner, kinds: list) -> None:
+    """Room for len(kinds) more ACTIVE checks of these kinds. Temperature
+    checks → the plan's limit (402 cap_exceeded, the payload every cap uses;
+    its count is the active temperature checks). Ticks → R.TICKS_MAX (409
+    too_many_ticks, never a 402). Called only when a check is ADDED or
+    switched back ON: after a downgrade every existing check keeps recording."""
+    from app.services.billing import enforce_cap
+
+    temps = sum(1 for k in kinds if counts_toward_cap(k))
+    ticks = len(kinds) - temps
+    if temps:
+        enforce_cap(owner, CAP_KEY, active_temperature_count(db, owner) + temps - 1)
+    if ticks and active_tick_count(db, owner) + ticks > R.TICKS_MAX:
+        raise conflict("too_many_ticks", max=R.TICKS_MAX)
 
 
 def resolve_branch(db: Session, owner, branch_id) -> Optional[Branch]:
@@ -441,10 +480,11 @@ def build_today(db: Session, owner, *, branch_scope=None, now: Optional[datetime
 
 
 def cap_out(db: Session, owner) -> dict:
-    """{"limit": the plan's active-check cap, "active": n} — the same
-    numbers enforce_cap uses, so the UI counter and the 402 never disagree."""
+    """{"limit": the plan's limit, "active": active TEMPERATURE checks} — the
+    same numbers enforce_cap uses, so the UI counter and the 402 never
+    disagree. Ticks are not in "active" (they never count)."""
     from app.services.billing import get_cap
-    return {"limit": int(get_cap(owner, CAP_KEY)), "active": active_check_count(db, owner)}
+    return {"limit": int(get_cap(owner, CAP_KEY)), "active": active_temperature_count(db, owner)}
 
 
 def build_status(db: Session, owner, *, now: Optional[datetime] = None) -> dict:
@@ -962,8 +1002,6 @@ def _new_check(db: Session, owner, *, template_key, name, note, limit_c, product
 
 
 def setup(db: Session, owner, payload, *, actor_id) -> list[dict]:
-    from app.services.billing import enforce_cap
-
     existing = (
         db.query(FoodCheck.id)
         .filter(FoodCheck.user_id == owner.id, FoodCheck.archived_at.is_(None))
@@ -974,8 +1012,11 @@ def setup(db: Session, owner, payload, *, actor_id) -> list[dict]:
     branch = resolve_branch(db, owner, payload.branch_id)
     now = now_utc()
     _, cutoff, _ = zone_and_cutoff(db, owner)
-    active = active_check_count(db, owner)
-    enforce_cap(owner, CAP_KEY, active + len(payload.items) - 1)
+    try:
+        kinds = [R.template(item.template_key)["kind"] for item in payload.items]
+    except R.RuleError as e:
+        raise rule_http(e)
+    _enforce_room(db, owner, kinds)
     made = []
     try:
         for i, item in enumerate(payload.items):
@@ -1007,10 +1048,12 @@ def setup(db: Session, owner, payload, *, actor_id) -> list[dict]:
 
 
 def create_check(db: Session, owner, payload, *, actor_id) -> dict:
-    from app.services.billing import enforce_cap
-
     branch = resolve_branch(db, owner, payload.branch_id)
-    enforce_cap(owner, CAP_KEY, active_check_count(db, owner))
+    try:
+        kind = R.template(payload.template_key)["kind"]
+    except R.RuleError as e:
+        raise rule_http(e)
+    _enforce_room(db, owner, [kind])
     now = now_utc()
     _, cutoff, _ = zone_and_cutoff(db, owner)
     top = (
@@ -1072,8 +1115,6 @@ def _write_revision(db: Session, owner, check: FoodCheck, base: FoodCheckRevisio
 
 
 def patch_check(db: Session, owner, check_id, payload, *, actor_id) -> dict:
-    from app.services.billing import enforce_cap
-
     check = _owned_check(db, owner, check_id)
     if check.archived_at is not None:
         raise conflict("archived")
@@ -1123,7 +1164,7 @@ def patch_check(db: Session, owner, check_id, payload, *, actor_id) -> dict:
         raise rule_http(e)
 
     if changes.get("active") is True:
-        enforce_cap(owner, CAP_KEY, active_check_count(db, owner))
+        _enforce_room(db, owner, [check.kind])
     if changes.get("active") is False:
         _refuse_with_open_deviation(db, owner, check)
 

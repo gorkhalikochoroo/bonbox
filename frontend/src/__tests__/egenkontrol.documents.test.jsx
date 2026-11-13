@@ -3,6 +3,9 @@
  *   • each row: type · title · "Uploadet … · gennemgås igen senest …"; a due
  *     or overdue review → "Gennemgå igen"; NEVER "Aktuel" / "Current"
  *     anywhere on screen;
+ *   • a hygiejnebevis (founder, 13 Nov 2026: it does not expire — the server
+ *     sends review_due null): only "Uploadet …", no review date, no
+ *     "Gennemgå igen", no "Markér som gennemgået";
  *   • the honest line: BonBox stores them, does not read or approve them;
  *   • owner: "Tilføj dokument" (type chips, title prefilled and editable,
  *     PDF / JPEG / PNG, no capture attribute) → multipart POST; "Markér som
@@ -60,9 +63,12 @@ const DOCS = [
   { id: "d1", doc_type: "programme", title: "Egenkontrolprogram <b>& co</b>", content_type: "application/pdf", size_bytes: 1000,
     uploaded_at: "2026-11-01T09:00:00Z", uploaded_local_date: "2026-11-01", reviewed_at: null, reviewed_local_date: null,
     review_due: "2027-11-01", review_state: "ok", branch_id: null },
-  { id: "d2", doc_type: "hygiene_cert", title: "Hygiejnebevis Ali", content_type: "image/jpeg", size_bytes: 2000,
+  { id: "d2", doc_type: "risk_analysis", title: "Risikoanalyse 2025", content_type: "image/jpeg", size_bytes: 2000,
     uploaded_at: "2025-11-20T09:00:00Z", uploaded_local_date: "2025-11-20", reviewed_at: null, reviewed_local_date: null,
     review_due: "2026-11-20", review_state: "soon", branch_id: null },
+  { id: "d3", doc_type: "hygiene_cert", title: "Hygiejnebevis Ali", content_type: "image/jpeg", size_bytes: 2000,
+    uploaded_at: "2024-03-05T09:00:00Z", uploaded_local_date: "2024-03-05", reviewed_at: null, reviewed_local_date: null,
+    review_due: null, review_state: null, branch_id: null },
 ];
 const FOLDER = {
   from: "2026-10-14", to: "2026-11-12", title_counts: { readings: 0 }, summary: {}, days: [], deviations: [], late: [], missed: [], undone: [],
@@ -106,6 +112,17 @@ describe("the list says when, never that a paper is 'current'", () => {
     // No manage buttons without the permission.
     expect(screen.queryByTestId("ek-doc-add")).toBeNull();
     expect(screen.queryByTestId("ek-doc-delete")).toBeNull();
+  });
+
+  it("a hygiejnebevis: 'Uploadet …' only — no review date, no 'Gennemgå igen'", () => {
+    render(<DocumentsSection documents={DOCS} t={t} />);
+    const d3 = screen.getByTestId("ek-doc-d3");
+    expect(d3).toHaveTextContent(da.ekDocTypeHygiene);
+    expect(within(d3).getByTestId("ek-doc-dates")).toHaveTextContent(/^Uploadet 5\.? [Mm]ar\.? 24$/);
+    expect(d3.textContent).not.toMatch(/gennemgås|senest|Gennemgå igen/);
+    expect(within(d3).queryByText(da.ekDocReviewAgain)).toBeNull();
+    // the yearly types keep their date
+    expect(within(screen.getByTestId("ek-doc-d2")).getByTestId("ek-doc-dates")).toHaveTextContent(/gennemgås igen senest 20\.? [Nn]ov\.? 26/);
   });
 
   it("empty: the invitation, not a blank", () => {
@@ -214,6 +231,15 @@ describe("the owner manages them on the Kontrolmappe", () => {
     expect(h.del).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(within(screen.getByTestId("ek-doc-d2")).getByTestId("ek-doc-delete")); });
     expect(h.del).toHaveBeenCalledWith("/egenkontrol/documents/d2");
+  });
+
+  it("the owner: no 'Markér som gennemgået' on a hygiejnebevis (it has no review date); 'Slet' stays", async () => {
+    await openFolder();
+    const d3 = screen.getByTestId("ek-doc-d3");
+    expect(within(d3).queryByTestId("ek-doc-reviewed")).toBeNull();
+    expect(within(d3).getByTestId("ek-doc-delete")).toBeInTheDocument();
+    expect(within(screen.getByTestId("ek-doc-d1")).getByTestId("ek-doc-reviewed")).toBeInTheDocument();
+    expect(within(screen.getByTestId("ek-doc-d2")).getByTestId("ek-doc-reviewed")).toBeInTheDocument();
   });
 
   it("a manager: the list, no buttons", async () => {

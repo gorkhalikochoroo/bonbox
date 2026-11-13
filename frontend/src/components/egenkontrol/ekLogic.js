@@ -659,6 +659,7 @@ export const EK_ERROR_KEYS = {
   title_too_long: "ekErrDocTitle",
   doc_type_unknown: "ekErrDocType",
   too_many_documents: "ekErrDocsFull",
+  too_many_ticks: "ekErrTooManyTicks",
   unsupported_type: "ekErrDocType",
   too_large: "ekErrDocTooLarge",
   empty: "ekErrDocType",
@@ -718,7 +719,11 @@ export const DOCUMENT_TITLE_MAX = 120;
 export const DOCUMENTS_MAX = 30;
 export const RANGE_MAX_DAYS = 92;
 export const FINDSMILEY_PREFIX = "https://www.findsmiley.dk/";
+/** Also accepted (13 Nov 2026); kept in the one www form, as the server does. */
+export const FINDSMILEY_BARE_PREFIX = "https://findsmiley.dk/";
 export const FINDSMILEY_MAX = 255;
+/** Active ticks per venue, every plan: an abuse bound (409), never the plan's limit. */
+export const TICKS_MAX = 30;
 export const RETAIL_OPT_IN_TYPES = ["grocery", "veggie_shop", "kiosk"];
 export const QUEUE_MAX_ITEMS = 200;
 export const PHOTO_MAX_DIMENSION = 1600;
@@ -726,6 +731,16 @@ export const PHOTO_MAX_DIMENSION = 1600;
 /** A tick check (Rengøring, Termometertjek): done or not, no value. */
 export function isTick(check) {
   return check?.kind === "tick";
+}
+
+/**
+ * Does this check count toward the plan's limit? Temperature checks do (køl,
+ * frost, varmholdelse, genopvarmning, varemodtagelse); ticks never do, on any
+ * plan (founder, 13 Nov 2026). Like the server, any kind that is not "tick"
+ * counts.
+ */
+export function countsTowardCap(check) {
+  return !isTick(check);
 }
 
 /** May this reading carry a photo? Out of limit, or goods receiving. */
@@ -851,13 +866,16 @@ export function rangeProblem(from, to, today) {
 
 /**
  * The client-side pre-check of a findsmiley.dk link (the server's rule is
- * the truth): https://www.findsmiley.dk/ + something, ≤ 255, no spaces or
- * control characters, no backslash. Surrounding spaces are trimmed (a URL,
- * not prose). Returns the trimmed value, "" (clear) or null (refused).
+ * the truth): https://www.findsmiley.dk/ or https://findsmiley.dk/ +
+ * something; the second is written in the www form (the one stored form),
+ * which must be ≤ 255, with no spaces or control characters and no
+ * backslash. Surrounding spaces are trimmed (a URL, not prose). Returns the
+ * value to send, "" (clear) or null (refused).
  */
 export function checkFindsmiley(raw) {
-  const v = String(raw ?? "").trim();
+  let v = String(raw ?? "").trim();
   if (!v) return "";
+  if (v.startsWith(FINDSMILEY_BARE_PREFIX)) v = FINDSMILEY_PREFIX + v.slice(FINDSMILEY_BARE_PREFIX.length);
   if (!v.startsWith(FINDSMILEY_PREFIX)) return null;
   if (v === FINDSMILEY_PREFIX || v.length > FINDSMILEY_MAX) return null;
   // eslint-disable-next-line no-control-regex

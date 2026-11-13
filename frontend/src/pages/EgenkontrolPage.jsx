@@ -76,6 +76,7 @@ import { usePhotoUploads } from "../components/egenkontrol/usePhotoUploads";
 import {
   EK_ERROR_KEYS,
   EK_TEMPLATE_KEYS,
+  countsTowardCap,
   errorCode,
   firstReadingLine,
   isTick,
@@ -291,7 +292,8 @@ export default function EgenkontrolPage() {
       alive = false;
     };
   }, [isOwner, curtained]);
-  const cap = capInfo(checksData?.cap, ent?.cap ? ent.cap(CAP_KEY) : undefined, (checksData?.checks || []).filter((c) => c.active).length);
+  // The plan's limit counts temperature checks only — never the ticks.
+  const cap = capInfo(checksData?.cap, ent?.cap ? ent.cap(CAP_KEY) : undefined, (checksData?.checks || []).filter((c) => c.active && countsTowardCap(c)).length);
 
   const cutoffHour = today?.cutoff_hour ?? templates?.cutoff_hour ?? 6;
   const checks = useMemo(() => (Array.isArray(today?.checks) ? today.checks : []), [today]);

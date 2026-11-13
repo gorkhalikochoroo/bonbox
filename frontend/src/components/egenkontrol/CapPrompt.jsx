@@ -1,15 +1,18 @@
 /* eslint-disable react-refresh/only-export-components -- the cap's two small
    helpers live with the line and the prompt that use them. */
 /**
- * The Free plan's limit on active checks (Decision 1: 6 — the five-item start
- * list and one spare; a tick counts). Owner surfaces only (never the kitchen
+ * The Free plan's limit on active TEMPERATURE checks (Decision 1: 6 — the
+ * five-item start list and one spare). Founder, 13 Nov 2026: cleaning and
+ * thermometer ticks never count and never give a 402, on any plan — the
+ * server's `cap.active` counts temperature checks only, and so does the
+ * fallback (ekLogic countsTowardCap). Owner surfaces only (never the kitchen
  * iPad: KitchenPage does not import this file, nor components/Entitlement).
  *
- * CapLine: "Jeres plan: op til 6 aktive kontrolpunkter · 5 i brug" when the
- * plan has a real limit (< 100); after a downgrade with more active checks
- * than the limit: "I har 8 aktive kontrolpunkter. De virker alle stadig. Nye
- * kan tilføjes, når I har færre end 6." — every existing check keeps
- * recording, and nothing suggests the records are incomplete.
+ * CapLine: "Jeres plan: op til 6 temperaturkontroller · 5 i brug. Rengøring
+ * og termometertjek tæller ikke med." when the plan has a real limit (< 100);
+ * after a downgrade with more than the limit: "I har 8 temperaturkontroller.
+ * De virker alle stadig. …" — every existing check keeps recording, and
+ * nothing suggests the records are incomplete.
  *
  * CapPrompt: what a 402 cap_exceeded opens. On the web the upgrade sheet
  * (components/Entitlement UpgradePrompt, forCap) naming the plan the 402

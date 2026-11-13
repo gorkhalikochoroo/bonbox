@@ -1,7 +1,8 @@
 """Egenkontrol R1b — cleaning and thermometer ticks.
 
 "Udført", no value, no limit, no deviation. On-event only, so a day without
-cleaning is never "Ikke registreret". They count toward the Free limit.
+cleaning is never "Ikke registreret". They do NOT count toward the plan's
+limit (founder, 13 Nov 2026: temperature checks only, on every plan).
 """
 import io
 import uuid
@@ -36,13 +37,14 @@ def test_the_templates_list_both_ticks(env):
         assert t[key]["action_codes"] == [] and t[key]["fate_codes"] == []
 
 
-def test_a_tick_counts_and_saves_done_with_its_note(env):
+def test_a_tick_is_not_counted_and_saves_done_with_its_note(env):
     o = env.owner()
     env.setup(o)
     c = _tick(env, o)
     assert c["kind"] == "tick" and c["limit"] is None and c["schedule"] == {"type": "on_event"}
     st = env.client.get("/api/egenkontrol/status", headers=env.h(o)).json()
-    assert st["cap"]["active"] == 6
+    assert st["cap"]["active"] == 5                 # the 5 temperature checks; the tick is not counted
+    assert st["active_checks"] == 6                 # …but it is an active check like the others
     note = "Gulv & <b>afløb</b>"
     r = _done(env, o, c["id"], action_note=note)
     assert r.status_code == 201, r.text

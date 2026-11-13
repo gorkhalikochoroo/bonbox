@@ -7,7 +7,8 @@
  * image, never an authority's logo, and nothing here says whether a booking
  * page or a website counts as marketing. The client checks the prefix only to
  * say so early; the server's allow-list is the rule (https://www.findsmiley.dk/
- * exactly, ≤ 255, no spaces). An empty field removes the link.
+ * or https://findsmiley.dk/, kept in the one www form, ≤ 255, no spaces). An
+ * empty field removes the link.
  *
  * RetailOptInCard (/egenkontrol for a grocery, veggie shop or kiosk that has
  * not switched it on) — one tap: "Slå egenkontrol til". It is offered, never

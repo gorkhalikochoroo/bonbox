@@ -6,8 +6,10 @@
  *     a stored value that is not a findsmiley.dk link is not linked at all;
  *   • Opsætning: "Link til jeres side på findsmiley.dk" + the help text; a
  *     wrong prefix is caught on the device ("Linket skal begynde med
- *     https://www.findsmiley.dk/") and not sent; a good one is trimmed and
- *     PUT; the server's 422 findsmiley_invalid says the same; empty clears;
+ *     https://www.findsmiley.dk/ eller https://findsmiley.dk/") and not sent;
+ *     a good one is trimmed and PUT; https://findsmiley.dk/… (no www, 13 Nov
+ *     2026) is sent in the one www form the server stores; the server's 422
+ *     findsmiley_invalid says the same; empty clears;
  *   • the pre-check matrix (the server's allow-list is the rule).
  *
  * Run: cd frontend && TZ=UTC npx vitest run --maxWorkers=2 egenkontrol.smiley
@@ -109,7 +111,7 @@ describe("Opsætning → the link", () => {
     expect(card).toHaveTextContent(da.ekSmileyLabel);
     expect(within(card).getByTestId("ek-smiley-help")).toHaveTextContent("Fødevarestyrelsen beder virksomheder linke til findsmiley.dk, når de markedsfører sig online.");
     fireEvent.change(within(card).getByLabelText(da.ekSmileyLabel), { target: { value: "http://www.findsmiley.dk/1" } });
-    expect(within(card).getByTestId("ek-smiley-error")).toHaveTextContent("Linket skal begynde med https://www.findsmiley.dk/");
+    expect(within(card).getByTestId("ek-smiley-error")).toHaveTextContent("Linket skal begynde med https://www.findsmiley.dk/ eller https://findsmiley.dk/");
     await act(async () => { fireEvent.click(within(card).getByTestId("ek-smiley-save")); });
     expect(h.put).not.toHaveBeenCalled();
   });
@@ -128,6 +130,19 @@ describe("Opsætning → the link", () => {
     await act(async () => { fireEvent.click(within(card2).getByTestId("ek-smiley-save")); });
     await settle(2);
     expect(within(screen.getByTestId("ek-smiley-card")).getByTestId("ek-smiley-error")).toHaveTextContent(da.ekErrSmileyUrl);
+  });
+
+  it("without www: accepted, sent in the www form, no error shown", async () => {
+    h.put.mockResolvedValueOnce({ data: { findsmiley_url: URL_OK } });
+    const card = await openSetup();
+    fireEvent.change(within(card).getByLabelText(da.ekSmileyLabel), { target: { value: " https://findsmiley.dk/769342 " } });
+    expect(within(card).queryByTestId("ek-smiley-error")).toBeNull();
+    await act(async () => { fireEvent.click(within(card).getByTestId("ek-smiley-save")); });
+    await settle(2);
+    expect(h.put).toHaveBeenCalledWith("/egenkontrol/settings", { findsmiley_url: URL_OK });
+    const card2 = screen.getByTestId("ek-smiley-card");
+    expect(within(card2).getByLabelText(da.ekSmileyLabel)).toHaveValue(URL_OK);
+    expect(within(card2).queryByTestId("ek-smiley-error")).toBeNull();
   });
 
   it("an empty field clears the link (null)", async () => {
@@ -149,7 +164,20 @@ describe("the device pre-check", () => {
     ["", ""],
     ["   ", ""],
     ["http://www.findsmiley.dk/1", null],
-    ["https://findsmiley.dk/1", null],
+    ["https://findsmiley.dk/1", "https://www.findsmiley.dk/1"],
+    [" https://findsmiley.dk/769342\t", URL_OK],
+    ["http://findsmiley.dk/1", null],
+    ["https://findsmiley.dk/", null],
+    ["https://findsmiley.dk.evil.com/1", null],
+    ["https://findsmiley.dk@evil.com/", null],
+    ["https://findsmiley.dk:443/1", null],
+    ["HTTPS://FINDSMILEY.DK/1", null],
+    ["//findsmiley.dk/1", null],
+    ["https://evil.com/https://findsmiley.dk/1", null],
+    ["data:text/html,https://findsmiley.dk/1", null],
+    ["javascript:alert('https://findsmiley.dk/1')", null],
+    [`https://findsmiley.dk/${"1".repeat(229)}`, `https://www.findsmiley.dk/${"1".repeat(229)}`],
+    [`https://findsmiley.dk/${"1".repeat(230)}`, null],
     ["https://www.findsmiley.dk.evil.com/1", null],
     ["https://www.findsmiley.dk@evil.com/", null],
     ["https://www.findsmiley.dk:443/1", null],

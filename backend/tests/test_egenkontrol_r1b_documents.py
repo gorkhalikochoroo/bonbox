@@ -122,6 +122,51 @@ def test_review_dates_and_states(env, store):
         assert r.json()[key] in ("ok", "soon", "overdue")
 
 
+def test_a_hygiejnebevis_has_no_review_date(env, store):
+    """Founder, 13 Nov 2026: a hygiejnebevis does not expire — no "gennemgås
+    igen senest", never "soon"/"overdue", never in the week's review list.
+    The programme, the risk analysis and the cleaning plan keep the yearly
+    date; "other" too."""
+    o = env.owner()
+    env.clock.set(datetime(2026, 11, 12, 11, 0))
+    hyg = env.doc(o, title="Hygiejnebevis Mia", doc_type="hygiene_cert").json()
+    assert hyg["review_due"] is None and hyg["review_state"] is None
+    yearly = {}
+    for doc_type in ("programme", "risk_analysis", "cleaning_plan", "other"):
+        d = env.doc(o, title=f"Dok {doc_type}", doc_type=doc_type).json()
+        assert d["review_due"] == "2027-11-12" and d["review_state"] == "ok", doc_type
+        yearly[d["id"]] = doc_type
+
+    env.clock.set(datetime(2028, 1, 10, 12))                   # 14 months later
+    docs = {d["id"]: d for d in env.client.get("/api/egenkontrol/documents",
+                                               headers=env.h(o)).json()["documents"]}
+    assert docs[hyg["id"]]["review_due"] is None and docs[hyg["id"]]["review_state"] is None
+    for doc_id in yearly:
+        assert docs[doc_id]["review_state"] == "overdue", yearly[doc_id]
+    week = env.client.get("/api/egenkontrol/week", headers=env.h(o)).json()
+    due_ids = {d["id"] for d in week["documents_review_due"]}
+    assert due_ids == set(yearly) and hyg["id"] not in due_ids
+    # the Kontrolmappe list says the same
+    folder = env.folder(o)
+    fdocs = {d["id"]: d for d in folder["documents"]}
+    assert fdocs[hyg["id"]]["review_due"] is None
+    assert all(fdocs[i]["review_due"] == "2027-11-12" for i in yearly)
+    # marking it reviewed still gives it no date
+    r = env.client.post(f"/api/egenkontrol/documents/{hyg['id']}/reviewed", headers=env.h(o))
+    assert r.status_code == 200 and r.json()["review_due"] is None and r.json()["review_state"] is None
+
+
+def test_the_review_rule_by_type():
+    from datetime import date
+
+    from app.services import egenkontrol_rules as R
+    base, today = date(2026, 11, 12), date(2026, 11, 13)
+    assert R.document_review(base, today, "hygiene_cert") == (None, None)
+    for doc_type in ("programme", "risk_analysis", "cleaning_plan", "other", "contract", None):
+        assert R.document_review(base, today, doc_type) == (date(2027, 11, 12), "ok"), doc_type
+    assert R.document_review(base, today) == (date(2027, 11, 12), "ok")
+
+
 def test_delete_keeps_a_blob_another_row_still_uses(env, store):
     o = env.owner()
     a = env.doc(o, title="A").json()

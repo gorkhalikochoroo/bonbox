@@ -93,6 +93,9 @@ const KEYS_R1B = [
   "ekAllReadings", "ekSectionCorrections", "ekSectionPaper", "ekFolderPaperCount", "ekFolderCorrectionsCount", "ekDateAtTime",
   "ekQueueWaitingOffline", "ekQueueWaitingList", "ekKitchenPairAgainConfirmTitle", "ekKitchenPairAgainConfirmBody",
   "ekPhotoAttachedLater",
+  // 13 Nov 2026 founder answers: a hygiejnebevis row without a review date;
+  // the tick ceiling (409 too_many_ticks, never a 402).
+  "ekDocUploaded", "ekErrTooManyTicks",
 ];
 KEYS.push(...KEYS_R1B);
 
@@ -166,6 +169,7 @@ describe("egenkontrol words — real Danish and English for every key", () => {
       "photo_not_allowed", "photo_window_passed", "photo_exists", "photo_too_large", "photo_unreadable", "findsmiley_invalid",
       "opt_in_not_offered", "has_checks", "title_required", "title_too_long", "doc_type_unknown", "too_many_documents",
       "unsupported_type", "too_large", "storage_unavailable", "week_not_over", "bad_week", "range_too_long",
+      "too_many_ticks",
     ];
     for (const c of codes) expect(ek.EK_ERROR_KEYS[c], c).toBeTruthy();
     expect(Object.keys(ek.EK_DOC_TYPE_KEYS).sort()).toEqual(["cleaning_plan", "hygiene_cert", "other", "programme", "risk_analysis"]);
@@ -176,7 +180,16 @@ describe("egenkontrol words — real Danish and English for every key", () => {
     expect(da.ekPhotoHint).toBe("Fotografér termometeret eller maden — ikke personer.");
     expect(en.ekPhotoHint).toBe("Photograph the thermometer or the food — not people.");
     expect(da.ekSmileyHelp).toBe("Fødevarestyrelsen beder virksomheder linke til findsmiley.dk, når de markedsfører sig online.");
-    expect(da.ekErrSmileyUrl).toBe("Linket skal begynde med https://www.findsmiley.dk/");
+    // 13 Nov 2026: with or without www (stored in the www form).
+    expect(da.ekErrSmileyUrl).toBe("Linket skal begynde med https://www.findsmiley.dk/ eller https://findsmiley.dk/");
+    expect(en.ekErrSmileyUrl).toBe("The link must start with https://www.findsmiley.dk/ or https://findsmiley.dk/");
+    // 13 Nov 2026: the plan's limit counts temperature checks; ticks never.
+    for (const k of ["ekCapLine", "ekCapOver", "ekCapSetupOver"]) {
+      expect(da[k], k).toContain("temperaturkontroller");
+      expect(da[k], k).toContain("Rengøring og termometertjek tæller ikke med.");
+      expect(en[k], k).toContain("temperature checks");
+      expect(en[k], k).toContain("Cleaning and thermometer checks don't count.");
+    }
     expect(da.ekDocsHonest).toBe("BonBox gemmer jeres dokumenter. Vi læser dem ikke og godkender dem ikke.");
     expect(da.ekCorrectIntro).toBe("Rettelsen gemmes ved siden af den oprindelige måling. Tidspunktet ændres ikke, og en afvigelse forsvinder ikke.");
     expect(da.ekPhotoAttached).toBe("Foto vedlagt");

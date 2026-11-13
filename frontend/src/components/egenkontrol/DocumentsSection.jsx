@@ -9,7 +9,9 @@
  * when it was uploaded and when it should be looked at again ("gennemgås
  * igen senest" = a year after the upload or the last review) — and NEVER
  * that a document is current or valid. A due or overdue review gets the amber
- * "Gennemgå igen".
+ * "Gennemgå igen". A hygiejnebevis does not expire (founder, 13 Nov 2026):
+ * the server sends no review date for it (review_due null), so its row says
+ * only "Uploadet …" and offers no "Markér som gennemgået".
  *
  * Opening: the bytes come through the tenant-checked proxy (owner session or
  * kitchen token, via the caller's loadDocument). An image opens in an overlay
@@ -132,6 +134,7 @@ export default function DocumentsSection({
         <ul className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
           {docs.map((d) => {
             const due = d.review_state === "soon" || d.review_state === "overdue";
+            const hasReview = typeof d.review_due === "string" && d.review_due !== "";
             return (
               <li key={d.id} className="px-4 py-3 min-h-14" data-testid={`ek-doc-${d.id}`}>
                 <div className="flex flex-wrap items-start gap-3">
@@ -148,15 +151,17 @@ export default function DocumentsSection({
                         {docTypeLabel(d.doc_type, t)}
                       </span>
                       <span className="block text-[16px] font-semibold text-gray-900 dark:text-gray-100 break-words">{d.title}</span>
-                      <span className="block text-[14px] text-gray-600 dark:text-gray-400">
-                        {t("ekDocUploadedReview", {
-                          uploaded: formatDateClear(d.uploaded_local_date || ""),
-                          due: formatDateClear(d.review_due || ""),
-                        })}
+                      <span className="block text-[14px] text-gray-600 dark:text-gray-400" data-testid="ek-doc-dates">
+                        {hasReview
+                          ? t("ekDocUploadedReview", {
+                              uploaded: formatDateClear(d.uploaded_local_date || ""),
+                              due: formatDateClear(d.review_due),
+                            })
+                          : t("ekDocUploaded", { uploaded: formatDateClear(d.uploaded_local_date || "") })}
                       </span>
                     </span>
                   </button>
-                  {due ? (
+                  {due && hasReview ? (
                     <span className="shrink-0 self-center">
                       <CheckStatusPill tone="warn">{t("ekDocReviewAgain")}</CheckStatusPill>
                     </span>
@@ -167,7 +172,7 @@ export default function DocumentsSection({
                 ) : null}
                 {canManage ? (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {onReviewed ? (
+                    {onReviewed && hasReview ? (
                       <button type="button" className={ROW_BTN} onClick={() => onReviewed(d)} disabled={busyId === d.id} data-testid="ek-doc-reviewed">
                         <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
                         {t("ekDocMarkReviewed")}

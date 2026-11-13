@@ -122,6 +122,8 @@ export default function CheckEditorSheet({
     } else if (code === "due_before_day_start") setError(t("ekDueBeforeDayStart", { cutoff: cutoffLabel(err?.response?.data?.detail?.cutoff_hour ?? cutoffHour) }));
     // An open deviation must be finished before the check is switched off.
     else if (code === "open_deviation") setError(t("ekErrOpenDeviation"));
+    // Ticks never hit the plan's limit (no 402); only the flat abuse ceiling.
+    else if (code === "too_many_ticks") setError(t("ekErrTooManyTicks"));
     else setError(t("ekErrSaveFailed"));
   };
 

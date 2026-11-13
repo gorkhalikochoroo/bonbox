@@ -56,17 +56,31 @@ REPEAT_WINDOW_DAYS = 30
 REPEAT_THRESHOLD = 3
 # Owner documents in the Kontrolmappe: "gennemgås igen senest" = 12 calendar
 # months after the upload (or the last review); "soon" from 30 days before.
+# A hygiejnebevis does not expire (founder, 13 Nov 2026), so it has NO review
+# date at all — never "gennemgås igen senest", never "Gennemgå igen". The
+# programme, the risk analysis, the cleaning plan, "other" and any type this
+# list does not know keep the yearly rule.
 DOCUMENT_REVIEW_MONTHS = 12
 DOCUMENT_REVIEW_SOON_DAYS = 30
+DOC_TYPES_NO_REVIEW = ("hygiene_cert",)
 DOCUMENTS_MAX = 30
+# Ticks (Rengøring, Termometertjek) never count toward the plan's limit and
+# never give a 402 (founder, 13 Nov 2026). This flat ceiling on ACTIVE ticks,
+# the same on every plan, is only an abuse bound (409 too_many_ticks, like the
+# 30-document ceiling) — no plan lifts it, so it never shows an upgrade.
+TICKS_MAX = 30
 DOCUMENT_TITLE_MAX = 120
 REASON_TEXT_MAX = 120
 REVIEW_NAME_MAX = 80
 REVIEW_NOTE_MAX = 280
-# Decision 7: the owner pastes their own findsmiley.dk link; only this exact
-# prefix (case-sensitive), so http://, no-www, ".dk.evil.com", "@evil.com" and
-# ":443" are all refused by the one startswith.
+# Decision 7: the owner pastes their own findsmiley.dk link. Two prefixes are
+# accepted (case-sensitive): https://www.findsmiley.dk/ and, since 13 Nov 2026
+# (founder), https://findsmiley.dk/ — which is STORED in the www form, so there
+# is one stored form. http://, ".dk.evil.com", "@evil.com", ":443",
+# javascript: and data: are all refused by the startswith (the "/" right after
+# ".dk" ends the host).
 FINDSMILEY_PREFIX = "https://www.findsmiley.dk/"
+FINDSMILEY_BARE_PREFIX = "https://findsmiley.dk/"
 FINDSMILEY_MAX = 255
 # Retail with chilled food can switch egenkontrol on (one tap).
 RETAIL_OPT_IN_TYPES = ("grocery", "veggie_shop", "kiosk")
@@ -201,7 +215,9 @@ START_LIST: dict[str, dict] = {
     },
     # R1b ticks: "done", no value, no limit, no deviation. On-event only, so a
     # day without cleaning or a thermometer check is never "Ikke registreret".
-    # Not pre-selected in the setup start list; they COUNT toward the cap.
+    # Not pre-selected in the setup start list. They do NOT count toward the
+    # plan's limit (temperature checks only, on every plan); TICKS_MAX bounds
+    # them instead.
     "cleaning": {
         "kind": "tick", "group_key": "cleaning",
         "limit": None,
@@ -1113,9 +1129,11 @@ def correction_reason_da(code: Optional[str], text: Optional[str]) -> str:
 def validate_findsmiley_url(value: Any) -> Optional[str]:
     """None / blank → None (clears the link). Otherwise the stripped URL — a
     URL, not prose, so the one trim allowed — must start with exactly
-    https://www.findsmiley.dk/ (case-sensitive), be at most 255 characters,
-    be more than the bare prefix, and hold no whitespace, control character
-    or backslash. Anything else: RuleError findsmiley_invalid."""
+    https://www.findsmiley.dk/ or https://findsmiley.dk/ (case-sensitive);
+    the second is rewritten to the first, so the ONE stored form is
+    https://www.findsmiley.dk/…. The stored form must be at most 255
+    characters, be more than the bare prefix, and hold no whitespace, control
+    character or backslash. Anything else: RuleError findsmiley_invalid."""
     if value is None:
         return None
     if not isinstance(value, str):
@@ -1123,6 +1141,8 @@ def validate_findsmiley_url(value: Any) -> Optional[str]:
     v = value.strip()
     if not v:
         return None
+    if v.startswith(FINDSMILEY_BARE_PREFIX):
+        v = FINDSMILEY_PREFIX + v[len(FINDSMILEY_BARE_PREFIX):]
     if (not v.startswith(FINDSMILEY_PREFIX) or len(v) > FINDSMILEY_MAX
             or v == FINDSMILEY_PREFIX or "\\" in v
             or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in v)):
@@ -1144,9 +1164,15 @@ def add_months(d: date, months: int) -> date:
     return date(y, m, day)
 
 
-def document_review(base_local: date, today: date) -> tuple[date, str]:
-    """(review_due, ok|soon|overdue). There is NO state that calls a document
-    up to date or approved: BonBox stores the document, it never judges it."""
+def document_review(base_local: date, today: date,
+                    doc_type: Optional[str] = None) -> tuple[Optional[date], Optional[str]]:
+    """(review_due, ok|soon|overdue), or (None, None) for a type that has no
+    review date (DOC_TYPES_NO_REVIEW: a hygiejnebevis does not expire). Any
+    other type — known, "other" or unknown — keeps the yearly rule. There is
+    NO state that calls a document up to date or approved: BonBox stores the
+    document, it never judges it."""
+    if doc_type in DOC_TYPES_NO_REVIEW:
+        return None, None
     due = add_months(base_local, DOCUMENT_REVIEW_MONTHS)
     if due < today:
         return due, "overdue"

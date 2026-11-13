@@ -161,9 +161,10 @@ def load_documents(db: Session, owner, *, branch_scope=None) -> list:
 def document_out(d: FoodCheckDocument, tz, today_local) -> dict:
     """DocumentOut. "Uploadet <dato> · gennemgås igen senest <dato>" — and
     NO state that means current/valid: BonBox stores the document, it never
-    reads or approves it."""
+    reads or approves it. A hygiejnebevis does not expire: review_due and
+    review_state are null, so no review date is shown for it anywhere."""
     base = d.reviewed_at or d.uploaded_at
-    due, state = R.document_review(R.to_local(base, tz).date(), today_local)
+    due, state = R.document_review(R.to_local(base, tz).date(), today_local, d.doc_type)
     return {
         "id": str(d.id),
         "doc_type": d.doc_type,
@@ -175,7 +176,7 @@ def document_out(d: FoodCheckDocument, tz, today_local) -> dict:
         "reviewed_at": S.iso_z(d.reviewed_at),
         "reviewed_local_date": (R.to_local(d.reviewed_at, tz).date().isoformat()
                                 if d.reviewed_at is not None else None),
-        "review_due": due.isoformat(),
+        "review_due": due.isoformat() if due is not None else None,
         "review_state": state,
         "branch_id": S._sid(d.branch_id),
     }

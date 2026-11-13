@@ -95,6 +95,26 @@ def test_the_r1b_pdf(env, store):
         assert never not in t, never
 
 
+def test_a_hygiejnebevis_prints_no_review_date(env, store):
+    """The PDF's documents table: the programme keeps "Gennemgås igen senest"
+    a year on; the hygiejnebevis (it does not expire) prints "–" there."""
+    o = env.owner()
+    env.setup(o)
+    env.doc(o, title="Program", doc_type="programme")
+    env.doc(o, title="Bevis Mia", doc_type="hygiene_cert", name="bevis.pdf")
+    resp = env.client.get("/api/egenkontrol/folder.pdf",
+                          params={"from": "2026-11-12", "to": "2026-11-12"}, headers=env.h(o))
+    assert resp.status_code == 200
+    t = _text(resp.content)
+    docs = _section(t, "Dokumenter i BonBox", "Kontrolpunkter og grænser")
+    assert "Gennemgås igen senest" in docs
+    assert docs.count("12. nov 2027") == 1                       # the programme only
+    hyg = docs[docs.index("Hygiejnebevis"):]
+    hyg = hyg[:hyg.index("Dokumenterne er ikke vedlagt")]
+    assert "Bevis Mia" in hyg and "12. nov 2027" not in hyg
+    assert hyg.rstrip().endswith("–"), hyg
+
+
 def test_empty_sections_say_so(env, store):
     o = env.owner()
     env.setup(o)

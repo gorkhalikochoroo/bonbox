@@ -272,11 +272,15 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # (DK 06:00 cutoff). The 20/min per-IP slowapi cap stays as the
         # coarse second barrier.
         "smart_scan_classify_per_day": 10,
-        # Egenkontrol — active checks (temperatures AND ticks). Decision 1:
-        # the 5-check start list + one spare; ticks count; records stay
-        # readable/printable on every plan. Only ADDING or RE-ACTIVATING a
-        # check is refused over the limit — after a downgrade every existing
-        # check keeps recording (egenkontrol_service: setup / create / patch).
+        # Egenkontrol — active TEMPERATURE checks (køl, frost, varmholdelse,
+        # genopvarmning, varemodtagelse). Decision 1: the 5-check start list +
+        # one spare. Founder, 13 Nov 2026: cleaning and thermometer TICKS do
+        # NOT count — on ANY plan (one rule everywhere; they have their own
+        # flat abuse ceiling, egenkontrol_rules.TICKS_MAX, a 409 never a 402).
+        # Records stay readable/printable on every plan. Only ADDING or
+        # RE-ACTIVATING a temperature check is refused over the limit — after
+        # a downgrade every existing check keeps recording
+        # (egenkontrol_service._enforce_room: setup / create / patch).
         "egenkontrol_active_checks": 6,
     },
     "starter": {
@@ -349,7 +353,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # day never hits it, still bounded against a runaway script. Marginal
         # cost stays well inside Starter's margin. See Free comment above.
         "smart_scan_classify_per_day": 100,
-        "egenkontrol_active_checks": 100,  # an abuse ceiling, not a product limit (see Free)
+        "egenkontrol_active_checks": 100,  # temperature checks; an abuse ceiling, not a product limit (see Free)
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -444,7 +448,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # effectively unlimited for a 3-branch multi-terminal operator
         # snapping all day, still bounded against an abusive/runaway client.
         "smart_scan_classify_per_day": 300,
-        "egenkontrol_active_checks": 100,  # an abuse ceiling, not a product limit (see Free)
+        "egenkontrol_active_checks": 100,  # temperature checks; an abuse ceiling, not a product limit (see Free)
     },
 }
 

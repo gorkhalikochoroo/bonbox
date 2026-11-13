@@ -5,7 +5,8 @@ and the retail opt-in.
   • findsmiley_url — the owner pastes THEIR OWN findsmiley.dk link once;
     BonBox shows it as a plain text link in the Kontrolmappe (owner and
     kitchen) and prints it in the PDF. Never the smiley image, never the FVST
-    logo, never a fetched result. Only https://www.findsmiley.dk/… is kept
+    logo, never a fetched result. https://www.findsmiley.dk/… and
+    https://findsmiley.dk/… are accepted; both are kept in the one www form
     (egenkontrol_rules.validate_findsmiley_url).
   • opted_in — a grocery, veggie_shop or kiosk switches egenkontrol on with
     one tap; it can be switched off again only while no (non-archived) check

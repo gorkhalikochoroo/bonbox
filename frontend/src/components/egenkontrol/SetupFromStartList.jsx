@@ -13,10 +13,10 @@
  * anything yet, and the page says how to start.
  *
  * R1b: "Rengøring" and "Termometertjek" (ticks, on-event) are offered
- * UNTICKED below the five; they count toward the plan's active checks, and
- * the plan's line counts along as items are ticked. A 402 (over the Free
- * limit) creates nothing: the upgrade sheet on the web, the plain words in
- * the app.
+ * UNTICKED below the five. The plan's limit counts TEMPERATURE checks only
+ * (founder, 13 Nov 2026) — ticking a tick never moves the plan's line; ticking
+ * another fridge does. A 402 (more temperature checks than the Free limit)
+ * creates nothing: the upgrade sheet on the web, the plain words in the app.
  */
 import { useState } from "react";
 import { Plus } from "lucide-react";
@@ -27,6 +27,7 @@ import CapPrompt, { CapLine, capUpgradeTo } from "./CapPrompt";
 import {
   EK_PRODUCT_KEYS,
   EK_SOURCE_KEYS,
+  countsTowardCap,
   cutoffLabel,
   errorCode,
   formatTemp,
@@ -56,6 +57,8 @@ export default function SetupFromStartList({ templates = [], cutoffHour = 6, bra
 
   const fridgeDue = byKey.fridge?.schedule_default?.due || "08:00";
   const chosen = items.filter((i) => i.on && byKey[i.template_key]);
+  // What the plan's limit counts: the chosen temperature checks, never ticks.
+  const chosenCounted = chosen.filter((i) => countsTowardCap(byKey[i.template_key])).length;
 
   const scheduleFor = (key) => {
     const tp = byKey[key];
@@ -116,6 +119,7 @@ export default function SetupFromStartList({ templates = [], cutoffHour = 6, bra
         setCapTo(capUpgradeTo(err));
         setCapOpen(true);
       } else if (code === "due_before_day_start") setError(t("ekDueBeforeDayStart", { cutoff: cutoffLabel(cutoffHour) }));
+      else if (code === "too_many_ticks") setError(t("ekErrTooManyTicks"));
       else setError(t("ekErrSaveFailed"));
     } finally {
       setBusy(false);
@@ -195,11 +199,11 @@ export default function SetupFromStartList({ templates = [], cutoffHour = 6, bra
       <p className="mt-4 text-[13.5px] text-gray-600 dark:text-gray-400">{t("ekStartValuesNote")}</p>
       {capLimit != null && capLimit >= 0 && capLimit < 100 ? (
         <div className="mt-2">
-          {chosen.length <= capLimit ? (
-            <CapLine cap={{ limit: capLimit, active: chosen.length }} t={t} testId="ek-setup-cap" />
+          {chosenCounted <= capLimit ? (
+            <CapLine cap={{ limit: capLimit, active: chosenCounted }} t={t} testId="ek-setup-cap" />
           ) : (
             <p className="text-[13.5px] text-amber-800 dark:text-amber-300" data-testid="ek-setup-cap">
-              {t("ekCapSetupOver", { limit: capLimit, count: chosen.length })}
+              {t("ekCapSetupOver", { limit: capLimit, count: chosenCounted })}
             </p>
           )}
         </div>

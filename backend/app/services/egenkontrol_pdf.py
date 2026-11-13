@@ -466,13 +466,14 @@ def build_folder_pdf(db: Session, owner, date_from: date, date_to: date,
             rows = []
             for doc in fd.documents:
                 base = doc.reviewed_at or doc.uploaded_at
-                due, _state = R.document_review(_local(base, tz).date(), today_local)
+                # A hygiejnebevis has no review date (it does not expire): "–".
+                due, _state = R.document_review(_local(base, tz).date(), today_local, doc.doc_type)
                 rows.append([
                     _esc(R.DOC_TYPE_LABEL_DA.get(doc.doc_type, doc.doc_type)),
                     _esc(doc.title),
                     _esc(R.format_date_da(_local(doc.uploaded_at, tz).date())),
                     _esc(R.format_date_da(_local(doc.reviewed_at, tz).date())) if doc.reviewed_at else "–",
-                    _esc(R.format_date_da(due)),
+                    _esc(R.format_date_da(due)) if due is not None else "–",
                 ])
             out.append(table(["Type", "Titel", "Uploadet", "Senest gennemgået",
                               "Gennemgås igen senest"], rows, [32, 62, 26, 28, 30]))

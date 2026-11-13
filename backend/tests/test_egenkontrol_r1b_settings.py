@@ -9,9 +9,23 @@ from app.services.auth import hash_password, mint_device_pin_proof
 from tests._ek_support import env  # noqa: F401 — fixture
 
 GOOD = "https://www.findsmiley.dk/769342"
+BARE = "https://findsmiley.dk/769342"           # accepted since 13 Nov 2026, stored as GOOD
 BAD = [
     "http://www.findsmiley.dk/769342",
-    "https://findsmiley.dk/769342",
+    "http://findsmiley.dk/769342",
+    "https://findsmiley.dk/",
+    "https://findsmiley.dk.evil.com/769342",
+    "https://findsmiley.dk@evil.com/",
+    "https://findsmiley.dk:443/769342",
+    "https://findsmiley.dk/76 9342",
+    "https://findsmiley.dk/76\\9342",
+    "https://findsmiley.dk/" + "9" * 230,                 # 252, so 256 once stored with www.
+    "HTTPS://FINDSMILEY.DK/769342",
+    "//findsmiley.dk/769342",
+    "findsmiley.dk/769342",
+    "https://evil.com/https://findsmiley.dk/769342",
+    "data:text/html,https://findsmiley.dk/769342",
+    "javascript:alert('https://findsmiley.dk/769342')",
     "https://www.findsmiley.dk.evil.com/769342",
     "https://www.findsmiley.dk@evil.com/",
     "https://www.findsmiley.dk:443/769342",
@@ -36,9 +50,42 @@ def test_findsmiley_refusals(env, url):
     assert r.status_code == 422 and r.json()["detail"] == {"code": "findsmiley_invalid"}, url
 
 
+def test_findsmiley_without_www_is_accepted_and_stored_in_the_one_www_form(env):
+    o = env.owner()
+    r = _put(env, o, findsmiley_url=f"  {BARE} ")
+    assert r.status_code == 200, r.text
+    assert r.json()["findsmiley_url"] == GOOD
+    env.db.expire_all()
+    st = env.db.query(FoodCheckSettings).filter(FoodCheckSettings.user_id == o.id).one()
+    assert st.findsmiley_url == GOOD
+    env.setup(o)
+    assert env.folder(o)["findsmiley_url"] == GOOD
+    # the same link again, either way written, is no change
+    assert _put(env, o, findsmiley_url=GOOD).json()["findsmiley_url"] == GOOD
+    # the stored (www) form is bounded: 251 without www → 255 stored is fine
+    long_ok = "https://findsmiley.dk/" + "9" * 229
+    assert len(long_ok) == 251
+    r = _put(env, o, findsmiley_url=long_ok)
+    assert r.status_code == 200 and r.json()["findsmiley_url"] == "https://www.findsmiley.dk/" + "9" * 229
+    assert len(r.json()["findsmiley_url"]) == 255
+
+
+def test_the_rule_itself():
+    from app.services import egenkontrol_rules as R
+    assert R.validate_findsmiley_url(BARE) == GOOD
+    assert R.validate_findsmiley_url(GOOD) == GOOD
+    assert R.validate_findsmiley_url("https://findsmiley.dk/da-DK/Search?q=1") == \
+        "https://www.findsmiley.dk/da-DK/Search?q=1"
+    assert R.validate_findsmiley_url(None) is None and R.validate_findsmiley_url("  ") is None
+    for bad in BAD:
+        with pytest.raises(R.RuleError):
+            R.validate_findsmiley_url(bad)
+
+
 def test_findsmiley_ok_trimmed_cleared_and_shown(env):
     o = env.owner()
-    assert len(BAD[10]) == 256
+    assert len([b for b in BAD if b.startswith("https://www.findsmiley.dk/9")][0]) == 256
+    assert len([b for b in BAD if b.startswith("https://findsmiley.dk/9")][0]) + 4 == 256
     r = _put(env, o, findsmiley_url=f"  {GOOD}  ")
     assert r.status_code == 200 and r.json()["findsmiley_url"] == GOOD
     s = env.client.get("/api/egenkontrol/settings", headers=env.h(o)).json()
