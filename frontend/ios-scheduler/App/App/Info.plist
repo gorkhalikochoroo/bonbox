@@ -94,5 +94,12 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- 120 Hz (phone R1): without this key a ProMotion iPhone holds the
+	     app's own Core Animation work (the web view's compositor animations:
+	     the dock's sliding pill, a sheet's drag and settle, presses) at 60 Hz.
+	     iPad ProMotion needs no key. Motion is timed in ms, never in frames,
+	     so it runs the same at 60, 90, 120 or 144 Hz. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 </dict>
 </plist>

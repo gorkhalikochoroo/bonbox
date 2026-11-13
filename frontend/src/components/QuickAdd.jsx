@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { ScanLine, ArrowRight, QrCode } from "lucide-react";
+import { ScanLine, ArrowRight, QrCode, UserPlus, CalendarPlus } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Modal from "./Modal";
 import api from "../services/api";
@@ -14,6 +14,9 @@ import Chip from "./ui/Chip";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { parseMoneyInput, moneyLocale, moneyExample, formatOwnerMoney } from "../utils/currency";
 import { isFloatingChromeHidden } from "../config/floatingChrome";
+import { usePillars } from "../hooks/usePillars";
+import { NEW_BOOKING_TO, WALK_IN_TO, bookFactsFor, isFoodVenue, noteBookFacts, quickJobs } from "./today/quickJobs";
+import { speaksAppointments } from "../config/venueProfiles";
 // Lazy-load Smart Scan modal — only fetched when the owner taps the
 // "Smart skan" entry below. Keeps QuickAdd's bundle lean for owners
 // who use the keypad path 99% of the time.
@@ -83,6 +86,22 @@ export default function QuickAdd() {
   // owner's only money-entry path silently gone. One resolver, no drift.
   const { user } = useAuth();
   const mode = resolveMode(user);
+  // The jobs row on top (phone R1, decision 3): Drop-in · Ny reservation,
+  // the jobs I dag's quick row offers (components/today/quickJobs.js — one
+  // model, two ways in). Above the sale form, which stays first and
+  // selected: a sale costs no extra tap.
+  const { hiddenPillars } = usePillars();
+  const [, setFactsSeen] = useState(0);
+  // The owner's seat only. Every invited seat (manager, cashier, viewer) and
+  // the revisor are refused every write server-side (main.py's member and
+  // accountant write guards: 403 read_only), so a chip there would open a
+  // sheet that can only fail — a dead end. No row at all for them.
+  const ownerSeat = String(user?.role || "owner").toLowerCase() === "owner";
+  const jobs = mode === "personal" || !ownerSeat
+    ? null
+    : quickJobs({ businessType: user?.business_type, hiddenPillars, facts: bookFactsFor(user?.id) });
+  // A salon books a time: its chip says what its own sheet says (Book en tid).
+  const newBookingWord = speaksAppointments(user?.business_type) ? t("rsvpNewBookingProvider") : t("tdNewBooking");
   const [tab, setTab] = useState(mode === "personal" ? "personal_income" : "sale");
   const [categories, setCategories] = useState([]);
   const [success, setSuccess] = useState("");
@@ -193,6 +212,24 @@ export default function QuickAdd() {
         }
       }).catch(() => {});
     }
+  }, [open]);
+
+  // Drop-in needs the book's facts (a book, seats), which I dag notes as it
+  // reads them. Opened before I dag ever answered: ask /today once — the
+  // owner's own read (I dag is owner-only) — and show Drop-in only once it
+  // says the venue seats drop-ins. Unknown never shows it.
+  useEffect(() => {
+    if (!open || mode === "personal" || !user?.id) return undefined;
+    if (bookFactsFor(user.id)) return undefined;
+    if (!ownerSeat) return undefined;
+    if (!isFoodVenue(user.business_type) || hiddenPillars.has("reservations")) return undefined;
+    let live = true;
+    api.get("/today").then((res) => {
+      noteBookFacts(user.id, res?.data?.reservations);
+      if (live) setFactsSeen((n) => n + 1);
+    }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const showSuccess = (msg) => {
@@ -368,6 +405,67 @@ export default function QuickAdd() {
     setTab(mode === "personal" ? "personal_income" : "sale");
   };
 
+  // The save button for the open tab, pinned under the scrolling form (13 Nov
+  // 2026, founder yes). On a 360×780 phone the "+" sheet's job chips and the
+  // gift-card row pushed "Registrer salg" below the fold, so the owner had to
+  // scroll to finish a two-field form. Same buttons, same rules — only the
+  // place changed: they sit in Modal's footer, always in view.
+  const saveButtons = {
+    sale: (
+      <button
+        onClick={submitSale}
+        aria-busy={posting}
+        disabled={posting || !(saleAmountNum > 0)}
+        className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+      >
+        {/* The label has to match the date actually being posted. It said
+            "Log Today's Sale" ("Registrer dagens salg") no matter what,
+            so backdating a sale to the 20th still told the owner it was
+            today's — the button lying about what it does, on the money
+            path. Verified on device before the fix.
+
+            While the save is in flight it says so. The lock above makes
+            the second tap harmless; this is what stops the owner wanting
+            to make it. */}
+        {posting
+          ? t("savingEllipsis")
+          : saleDate === bizToday()
+          ? t("logSale")
+          : t("logSaleForDate").replace("{date}", formatDateShort(saleDate))}
+      </button>
+    ),
+    expense: (
+      <button
+        onClick={submitExpense}
+        aria-busy={posting}
+        disabled={posting || !(expAmountNum > 0) || !expCatId || !expDesc || !expMethod}
+        className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+      >
+        {posting ? t("savingEllipsis") : t("addExpense")}
+      </button>
+    ),
+    personal_income: (
+      <button
+        onClick={submitPersonal}
+        aria-busy={posting}
+        disabled={posting || !(pAmountNum > 0) || !pCatId}
+        className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+      >
+        {posting ? t("savingEllipsis") : t("logIncome")}
+      </button>
+    ),
+    personal_expense: (
+      <button
+        onClick={submitPersonal}
+        aria-busy={posting}
+        disabled={posting || !(pAmountNum > 0) || !pCatId}
+        className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+      >
+        {posting ? t("savingEllipsis") : t("logExpense")}
+      </button>
+    ),
+  };
+
   return (
     <>
       {/* Hidden external trigger — always in the DOM so MobileBottomNav's
@@ -399,7 +497,30 @@ export default function QuickAdd() {
         </button>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title={mode === "personal" ? t("personalEntry") : t("quickEntry")}>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={mode === "personal" ? t("personalEntry") : t("quickEntry")}
+        footer={saveButtons[tab]}
+      >
+        {jobs && (jobs.walkIn || jobs.newBooking) && (
+          <div className="ow-jobs" role="group" aria-label={t("tdQuickActions")} data-quick-jobs="">
+            {/* Both open Reservationer's own sheets (its ?walkin=1 / ?new=1
+                deep link); the "+" sheet closes first so the two never stack. */}
+            {jobs.walkIn && (
+              <button type="button" className="ow-job" data-quick-job="walkin"
+                onClick={() => { setOpen(false); navigate(WALK_IN_TO); }}>
+                <UserPlus size={16} aria-hidden="true" /><span>{t("tdWalkIn")}</span>
+              </button>
+            )}
+            {jobs.newBooking && (
+              <button type="button" className="ow-job" data-quick-job="new"
+                onClick={() => { setOpen(false); navigate(NEW_BOOKING_TO); }}>
+                <CalendarPlus size={16} aria-hidden="true" /><span>{newBookingWord}</span>
+              </button>
+            )}
+          </div>
+        )}
         {success && (
           <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
             {success}
@@ -565,28 +686,6 @@ export default function QuickAdd() {
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>
-
-            <button
-              onClick={submitSale}
-              aria-busy={posting}
-              disabled={posting || !(saleAmountNum > 0)}
-              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
-            >
-              {/* The label has to match the date actually being posted. It said
-                  "Log Today's Sale" ("Registrer dagens salg") no matter what,
-                  so backdating a sale to the 20th still told the owner it was
-                  today's — the button lying about what it does, on the money
-                  path. Verified on device before the fix.
-
-                  While the save is in flight it says so. The lock above makes
-                  the second tap harmless; this is what stops the owner wanting
-                  to make it. */}
-              {posting
-                ? t("savingEllipsis")
-                : saleDate === bizToday()
-                ? t("logSale")
-                : t("logSaleForDate").replace("{date}", formatDateShort(saleDate))}
-            </button>
           </div>
         )}
 
@@ -677,15 +776,6 @@ export default function QuickAdd() {
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>
-
-            <button
-              onClick={submitExpense}
-              aria-busy={posting}
-              disabled={posting || !(expAmountNum > 0) || !expCatId || !expDesc || !expMethod}
-              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
-            >
-              {posting ? t("savingEllipsis") : t("addExpense")}
-            </button>
           </div>
         )}
 
@@ -763,15 +853,6 @@ export default function QuickAdd() {
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
               />
             </div>
-
-            <button
-              onClick={submitPersonal}
-              aria-busy={posting}
-              disabled={posting || !(pAmountNum > 0) || !pCatId}
-              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
-            >
-              {posting ? t("savingEllipsis") : t("logIncome")}
-            </button>
           </div>
         )}
 
@@ -849,15 +930,6 @@ export default function QuickAdd() {
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
               />
             </div>
-
-            <button
-              onClick={submitPersonal}
-              aria-busy={posting}
-              disabled={posting || !(pAmountNum > 0) || !pCatId}
-              className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
-            >
-              {posting ? t("savingEllipsis") : t("logExpense")}
-            </button>
           </div>
         )}
       </Modal>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { canUsePersonalMode, resolveMode, setStoredMode, clearStoredMode } from "../lib/appMode";
@@ -15,6 +15,10 @@ import { filterDestinations, railSectionsFor, accountMenuDestinations, PILLAR_DI
 import { useNavBadges } from "../hooks/useNavBadges";
 // The house type + the I dag rail/page tokens (Nov 2026).
 import "./today/houseFonts";
+// The owner shell's feel layer (phone R1): the press, the floating dock, the
+// "+" sheet's job chips. After houseFonts: it reads the --td-* tokens.
+import "./owner/ownerShell.css";
+import { installPressFeel } from "./staff/pressFeel";
 import {
   NAV_FOCUS_RING,
   NAV_GROUPS_STORAGE_KEY,
@@ -257,6 +261,20 @@ const accountantNavGroups = [
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  // The owner shell (phone R1, PHONE-OWNER-PLAN 5.2/5.3): html carries
+  // data-owner-shell while this Layout is mounted — the --td-* token scope
+  // and the press's :active mute hang on it, so the guest booking page and
+  // the staff portal (never under this Layout) keep their own. A layout
+  // effect: the attribute is there before the first paint.
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    html.setAttribute("data-owner-shell", "");
+    return () => html.removeAttribute("data-owner-shell");
+  }, []);
+  // Vagtplan's press controller, installed ONCE for the whole owner app
+  // (components/staff/pressFeel.js): on touch a control presses from
+  // data-pressed, never from :active, so a scroll never flashes a press.
+  useEffect(() => installPressFeel(), []);
   // #379: a shared device that isn't revealed hides the owner's financial nav
   // items too (not just curtains the pages) — treat "locked owner" like a staff
   // member for the ownerOnly nav gate.
@@ -790,7 +808,7 @@ export default function Layout() {
           aria-label={t("openMenu") || "Open menu"}
           aria-expanded={sidebarOpen}
           aria-controls="primary-navigation"
-          className="text-gray-600 dark:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md p-1"
+          className="ow-menu-btn text-gray-600 dark:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md p-1"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />

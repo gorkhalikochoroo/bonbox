@@ -1,0 +1,280 @@
+/* The owner shell's feel layer (phone R1, PHONE-OWNER-PLAN v3 §4–§5, 12 Nov
+ * 2026): the press under the owner shell, the floating dock and the "+"
+ * sheet's job chips. Imported by components/Layout.jsx only, so the guest
+ * booking page, the staff portal and the door screen never load it.
+ *
+ * It wraps Vagtplan's kit and never edits it (components/staff/ stays as
+ * the staff app ships it): the press controller is pressFeel.js, the dock's
+ * names shrink together through dockLabelFit.js, and the dock's shape and
+ * its one sliding indicator are vagtplan.css .vp-dock / .vp-dock-ind, drawn
+ * here in I dag's colours (the rail's: a warm bar, the active row's white
+ * card as the pill).
+ *
+ * Scope: html[data-owner-shell], which Layout sets while it is mounted. The
+ * tokens (--td-*) come from components/today/today.css, which puts the same
+ * values on that scope (5.3), so nothing here copies them.
+ *
+ * Motion is feedback, never decoration: transform/scale and opacity only, no
+ * loop, no blur. One prefers-reduced-motion block at the end.
+ */
+
+/* ── Press (5.2) ──────────────────────────────────────────────────────── */
+/* index.css presses every button and link on :active under pointer: coarse
+   (60 ms down, snap back), and :active also fires as a scroll starts. Under
+   the owner shell a finger presses from data-pressed instead (pressFeel.js,
+   installed once by Layout), so a scroll that starts on a control never
+   flashes it. Mouse and keyboard keep :active. The :where() keeps the plain
+   press at I dag's specificity, below every per-kind rule (.td-*, the dock). */
+html[data-modality="touch"]:where([data-owner-shell]) :where(button, a, [role="button"]):active { scale: none; }
+html[data-modality="touch"]:where([data-owner-shell]) :where(:is(button, a, [role="button"]):not(.vp-tint))[data-pressed]:not(:disabled) { scale: .97; }
+/* The personal-mode tab bar (MobileBottomNav, .td-tab) keeps its .96. */
+html[data-modality="touch"] .td-tab[data-pressed] {
+  scale: .96;
+  transition-property: color, scale;
+  transition-duration: var(--td-dur-fast), var(--td-dur-press);
+  transition-timing-function: var(--td-ease-out), var(--td-ease-out);
+}
+
+/* ── The floating dock (4, decision 2) ────────────────────────────────── */
+/* Vagtplan's dock: 12 px in from each side (or the safe area), at most 560
+   wide, 52 tall (48 under 360 px), fully round, fixed, no blur. Three values
+   differ on purpose:
+   • solid, the rail's own colour (--td-rail-bg): Vagtplan's 97 % with no
+     blur let the page's text ghost through the dock ("Luk dagen" read
+     inside it) — neither solid nor glass (fix round, 13 Nov).
+   • bottom: the old bar's own clearance (max(inset − 12 px, 8 px)), not
+     Vagtplan's inset + 8 px. Its top edge then stays at or under the old
+     bar's (74 px on a notched iPhone, 60 px without an inset; the bar was
+     76 / 64), so every page's "above the tab bar" offset and Layout's
+     pb-24 still clear it.
+   • z-index: the class z-50 on the element (the old bar's layer; the
+     drawer, its scrim and every sheet sit above it). */
+.ow-dock {
+  --ow-dock-bg: var(--td-rail-bg, #EFECE5);  /* the rail; dark flips with the token */
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(calc(env(safe-area-inset-bottom, 0px) - 12px), 8px);
+  max-width: 560px;
+  height: 52px;
+  margin: 0 auto;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 26px;
+  background: var(--ow-dock-bg);
+  box-shadow:
+    inset 0 1px 0 #ffffffb3,
+    inset 0 0 0 1px #ffffff47,
+    0 0 0 .5px #1a191714,
+    0 2px 5px #402e1814,
+    0 10px 22px -10px #402e1829,
+    0 24px 46px -20px #1a19175c;
+  display: grid;
+  align-items: stretch;
+}
+html.dark .ow-dock {
+  box-shadow:
+    inset 0 1px 0 #ffffff12,
+    0 0 0 1px var(--td-line),
+    0 10px 24px -10px #000000a6,
+    0 24px 46px -20px #00000080;
+}
+@media (max-width: 359px) {
+  .ow-dock { height: 48px; border-radius: 24px; }
+}
+/* Phones only. The element's md:hidden cannot do it: Tailwind's utilities
+   sit in a cascade layer, and this file's unlayered `display: grid` beats
+   any layered rule — the dock showed on iPad and desktop, over the rail.
+   48rem is Tailwind's md, the width where the rail takes over. */
+@media (min-width: 48rem) {
+  .ow-dock { display: none; }
+}
+/* The indicator's track: the dock's shape, clipping the spring's overshoot
+   at the rounded ends. The dock itself never clips (focus ring, badge). */
+.ow-dock-track {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  isolation: isolate;
+  pointer-events: none;
+}
+/* ONE indicator for the whole dock, a column wide, sliding to the active
+   column (--i) on the soft spring; it never re-mounts per tab. */
+.ow-dock-ind {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: calc((100% - 10px) / var(--n, 5));
+  transform: translateX(calc(var(--i, 0) * 100%));
+  transition: transform var(--td-dur-spring) var(--td-spring-soft), opacity var(--td-dur-fast) var(--td-ease-out);
+  will-change: transform;
+  pointer-events: none;
+}
+.ow-dock-ind[data-hidden] { opacity: 0; }
+/* The pill: the rail's active row — a white card with a hairline. */
+.ow-dock-pill {
+  position: absolute;
+  inset: 4px 3px;
+  border-radius: 999px;
+  background: var(--td-card);
+  box-shadow: 0 1px 2px rgba(22, 33, 28, 0.06), 0 0 0 1px var(--td-line);
+}
+html.dark .ow-dock-pill { background: var(--td-chip); }
+
+.ow-dock-item {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--td-ink-2);
+  border-radius: 999px;
+  text-decoration: none;
+  /* Released: springs back. */
+  transition: color var(--td-dur-fast) var(--td-ease-out), scale var(--td-dur-spring) var(--td-spring);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.dark .ow-dock-item { color: var(--td-muted); }
+/* The current tab reads in ink, in dark too: the dark rule above outranks a
+   bare [aria-current] rule, which left both the same grey. */
+.ow-dock-item[aria-current="page"],
+html.dark .ow-dock-item[aria-current="page"] { color: var(--td-ink); }
+.ow-dock-item:focus-visible { outline: 2px solid var(--td-brass); outline-offset: -2px; }
+/* Pressed: .96, down in 0.11 s. A finger presses from data-pressed; a mouse
+   from :active. */
+html:not([data-modality="touch"]) .ow-dock-item:active,
+html[data-modality="touch"] .ow-dock-item[data-pressed] {
+  scale: .96;
+  transition-property: color, scale;
+  transition-duration: var(--td-dur-fast), var(--td-dur-press);
+  transition-timing-function: var(--td-ease-out), var(--td-ease-out);
+}
+.ow-dock-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+}
+@media (max-width: 359px) {
+  .ow-dock-item { gap: 2px; }
+  .ow-dock-icon { width: 20px; height: 20px; }
+}
+/* The amber dot: an actionable count on that tab (useNavBadges). */
+.ow-dock-dot {
+  position: absolute;
+  top: -1px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #F59E0B;                       /* amber-500, as the bar had */
+  box-shadow: 0 0 0 2px var(--ow-dock-bg);
+}
+/* Names on one line. Five long Danish names (Reservationer, Kasserapport)
+   in five columns: at a narrow width all five shrink TOGETHER to the size
+   the longest needs (dockLabelFit.js sets --vp-dock-fs), never mixed sizes;
+   ellipsis only below 8 px. */
+.ow-dock-label {
+  display: block;
+  max-width: 100%;
+  padding: 0 2px;
+  box-sizing: border-box;
+  font: 500 var(--vp-dock-fs, 11px)/1.1 "DM Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A narrow phone (360 px Android): "Reservationer" and "Kasserapport" took
+   all five names down to 9.1 px, under the old bar's 10 px. Below 390 px
+   (where the 12 px dock already holds 10 px) the dock gives the names back
+   width instead — 8 px from the edges, 3 px inside, no label padding:
+   10.1 px at 360, 11 px at 375–389. The indicator keeps its column. */
+@media (max-width: 389.98px) {
+  .ow-dock {
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    padding: 0 3px;
+  }
+  .ow-dock-ind { left: 3px; width: calc((100% - 6px) / var(--n, 5)); }
+  .ow-dock-label { padding: 0; }
+}
+
+/* ── The "+" sheet's jobs (4, decision 3) ─────────────────────────────── */
+/* One row of 40 px chips above the unchanged sale form: Drop-in · Ny
+   reservation. I dag's quick row offers the same jobs (one model, two ways
+   in) in the same face, so the two are ONE chip: I dag's phone .td-quick
+   .td-btn — 40 px, 12 px round, the house DM Sans at 13 px/600, the warm
+   hairline (today.css). Same icons and order as I dag and Reservationer. */
+.ow-jobs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ow-job {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--td-line);
+  background: var(--td-card);
+  color: var(--td-ink);
+  font: 600 13px/1.2 "DM Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    scale var(--td-dur-spring) var(--td-spring),
+    background-color var(--td-dur-fast) var(--td-ease-out);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* 40 px, the phone rule: index.css's touch min-height (44 px, on
+   button:not([role="switch"]) — a class alone does not outrank it). */
+.ow-jobs > .ow-job { min-height: 40px; }
+.ow-job > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ow-job:hover { background: var(--td-hover); }
+.ow-job:focus-visible { outline: 2px solid var(--td-brass); outline-offset: 2px; }
+html:not([data-modality="touch"]) .ow-job:active,
+html[data-modality="touch"] .ow-job[data-pressed] {
+  scale: .97;
+  transition-duration: var(--td-dur-press), var(--td-dur-fast);
+  transition-timing-function: var(--td-ease-out);
+}
+
+/* ── The top bar's ☰ ───────────────────────────────────────────────── */
+/* Closing the menu hands focus back to the ☰ (Layout), and WebKit draws
+   :focus-visible on that scripted focus even after a finger closed it — a
+   ring left standing on the ☰ (device pass, 13 Nov). A finger gets no ring;
+   a keyboard (modality "keyboard") or no input yet keeps it. */
+html[data-modality="touch"] .ow-menu-btn:focus-visible { box-shadow: none; }
+
+/* ── Reduce Motion (rule 6): no travel, no scale; tint and opacity stay ─ */
+@media (prefers-reduced-motion: reduce) {
+  .ow-dock-ind { transition: opacity var(--td-dur-fast) var(--td-ease-out); }
+  .ow-dock-item, .ow-job { transition: none; }
+  html[data-modality="touch"]:where([data-owner-shell]) :where(:is(button, a, [role="button"]):not(.vp-tint))[data-pressed]:not(:disabled),
+  html[data-modality="touch"] .td-tab[data-pressed],
+  html:not([data-modality="touch"]) .ow-dock-item:active,
+  html[data-modality="touch"] .ow-dock-item[data-pressed],
+  html:not([data-modality="touch"]) .ow-job:active,
+  html[data-modality="touch"] .ow-job[data-pressed] { scale: none; opacity: .72; }
+}

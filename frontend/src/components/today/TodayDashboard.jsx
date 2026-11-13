@@ -18,7 +18,8 @@
  * and business day — the hero stands still while its figures rise into place
  * (the beat), the cards settle, bars grow, the meter fills, the now-line
  * fades in — then nothing moves on a poll. Presses come from pressFeel (a
- * finger never flashes a press while scrolling). Haptics only on an outcome
+ * finger never flashes a press while scrolling), installed once for the whole
+ * owner app by Layout (phone R1), not here. Haptics only on an outcome
  * (PREMIUM-FEEL-SPEC A.5, 1.4): Skjul (feel.soft) and a real Frokost/Aften
  * change (feel.tick); navigation is silent.
  */
@@ -33,6 +34,7 @@ import { useLanguage } from "../../hooks/useLanguage";
 import { useAuth } from "../../hooks/useAuth";
 import { usePillars } from "../../hooks/usePillars";
 import { archetypeIdFor } from "../../config/archetypes";
+import { speaksAppointments } from "../../config/venueProfiles";
 import { formatOwnerMoney } from "../../utils/currency";
 import { dateLocale } from "../../utils/dateFormat";
 import { DATED_CODES, RENDERERS, keyFor, loadDismissed, saveDismissal, skipParamFor } from "../needsYouRenderers";
@@ -42,7 +44,7 @@ import {
 } from "./todayModel";
 import { introStamp, useTodayIntro } from "./todayMotion";
 import { feel } from "../staff/feel";
-import { installPressFeel } from "../staff/pressFeel";
+import { NEW_BOOKING_TO, WALK_IN_TO, canWalkInWith, noteBookFacts } from "./quickJobs";
 
 const REFRESH_MS = 5 * 60 * 1000;
 // TodayPage's own /today answer is this fresh or fresher → the first load
@@ -92,6 +94,10 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   const archetype = archetypeIdFor(user?.business_type);
   const isFood = archetype === "food_service" || archetype === "bar";
   const isAppointments = archetype === "salon" || archetype === "retail" || archetype === "services";
+  // "Ny reservation" (decision 3) for a venue with tables; a business that
+  // books a time says what its own sheet says ("Book en tid"), as Reservationer
+  // does (speaksAppointments) — the "+" sheet reads the same.
+  const newBookingWord = t(speaksAppointments(user?.business_type) ? "rsvpNewBookingProvider" : "tdNewBooking");
   const rsvOn = !hiddenPillars.has("reservations");
   const staffOn = !hiddenPillars.has("staff");
 
@@ -192,9 +198,11 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   // a poll. The DOM's class, not state: its end re-renders nothing.
   const pageRef = useRef(null);
   useTodayIntro(data ? introStamp(user?.id, data.business_day) : null, pageRef);
-  // Vagtplan's press controller while the page is up: a finger presses from
-  // data-pressed (never :active), so starting a scroll on a card never flashes.
-  useEffect(() => installPressFeel(), []);
+  // The phone "+" sheet offers the same jobs as the quick row below (one
+  // model, two ways in — quickJobs.js): it reads the book's facts from here.
+  useEffect(() => {
+    if (data?.reservations) noteBookFacts(user?.id, data.reservations);
+  }, [data, user?.id]);
 
   if (!data) return null;
 
@@ -218,9 +226,9 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   const momsSlot = !!foresight?.available || (!foresightSettled && currency === "DKK");
 
   const closeTo = "/daily-close";
-  const newBookingTo = "/reservations?new=1";
-  const walkInTo = "/reservations?walkin=1";
-  const canWalkIn = showRsv && isFood && (rsv?.seats || 0) > 0;
+  const newBookingTo = NEW_BOOKING_TO;
+  const walkInTo = WALK_IN_TO;
+  const canWalkIn = canWalkInWith({ showRsv, isFood, seats: rsv?.seats });
 
   const greeting = t(greetingKey(nowMin));
   const summary = headerSummary({ t, before, dayState, rsv: showRsv ? rsv : null, isFood, cutoff });
@@ -259,7 +267,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
           <div className="td-head-actions">
             <Link to="/home" className="td-link">{t("tdFullOverview")}</Link>
             {showRsv && (
-              <Link to={newBookingTo} className="td-btn"><CalendarPlus size={18} aria-hidden="true" />{t("tdNewBooking")}</Link>
+              <Link to={newBookingTo} className="td-btn"><CalendarPlus size={18} aria-hidden="true" />{newBookingWord}</Link>
             )}
             <Link to={closeTo} className="td-btn td-btn-brass"><Moon size={18} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
           </div>
@@ -268,9 +276,12 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
         <Hero t={t} data={data} money={money} before={before} nowMin={nowMin} cutoff={cutoff}
           rsv={showRsv ? rsv : null} shifts={shifts} sum={sum} staffOn={staffOn} isAppointments={isAppointments} />
 
+        {/* The same jobs, icons and order as the phone "+" sheet and
+            Reservationer's own buttons: Drop-in · Ny reservation (one model,
+            two ways in — quickJobs.js). Then Luk dagen. */}
         <div className="td-quick" role="group" aria-label={t("tdQuickActions")}>
-          {showRsv && <Link to={newBookingTo} className="td-btn"><CalendarPlus size={16} aria-hidden="true" />{t("tdNewBooking")}</Link>}
           {canWalkIn && <Link to={walkInTo} className="td-btn"><UserPlus size={16} aria-hidden="true" />{t("tdWalkIn")}</Link>}
+          {showRsv && <Link to={newBookingTo} className="td-btn"><CalendarPlus size={16} aria-hidden="true" />{newBookingWord}</Link>}
           <Link to={closeTo} className="td-btn td-btn-brass"><Moon size={16} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
         </div>
 
@@ -280,7 +291,7 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
           <Needs t={t} needs={needs} known={known} failed={findingsFailed} expected={expected} navigate={navigate} onDismiss={dismiss} isAppointments={isAppointments} />
           {showRsv && (
             <Bookings t={t} rsv={rsv} day={data.business_day} cutoff={cutoff} nowMin={nowMin}
-              isFood={isFood} isAppointments={isAppointments} canWalkIn={canWalkIn} newBookingTo={newBookingTo} walkInTo={walkInTo} />
+              isFood={isFood} isAppointments={isAppointments} canWalkIn={canWalkIn} newBookingTo={newBookingTo} walkInTo={walkInTo} newBookingWord={newBookingWord} />
           )}
           {staffOn && shifts.length > 0 && (
             <Staff t={t} shifts={shifts} sum={sum} nowMin={nowMin} cutoff={cutoff} before={before} />
@@ -555,7 +566,7 @@ const STATUS_KEY = {
   completed: "tdStCompleted",
 };
 
-function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalkIn, newBookingTo, walkInTo }) {
+function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalkIn, newBookingTo, walkInTo, newBookingWord }) {
   const split = useMemo(() => splitService(rsv.items, cutoff), [rsv.items, cutoff]);
   const both = isFood && split.lunch.length > 0 && split.dinner.length > 0;
   const [svc, setSvc] = useState(() => defaultService(split, nowMin));
@@ -594,7 +605,7 @@ function Bookings({ t, rsv, day, cutoff, nowMin, isFood, isAppointments, canWalk
       {shown.length === 0 ? (
         <div className="td-empty">
           <span>{isAppointments ? t("tdNoApptsYet") : t("tdNoBookingsTonight")}</span>
-          <Link to={newBookingTo} className="td-btn td-btn-sm"><CalendarPlus size={16} aria-hidden="true" />{t("tdNewBooking")}</Link>
+          <Link to={newBookingTo} className="td-btn td-btn-sm"><CalendarPlus size={16} aria-hidden="true" />{newBookingWord}</Link>
         </div>
       ) : (
         <div role="table" aria-label={title}>

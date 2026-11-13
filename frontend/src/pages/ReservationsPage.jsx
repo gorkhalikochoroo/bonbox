@@ -34,6 +34,8 @@ import { warningFrom, roomFullText } from "../utils/bookingRefusal";
 import { createPortal } from "react-dom";
 import {
   CalendarCheck,
+  CalendarPlus,
+  UserPlus,
   Plus,
   Minus,
   Trash2,
@@ -82,7 +84,9 @@ import {
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
-import { haptic } from "../utils/haptics";
+// Vagtplan's haptic words (components/staff/feel.js): one per action, at the
+// server's answer, never at the tap (phone R1, PHONE-OWNER-PLAN 5.6).
+import { feel } from "../components/staff/feel";
 import { getSoundStatus, subscribeSound, testSound } from "../utils/sound";
 import { RESERVATIONS_CHANGED_EVENT } from "../lib/liveAlertKinds";
 import {
@@ -189,7 +193,7 @@ import SalonAttention from "../components/reservations/SalonAttention";
 import SalonWeekCapacity, { SalonDayCapacity } from "../components/reservations/SalonCapacity";
 import StylistRow, { isOwnChair, tidyName, STYLIST_NAME_MAX } from "../components/reservations/StylistRow";
 import StylistAddCard from "../components/reservations/StylistAddCard";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, platform } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
 import { parseServerTime } from "../utils/serverTime";
@@ -2233,7 +2237,7 @@ function NewBookingSheet({
           <h3 id="rsvp-new-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {apptWords
               ? t("rsvpNewBookingProvider", "Book an appointment")
-              : t("rsvpNewBooking", "New booking")}
+              : t("rsvpNewBooking", "New reservation")}
           </h3>
           <button
             type="button"
@@ -4311,11 +4315,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     }
     onProceed?.();
     setActioningId(r.id);
-    // Physical feedback at the moment of decision (no-op on web): success on
-    // the money moment (completed), a firm tick otherwise.
-    if (status === "completed") haptic.success();
-    else if (status === "cancelled" || status === "no_show") haptic.warning();
-    else haptic.medium();
+    // No haptic here: the tap is not the outcome. It plays at the server's
+    // answer below (5.6) — done when guests are seated, soft for the routine
+    // rest; warn when refused (409), fail when it could not be done.
     // Optimistic flip so the chip updates instantly.
     setData((prev) =>
       prev
@@ -4339,6 +4341,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         ...(confirmsNoTable ? { if_no_table: opts.ifNoTable === "confirm" ? "confirm" : "ask" } : {}),
         ...(opts.moveTo ? { starts_at: opts.moveTo } : {}),
       });
+      if (status === "seated") feel.done();
+      else feel.soft();
       // Where the confirmed group sits now — said, as every other change on
       // the book is (R11). Or that it sits nowhere yet, on purpose.
       const placed = resp?.data?.tables_assigned;
@@ -4509,6 +4513,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         await setStatus(r, status, null, { movedTo: opts.movedTo, legacyMove: true, retried: true });
         return;
       }
+      // The answer is a no: refused (409 — a table taken, changed meanwhile)
+      // or not done at all (network, server).
+      if (e?.response?.status === 409) feel.warn();
+      else feel.fail();
       // R11 (B7): no table fits the group — nothing changed on the server.
       // The book reloads (the optimistic "confirmed" goes back to a request)
       // and the sheet says so and offers what can be done.
@@ -4609,7 +4617,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         source: "walk_in",
         status: "seated",
       });
-      haptic.success();
+      feel.done();
       setSeatTarget(null);
       setSeatParty(null);
       // The walk-in is seated NOW (today) — jump to today if viewing another
@@ -4624,6 +4632,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     } catch (e) {
       const code = e?.response?.data?.detail?.error;
       const conflict = e?.response?.status === 409;
+      if (conflict) feel.warn();
+      else feel.fail();
       // One table, standing free, with a booking inside the party's sitting
       // in the book the host was looking at: that booking is the refusal.
       const bookedTable = !joined && resource_id
@@ -4884,6 +4894,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             ...(allowOverflow ? { allow_overflow: true } : {}),
           };
       const created = await api.post("/reservations/book", payload);
+      feel.soft();
       trackEvent("reservation_created", "reservations");  // product analytics
       // Say what was made — New booking closed in silence (the waitlist's Book
       // said "booket 19.30 · Bord 2"), and booking another day also jumped
@@ -4911,6 +4922,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       else await fetchBook(day);
     } catch (e) {
       const d = e?.response?.data?.detail || {};
+      if (e?.response?.status === 409) feel.warn();
+      else feel.fail();
       if (e?.response?.status === 409 && d.error === "stylist_unavailable") {
         // The pinned behandler was just taken — honest inline message, the
         // sheet stays open with the same selections so the host can pick a new
@@ -4953,23 +4966,54 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // SeatNowSheet to render its table picker; a tile-launched seat-now still
   // passes the tapped resource object and skips the picker. Seating jumps to
   // today so the walk-in is visible, matching the tile flow.
+  // A drop-in sits down NOW, on today's book. Opened while the book showed
+  // another day (a phone booking for tomorrow jumps the book there), the
+  // picker offered THAT day's free tables and the seat was refused — "Bordet
+  // er nu optaget", 409 (phone R1 device pass, 13 Nov). So the book returns
+  // to today first, and the sheet opens once today's book is on screen.
+  const [walkInWaits, setWalkInWaits] = useState(0); // since when, or 0
   const openSeatWalkIn = () => {
     setError("");
     setSeatError("");
+    const today = serviceDayIso();
+    if (day !== today) {
+      setWalkInWaits(Date.now());
+      setDay(today);
+      return;
+    }
     setSeatTarget(SEAT_WALK_IN_PICK);
   };
-
-  // ── Deep-link: /reservations?new=1 | ?walkin=1 (the I dag page, Nov 2026) ─
-  // "Ny booking" and "Walk-in" on I dag open the SAME sheets the header's own
-  // buttons open, then drop the flag so a reload or Back never re-opens them.
-  // Owner book only — the host stand has its own controls.
-  const quickOpenDone = useRef(false);
   useEffect(() => {
-    if (standalone || quickOpenDone.current) return;
+    if (!walkInWaits) return;
+    // The host moved to another day, or today's book did not come within
+    // 10 s (the page says why): the sheet never pops up out of nowhere later.
+    if (day !== serviceDayIso() || Date.now() - walkInWaits > 10000) {
+      setWalkInWaits(0);
+      return;
+    }
+    if (loading || shownDayRef.current !== day) return;
+    setWalkInWaits(0);
+    setSeatTarget(SEAT_WALK_IN_PICK);
+  }, [walkInWaits, day, loading, data]);
+
+  // ── Deep-link: /reservations?new=1 | ?walkin=1 (I dag, the "+" sheet) ───
+  // "Ny reservation" and "Drop-in" on I dag and in the phone "+" sheet open
+  // the SAME sheets the header's own buttons open, then drop the flag so a
+  // reload or Back never re-opens them. Owner book only — the host stand has
+  // its own controls.
+  // Once per NAVIGATION, keyed on location.key (phone R1). The guard was a
+  // flag set once per mount and never reset, so a second "+ → Drop-in" while
+  // already on Reservationer did nothing — a dead button. Every tap is a new
+  // navigation with its own key; StrictMode's second run of the same effect
+  // shares the key, so it still opens once.
+  const quickOpenKey = useRef(null);
+  useEffect(() => {
+    if (standalone) return;
     const wantsNew = searchParams.get("new") === "1";
     const wantsWalkIn = searchParams.get("walkin") === "1";
     if (!wantsNew && !wantsWalkIn) return;
-    quickOpenDone.current = true;
+    if (quickOpenKey.current === location.key) return;
+    quickOpenKey.current = location.key;
     if (wantsNew) openNewBooking();
     else openSeatWalkIn();
     const next = new URLSearchParams(searchParams);
@@ -4977,7 +5021,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     next.delete("walkin");
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, standalone]);
+  }, [searchParams, standalone, location.key]);
 
   // Assign / move / clear the booking's table from the detail drawer.
   // PATCH then refetch (no in-place object patching — the memo-on-identity
@@ -5080,7 +5124,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     setEditWarning(null);
     try {
       const res = await api.patch(`/reservations/reservations/${editRes.id}`, fields);
-      haptic.success();
+      feel.soft();
       // More guests than the table seats (or a taken table at the new time):
       // the server moved them to one that fits — say where, or the host
       // walks the party to the old table.
@@ -5138,7 +5182,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       setSelected(null);
       fetchBook(day);
     } catch (e) {
-      haptic.error();
+      if (e?.response?.status === 409) feel.warn();
+      else feel.fail();
       const d = e?.response?.data?.detail || {};
       if (e?.response?.status === 409 && d.error === "room_full") {
         setEditWarning(warningFrom(d, ctx.time || (fields.starts_at || "").slice(11, 16), totalCapacity));
@@ -6379,7 +6424,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // /reservations/stand in a new tab — a dedicated host-stand display. Hidden
   // while already inside the pop-out. On a phone it sits after the lens
   // switch, under Refresh — or beside Refresh when there is no lens switch.
-  const standPopOut = !__STAND_BUILD__ && !standalone ? (
+  //
+  // Not in the iPhone/iPad app (13 Nov 2026 device pass): WKWebView ignores
+  // window.open(…, "_blank"), so the button did nothing — a dead end. Opening
+  // the stand in place instead would leave the owner on a screen whose only
+  // exit is "Log ud" (by design — see the stand menu). Android's WebView opens
+  // it in place and BACK returns, so it stays there; the web keeps its tab.
+  const standPopOut = !__STAND_BUILD__ && !standalone && !(platform.isNative && platform.isIOS) ? (
     <button
       type="button"
       onClick={() =>
@@ -7211,7 +7262,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <Button
               variant="secondary"
               size="lg"
-              iconLeft={<Armchair className="w-4 h-4" />}
+              iconLeft={<UserPlus className="w-4 h-4" />}
               onClick={openSeatWalkIn}
               aria-label={apptWords ? t("rsvpSeatWalkInAppt", "Check in a drop-in") : t("rsvpSeatWalkIn", "Seat a drop-in")}
               className={PHONE_ACTION}
@@ -7225,13 +7276,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           <Button
             variant="main"
             size="lg"
-            iconLeft={<Plus className="w-4 h-4" />}
+            iconLeft={<CalendarPlus className="w-4 h-4" />}
             onClick={openNewBooking}
             className={PHONE_ACTION}
           >
             {apptWords
               ? t("rsvpNewBookingProvider", "Book an appointment")
-              : t("rsvpNewBooking", "New booking")}
+              : t("rsvpNewBooking", "New reservation")}
           </Button>
           </div>
       </div>

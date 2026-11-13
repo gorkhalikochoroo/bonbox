@@ -48,6 +48,9 @@ export const STAND_SWAPS = {
   // index.html): the web answers, without the Capacitor runtime.
   "utils/platform.js": "stand/standPlatform.js",
   "utils/haptics.js": "stand/standHaptics.js",
+  // Vagtplan's haptic words (phone R1: the book and the waitlist play them
+  // at the server's answer) import the Capacitor plugin themselves.
+  "components/staff/feel.js": "stand/standFeel.js",
   // The plan, loaded the first time the Plan lens opens (the door screen
   // opens on the list). The stand module's own import reaches the real one.
   "components/FloorPlan.jsx": "stand/standFloorPlan.jsx",

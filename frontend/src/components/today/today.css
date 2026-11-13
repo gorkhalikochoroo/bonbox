@@ -61,7 +61,11 @@
   unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
 }
 
-.td-page, .td-rail {
+/* The owner token scope (PHONE-OWNER-PLAN 5.3): the same tokens on <html>
+   while the owner Layout is mounted (Layout sets data-owner-shell), so the
+   dock, the "+" sheet's chips and any owner sheet portaled to <body> read
+   them too. One rule, not a third copy: the page and the rail keep theirs. */
+html[data-owner-shell], .td-page, .td-rail {
   --td-ink: #1A1917;
   --td-ink-2: #4A4640;
   --td-muted: #6F6A63;
@@ -89,9 +93,13 @@
   --td-heat-2: #A9C4B4;
   --td-heat-3: #3F7A5C;
   --td-rail-bg: #EFECE5;
+}
+/* The house type stays on the page and the rail only: the owner scope above
+   carries colours, never a font for the whole app. */
+.td-page, .td-rail {
   font-family: "DM Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
-.dark .td-page, .dark .td-rail {
+html.dark[data-owner-shell], .dark .td-page, .dark .td-rail {
   --td-ink: #F3F2EE;
   --td-ink-2: #D6D3CC;
   --td-muted: #A8A39A;
@@ -122,7 +130,7 @@
 
 /* Motion tokens: the Orvexlo kit's values, the same numbers Vagtplan carries
    (ORVEXLO-MOTION-KIT.md). The page, the rail and the phone tab bar's items. */
-.td-page, .td-rail, .td-tab {
+html[data-owner-shell], .td-page, .td-rail, .td-tab {
   --td-dur-press: 0.11s;
   --td-dur-fast: 0.18s;
   --td-dur-base: 0.32s;
@@ -135,10 +143,10 @@
   --td-spring-soft: cubic-bezier(.3, 1.15, .5, 1);
   --td-press-tint: rgba(26, 25, 23, .06);
 }
-.dark .td-page, .dark .td-rail { --td-press-tint: rgba(255, 255, 255, .06); }
+html.dark[data-owner-shell], .dark .td-page, .dark .td-rail { --td-press-tint: rgba(255, 255, 255, .06); }
 /* … and the real curve where it is. */
 @supports (transition-timing-function: linear(0, 1)) {
-  .td-page, .td-rail, .td-tab {
+  html[data-owner-shell], .td-page, .td-rail, .td-tab {
     --td-spring: linear(0, .014 1.8%, .061 3.8%, .151 6.3%, .327 10%, .65 16.5%, .808 20.3%, .926 23.8%, 1.012 27.3%, 1.071 31%, 1.103 35%, 1.109 40%, 1.076 48%, 1.011 61.3%, .989 72.5%, 1);
     --td-spring-soft: linear(0, .017 2%, .067 4.3%, .169 7.2%, .583 17.3%, .73 21.5%, .84 25.5%, .925 29.8%, .986 34.5%, 1.024 40%, 1.038 47.5%, 1.001 81.3%, 1);
   }
@@ -498,12 +506,22 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
   .td-bottom > .td-close { grid-column: 1 / -1; }
   .td-minis { display: contents; }
 }
+/* A phone under ~370 px (the page's content box under 340): the three jobs
+   fit only as words, so the icons step out. */
+@container (max-width: 339.98px) {
+  .td-quick .td-btn > svg { display: none; }
+}
 @container (max-width: 599.98px) {
   .td-page { padding-left: 0; padding-right: 0; }
   .td-wrap { gap: 14px; }
   .td-head-actions { display: none; }
-  .td-quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
-  .td-quick .td-btn { height: 40px; font-size: 13px; padding: 0 10px; border-radius: 12px; }
+  /* Each job as wide as its words (phone R1: "Ny reservation" is longer
+     than "Ny booking" was), the row still filling the width. */
+  .td-quick { display: flex; gap: 8px; }
+  /* min-height: index.css's 44 px touch floor (on every <a> under a
+     finger) outgrew height: 40px — I dag drew 44 while the "+" sheet's same
+     chips drew 40. The phone rule is 40 (fix round, 13 Nov). */
+  .td-quick .td-btn { flex: 1 1 auto; min-width: 0; height: 40px; min-height: 40px; font-size: 13px; padding: 0 8px; gap: 6px; border-radius: 12px; }
   .td-hero { padding: 16px; border-radius: 16px; gap: 14px; }
   .td-hero-stats, .td-chart { flex-basis: 100%; }
   .td-tile { padding: 12px 12px; border-radius: 14px; }

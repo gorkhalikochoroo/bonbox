@@ -17,10 +17,19 @@ import { matchesPad } from "../../lib/padLayout";
 // 3): on the A14 at 4x the moves came 12-28 ms apart but the lift 50-90 ms
 // after the last one (the last moves were never dispatched; the finger was
 // still travelling), so 2 flicks of 2 sprang back. HORIZON: the speed is read over the samples of
-// the last 100 ms before the last move (at least the two newest): on a fast
-// phone that is all six, exactly as before; on a slow one, six samples could
-// reach back into the pull's slow start.
-export const DRAG = { SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 100, HORIZON: 100 };
+// the last 100 ms before the last move (at least the two newest): on a slow
+// phone, older samples could reach back into the pull's slow start.
+// WINDOW (phone R1, 120 Hz): the speed is read over the last 83 ms by the
+// clock, never over a number of moves. It was the last six moves: on a 60 Hz
+// phone 83 ms (five 16.7 ms gaps, what the feel was tuned on), on a 120 Hz
+// one only 42 ms, so a flick that speeds up to the lift read faster there
+// and dismissed sooner. Now dy at the window's start is interpolated
+// between the two moves around it, so 60, 90, 120 and 144 Hz read the same
+// speed. Moves too far apart for that (the move before the window older than
+// HORIZON: a busy phone) keep the HORIZON rule above, exactly as before.
+export const DRAG = { SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, WINDOW: 83, STOPPED: 100, HORIZON: 100 };
+// A guard only: time keeps the samples to HORIZON (a 240 Hz panel sends 25).
+const MAX_SAMPLES = 64;
 // BeloBag's rule: a control never starts a drag.
 const CONTROL = 'input,textarea,select,button,a[href],label,[role="button"],[role="slider"],[role="switch"],[contenteditable="true"],[contenteditable=""]';
 /** Past the top: a rubber band that never gives more than DRAG.RUBBER px. */
@@ -39,16 +48,35 @@ export function releaseOf(dy, v, h) {
 }
 /** The release speed in px/ms from the move samples ([timeStamp, dy], oldest
     first) and the lift's time `at`: 0 when the finger rested (no move for more
-    than DRAG.STOPPED ms before it lifted); else over the samples within
-    DRAG.HORIZON ms of the last move, at least the two newest. */
+    than DRAG.STOPPED ms before it lifted); else over the last DRAG.WINDOW ms
+    (dy at the window's start interpolated between the two moves around it),
+    whatever the refresh rate; when the move before the window is older than
+    DRAG.HORIZON, or the pull is shorter than the window, over the samples
+    within DRAG.HORIZON ms of the last move, at least the two newest. */
 export function releaseSpeed(s, at) {
   if (!s || s.length < 2) return 0;
   const b = s[s.length - 1];
   if (at != null && at - b[0] > DRAG.STOPPED) return 0;   // held still, then lifted
+  const start = b[0] - DRAG.WINDOW;
+  let j = s.length - 2;
+  while (j >= 0 && s[j][0] > start) j -= 1;              // the newest move at or before the window's start
+  if (j >= 0 && b[0] - s[j][0] <= DRAG.HORIZON) {
+    const [t0, y0] = s[j];
+    const [t1, y1] = s[j + 1];
+    const y = t1 > t0 ? y0 + ((y1 - y0) * (start - t0)) / (t1 - t0) : y1;
+    return (b[1] - y) / DRAG.WINDOW;
+  }
   let i = s.length - 2;
   while (i > 0 && b[0] - s[i - 1][0] <= DRAG.HORIZON) i -= 1;
   const a = s[i];
   return (b[1] - a[1]) / Math.max(1, b[0] - a[0]);
+}
+/** Add a move sample; keep what releaseSpeed can read: the moves within
+    DRAG.HORIZON ms of the newest, and never fewer than two. */
+export function pushSample(s, t, dy) {
+  s.push([t, dy]);
+  while (s.length > 2 && (t - s[0][0] > DRAG.HORIZON || s.length > MAX_SAMPLES)) s.shift();
+  return s;
 }
 // Anything between the finger and the sheet (the sheet included) scrolled down?
 const scrolledBetween = (n, stop) => {
@@ -115,8 +143,7 @@ export function useSheetDrag(sheetRef, onDismiss, { enabled = true } = {}) {
       }
       if (e.cancelable) e.preventDefault();
       g.dy = p.clientY - g.y0;
-      g.s.push([e.timeStamp, g.dy]);
-      if (g.s.length > DRAG.SAMPLES) g.s.shift();
+      pushSample(g.s, e.timeStamp, g.dy);
       if (!raf) raf = requestAnimationFrame(draw);          // one write per frame
     };
     const finish = (cancelled, at) => {

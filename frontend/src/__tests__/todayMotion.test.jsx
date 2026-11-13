@@ -47,6 +47,7 @@ const feelSpy = vi.hoisted(() => ({ soft: vi.fn(), tick: vi.fn(), warm: vi.fn(),
 vi.mock("../components/staff/feel", () => ({ feel: feelSpy, resetFeelForTests: () => {} }));
 
 import TodayDashboard from "../components/today/TodayDashboard";
+import { installPressFeel } from "../components/staff/pressFeel";
 import { INTRO_CAP_MS, INTRO_KEY, INTRO_MS, introStamp } from "../components/today/todayMotion";
 import { formatOwnerMoney } from "../utils/currency";
 import { laborLine, salesTile, staffSummary, tonightCovers } from "../components/today/todayModel";
@@ -404,6 +405,11 @@ describe("press + haptics", () => {
   }
 
   it("Vagtplan's press controller runs while the page is up: buttons at once, cards and grouped rows 70 ms late", () => {
+    // Edited in phone R1 (PHONE-OWNER-PLAN 5.2): the owner Layout installs
+    // the press controller ONCE for the whole owner app, and I dag no longer
+    // installs a second copy — so the test installs it the way Layout does.
+    // The intent is unchanged: on I dag a finger presses from data-pressed.
+    const uninstall = installPressFeel();
     const { unmount } = mount();
     const btn = document.querySelector(".td-head-actions .td-btn");
     pointer(btn, "pointerdown");
@@ -421,6 +427,7 @@ describe("press + haptics", () => {
     expect(row.classList.contains("vp-tint")).toBe(true);
     expect(document.querySelector("a.td-step").classList.contains("vp-tint")).toBe(true);
     unmount();
+    uninstall();
     expect(document.documentElement.dataset.modality).toBeUndefined();
   });
 

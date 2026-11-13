@@ -16,17 +16,17 @@
  * of the five call sites — the phone "+" quick-add, Snap-a-receipt, smart
  * sale, market comparison, the Team confirm — needed editing.
  *
- * NOT inherited: a pinned footer. Modal has no footer slot, so children still
- * own their action row and it still scrolls with the body — the scroll body
- * carries the safe-area padding that keeps the last control clear of the home
- * indicator, but a long form still scrolls its primary button out of sight.
- * Giving Modal a footer slot means editing call sites, so it is a separate job.
+ * Pinned footer (13 Nov 2026): optional `footer`. When given, it sits under
+ * the scrolling body, always in view, and takes over the safe-area padding.
+ * Without it nothing changes — children own their action row and it scrolls
+ * with the body, as before. The phone "+" quick-add uses it so its save
+ * button no longer drops below the fold.
  */
 import Sheet from "./ui/Sheet";
 import Icon from "./ui/Icon";
 import { useLanguage } from "../hooks/useLanguage";
 
-export default function Modal({ open, onClose, title, children }) {
+export default function Modal({ open, onClose, title, children, footer }) {
   const { t } = useLanguage();
 
   if (!open) return null;
@@ -60,10 +60,19 @@ export default function Modal({ open, onClose, title, children }) {
       <div
         data-sheet-body=""
         className="flex-1 overflow-y-auto px-6"
-        style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}
+        style={{ paddingBottom: footer ? "1rem" : "calc(1.5rem + env(safe-area-inset-bottom))" }}
       >
         {children}
       </div>
+      {footer && (
+        <div
+          data-sheet-footer=""
+          className="shrink-0 px-6 pt-3 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        >
+          {footer}
+        </div>
+      )}
     </Sheet>
   );
 }
