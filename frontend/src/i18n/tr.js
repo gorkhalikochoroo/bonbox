@@ -2964,7 +2964,7 @@ export const tr = {
   rsvpInstallManualIOS: "Safari'de: Payla\u015f'a dokun, sonra Ana Ekrana Ekle'yi se\u00e7. Simge do\u011frudan bu ekran\u0131 a\u00e7ar.",
   rsvpStandInstall: "Bu cihaza y\u00fckle",
   standPairTitle: "Bu cihaz\u0131 ba\u011fla",
-  standPairBody: "Sahibin verdi\u011fi kodu gir. Bu cihaz yaln\u0131zca rezervasyonlar\u0131 g\u00f6sterir \u2014 muhasebe veya maa\u015f asla.",
+  standPairBody: "Sahibin verdi\u011fi kodu gir. Bu cihaz yaln\u0131zca sahibin se\u00e7ti\u011fini g\u00f6sterir \u2014 muhasebe veya maa\u015f asla.",
   standPairCodeLabel: "Kod",
   standPairCta: "Ba\u011fla",
   standPairBusy: "Ba\u011flan\u0131yor\u2026",

@@ -127,7 +127,9 @@ def test_super_admin_gets_flags_and_due_counts(S, client):
                   "PRIVACY_PURGE_ORPHANS_ENABLED": False,
                   "AUDIT_EMAIL_CLEANUP_ENABLED": False},
         "due": {"waitlist_guest_pii": 3, "whatsapp_messages": 2, "magic_link_tokens": 1,
-                "anonymous_paid_waitlist": 1, "audit_rows_with_owner_email": 4},
+                "anonymous_paid_waitlist": 1, "egenkontrol_entries": 0,
+                "egenkontrol_photos": 0, "egenkontrol_reviews": 0,
+                "audit_rows_with_owner_email": 4},
     }
     # Counts only.
     assert "@" not in r.text and "+45" not in r.text and "Agnes" not in r.text

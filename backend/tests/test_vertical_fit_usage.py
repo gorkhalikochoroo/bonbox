@@ -89,7 +89,8 @@ def _as(user_id):
 def test_surfaces_are_real_rows(session_factory):
     s = session_factory()
     salon = _owner(s, "s@bonbox.test")
-    assert used_surfaces(s, salon) == {"waste": False, "expiry": False, "workshop": False}
+    assert used_surfaces(s, salon) == {"waste": False, "expiry": False, "workshop": False,
+                                       "egenkontrol": False}
 
     s.add(WasteLog(user_id=salon.id, date=date.today(), item_name="Farve", quantity=1, unit="stk"))
     s.add(InventoryItem(user_id=salon.id, name="Shampoo", quantity=3, expiry_date=date.today() + timedelta(days=30)))
@@ -98,14 +99,16 @@ def test_surfaces_are_real_rows(session_factory):
     s.commit()
     s.add(JobCard(user_id=salon.id, job_number="JOB-0001", vehicle_id=v.id))
     s.commit()
-    assert used_surfaces(s, salon) == {"waste": True, "expiry": True, "workshop": True}
+    assert used_surfaces(s, salon) == {"waste": True, "expiry": True, "workshop": True,
+                                       "egenkontrol": False}
 
     # A deleted waste row and an undated stock item are no use.
     other = _owner(s, "o@bonbox.test", "clothing")
     s.add(WasteLog(user_id=other.id, date=date.today(), item_name="x", quantity=1, is_deleted=True))
     s.add(InventoryItem(user_id=other.id, name="T-shirt", quantity=5))
     s.commit()
-    assert used_surfaces(s, other) == {"waste": False, "expiry": False, "workshop": False}
+    assert used_surfaces(s, other) == {"waste": False, "expiry": False, "workshop": False,
+                                       "egenkontrol": False}
     s.close()
 
 
@@ -117,7 +120,8 @@ def test_activation_payload_carries_surfaces(client, session_factory):
     app.dependency_overrides[get_current_user] = _as(salon.id)
     r = client.get("/api/activation")
     assert r.status_code == 200, r.text
-    assert r.json()["surfaces"] == {"waste": True, "expiry": False, "workshop": False}
+    assert r.json()["surfaces"] == {"waste": True, "expiry": False, "workshop": False,
+                                    "egenkontrol": False}
     s.close()
 
 
@@ -128,7 +132,8 @@ def test_kill_switch_reads_every_tool_as_used(client, session_factory, monkeypat
     salon = _owner(s, "k@bonbox.test")
     app.dependency_overrides[get_current_user] = _as(salon.id)
     body = client.get("/api/activation").json()
-    assert body["surfaces"] == {"waste": True, "expiry": True, "workshop": True}
+    assert body["surfaces"] == {"waste": True, "expiry": True, "workshop": True,
+                                "egenkontrol": True}
     s.close()
 
 

@@ -3,7 +3,7 @@
 // page's "Kræver dig" card so the two can never word a finding differently or
 // disagree about what the owner already dismissed. Moved verbatim from
 // NeedsYouQueue.jsx (Nov 2026).
-import { CalendarCheck, Landmark, FileClock, Scale, CalendarX } from "lucide-react";
+import { CalendarCheck, Landmark, FileClock, Scale, CalendarX, Thermometer } from "lucide-react";
 import { formatKr } from "../utils/currency";
 import { formatDateClear } from "../utils/dateFormat";
 
@@ -141,6 +141,19 @@ export const RENDERERS = {
             revenue: formatKr(m.revenue_total),
           }),
     action: (t) => t("nyqUnreconciledAction", "Review"),
+  },
+  // Egenkontrol (R1a): readings missing today, or a deviation not yet closed.
+  // meta.date is the venue's business day, so a dismissal hides this row for
+  // that day only (keyFor) — it is not a dated code (not in DATED_CODES).
+  egenkontrol_due: {
+    icon: Thermometer,
+    title: (t, m) => {
+      const dev = Number(m.deviations || 0);
+      const missing = Number(m.missing || 0);
+      if (dev > 0) return dev === 1 ? t("nyqEkDeviationOne") : t("nyqEkDeviationMany", { count: dev });
+      return missing === 1 ? t("nyqEkMissingOne") : t("nyqEkMissingMany", { count: missing });
+    },
+    action: (t) => t("nyqEkAction"),
   },
   // Your public booking page has no free slots for the next 14 days — a
   // customer who opens the link just bounces. Flagged by the public-surface

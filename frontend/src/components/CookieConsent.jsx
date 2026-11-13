@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { CONSENT_CLEAR_SELECTOR, consentChangeMatters } from "../lib/consentClear";
 import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
+import { isPairedDevicePath } from "../lib/pairedDevice";
 import { landingFirstPaint } from "../lib/landingBoot";
 
 /**
@@ -221,7 +222,10 @@ const SIDE_RIGHT_SELECTOR = '[data-bb-consent-side="right"]';
 export default function CookieConsent() {
   const { t } = useLanguage();
   const { pathname } = useLocation();
-  const [open, setOpen] = useState(false); // banner visible
+  const [open, setOpen] = useState(false); // banner wanted (no answer yet, or reopened)
+  // On the paired kitchen iPad (/kitchen) the banner stays off screen: only
+  // strictly-necessary storage there, like the door screen — lib/pairedDevice.js.
+  const visible = open && !isPairedDevicePath(pathname);
   const [drawer, setDrawer] = useState(false); // customize drawer
   const bannerRef = useRef(null);
   // clear: px from the viewport bottom to the top of the highest bar the
@@ -326,7 +330,7 @@ export default function CookieConsent() {
   // move (a tab bar hidden on one page), so re-measure on DOM changes, resize
   // and transition ends — only while the banner is open.
   useEffect(() => {
-    if (!open || typeof window === "undefined") return undefined;
+    if (!visible || typeof window === "undefined") return undefined;
     let frame = 0;
     const measure = () => {
       frame = 0;
@@ -368,12 +372,12 @@ export default function CookieConsent() {
       } catch { /* noop */ }
       try { window.cancelAnimationFrame(frame); } catch { clearTimeout(frame); }
     };
-  }, [open, pathname]);
+  }, [visible, pathname]);
 
   // The banner's footprint, for the page under it to pad by: from the top of
   // the banner down to the bar it sits on (or the viewport bottom). Cleared
   // whenever the banner is not on screen (answered, or the drawer is open).
-  const showBanner = open && !drawer;
+  const showBanner = visible && !drawer;
   useEffect(() => {
     const root = typeof document !== "undefined" ? document.documentElement : null;
     if (!root) return undefined;
@@ -405,7 +409,7 @@ export default function CookieConsent() {
     };
   }, [showBanner, place]);
 
-  if (!open) return null;
+  if (!visible) return null;
 
   const acceptAll = () => {
     const all = { necessary: true, analytics: true, marketing: true };

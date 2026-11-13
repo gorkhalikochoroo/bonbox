@@ -46,8 +46,15 @@ export function typeGateDelta(fromType, toType, usage = {}) {
   if (!fromType || !toType || fromType === toType) return { hide: [], show: [] };
   const before = menuFor(fromType, usage);
   const after = menuFor(toType, usage);
+  const used = usage.usedSurfaces instanceof Set ? usage.usedSurfaces : new Set();
   return {
-    hide: MENU_ITEMS.filter((d) => before.has(d.to) && !after.has(d.to)),
+    // `used`: the tool has real rows and leaves anyway (an archetype hide
+    // beats keepWhenUsed — a café with egenkontrol readings becoming a salon).
+    // The sheet must then not call it "not used yet".
+    hide: MENU_ITEMS.filter((d) => before.has(d.to) && !after.has(d.to)).map((d) => ({
+      ...d,
+      used: !!d.keepWhenUsed && used.has(d.keepWhenUsed),
+    })),
     show: MENU_ITEMS.filter((d) => after.has(d.to) && !before.has(d.to)),
   };
 }

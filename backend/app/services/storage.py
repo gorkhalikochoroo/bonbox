@@ -72,6 +72,14 @@ ALLOWED_KINDS = {
     # Was written to the web instance's own disk, which Render wipes on every
     # deploy (Push 8). In ERASURE_PURGE_KINDS below too — see the note there.
     "inbox_receipt",
+    # Egenkontrol R1b: a photo on a reading (deviation / goods delivery) and
+    # the owner's own documents in the Kontrolmappe (egenkontrolprogram,
+    # risikoanalyse, …). Personal-data-light, no accounting basis — in
+    # ERASURE_PURGE_KINDS below too (a kind in only ONE list would make it an
+    # "accounting" kind kept ~6 years after erasure; test_privacy_matches_code
+    # pins the four accounting kinds).
+    "food_check_photo",
+    "food_check_document",
 }
 
 
@@ -510,6 +518,11 @@ ERASURE_PURGE_KINDS = frozenset({
     # retained (expense / sale / kasserapport kinds); it has no retention
     # basis of its own and is purged when its link expires anyway.
     "revisor_package",
+    # Egenkontrol R1b: purged on Art. 17 erasure. Photos are also deleted by
+    # the 730-day job with their reading (jobs/privacy_purges); documents are
+    # kept until the owner deletes them or the account.
+    "food_check_photo",
+    "food_check_document",
 })
 
 

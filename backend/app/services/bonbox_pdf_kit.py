@@ -206,9 +206,14 @@ def write_export_audit_row(
     doc_hash: str = "",
     period: dict | None = None,
     ip_address: str | None = None,
+    actor_id=None,
 ) -> None:
     """Write the L7 audit_logs row on revisor-bound artifact generation —
     the Bogføringsloven §10 trail on financial-data egress.
+
+    `actor_id` names the person who pressed the button when that is not the
+    tenant owner (a manager seat downloading the owner's file); None keeps
+    the old default (the owner).
 
     Fail-soft: an audit-log failure must NEVER block the artifact (the owner
     has a legitimate right to their own data; audit is a side channel). Mirrors
@@ -229,6 +234,7 @@ def write_export_audit_row(
                 **(period or {}),
             },
             ip_address=ip_address,
+            actor_id=actor_id,
         )
         db.commit()
     except Exception as e:  # noqa: BLE001

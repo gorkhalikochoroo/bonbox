@@ -6,7 +6,16 @@
  * (tap-out always works one-handed; no more hunting a 36px X in the corner).
  * Desktop (≥ sm): `desktop="center"` (default) — a centered card, or
  * `desktop="right"` — a full-height right panel (the drawer pattern),
- * pixel-matching the classic ml-auto slide-in.
+ * pixel-matching the classic ml-auto slide-in, or `desktop="top"` — a card
+ * anchored to the TOP that grows downward only.
+ *
+ * `desktop="top"` is for a sheet whose content grows WHILE someone taps in it
+ * (the egenkontrol keypad: "7" on a 5 °C fridge adds "Hvad gjorde I?" below
+ * the keys). A centred card re-centres as it grows and a bottom sheet grows
+ * upward, so either one moves the keys under the finger mid-entry ("7,1"
+ * became "77" on the kitchen iPad). Top-anchored on ≥ sm, and on a phone a
+ * bottom sheet of FIXED height (92dvh): in both, the top edge never depends
+ * on how tall the content is, and new content scrolls inside.
  *
  * The Sheet OWNS the behaviors call sites kept hand-rolling with drift:
  *   • createPortal to <body> — escapes transformed/sticky ancestors (the iOS
@@ -61,7 +70,7 @@ function isReachable(el) {
 
 export default function Sheet({
   onClose,
-  desktop = "center", // "center" | "right"
+  desktop = "center", // "center" | "right" | "top"
   panelClassName = "",
   ariaLabel,
   zClassName = "z-[60]",
@@ -164,7 +173,9 @@ export default function Sheet({
   const container =
     desktop === "right"
       ? "flex items-end sm:items-stretch sm:justify-end"
-      : "flex items-end sm:items-center sm:justify-center";
+      : desktop === "top"
+        ? "flex items-end sm:items-start sm:justify-center sm:pt-[4dvh]"
+        : "flex items-end sm:items-center sm:justify-center";
 
   // Phone: bottom sheet (rounded top, capped height, slide-up). Desktop:
   // either the full-height right panel with the classic slideIn, or a
@@ -178,8 +189,11 @@ export default function Sheet({
     desktop === "right"
       ? "relative w-full max-h-[92dvh] rounded-t-xl flex flex-col overflow-hidden overscroll-contain sheet-enter-right " +
         "sm:max-w-md sm:h-full sm:max-h-full sm:rounded-none"
-      : "relative w-full max-h-[92dvh] rounded-t-xl flex flex-col overflow-hidden overscroll-contain sheet-enter-center " +
-        "sm:max-w-md sm:h-auto sm:max-h-[92vh] sm:rounded-xl";
+      : desktop === "top"
+        ? "relative w-full h-[92dvh] max-h-[92dvh] rounded-t-xl flex flex-col overflow-hidden overscroll-contain sheet-enter-center " +
+          "sm:max-w-md sm:h-auto sm:max-h-[92dvh] sm:rounded-xl"
+        : "relative w-full max-h-[92dvh] rounded-t-xl flex flex-col overflow-hidden overscroll-contain sheet-enter-center " +
+          "sm:max-w-md sm:h-auto sm:max-h-[92vh] sm:rounded-xl";
 
   return createPortal(
     <div

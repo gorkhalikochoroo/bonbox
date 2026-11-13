@@ -46,7 +46,8 @@ beforeEach(() => {
 
 describe("usedSurfaces + knownActivatedPillars", () => {
   it("reads the response's tools and pillars, and keeps them for the next load", async () => {
-    api.get.mockResolvedValue(payload({ surfaces: { waste: true, expiry: false, workshop: false } }));
+    // R1b: the API reports egenkontrol too (backend pillars.USED_SURFACES).
+    api.get.mockResolvedValue(payload({ surfaces: { waste: true, expiry: false, workshop: false, egenkontrol: false } }));
     const first = render(<ActivationProvider><Probe /></ActivationProvider>);
     await waitFor(() => expect(attr("data-loading")).toBe("false"));
     expect(attr("data-surfaces")).toBe("waste");
@@ -61,6 +62,13 @@ describe("usedSurfaces + knownActivatedPillars", () => {
     expect(attr("data-known")).toBe("reservations,staff");
   });
 
+  it("R1b: egenkontrol is read like the other tools (a grocery that switched it on)", async () => {
+    api.get.mockResolvedValue(payload({ surfaces: { waste: false, expiry: false, workshop: false, egenkontrol: true } }));
+    render(<ActivationProvider><Probe /></ActivationProvider>);
+    await waitFor(() => expect(attr("data-loading")).toBe("false"));
+    expect(attr("data-surfaces")).toBe("egenkontrol");
+  });
+
   it("loading with nothing stored: no tool kept, pillars unknown (null)", () => {
     api.get.mockReturnValue(new Promise(() => {}));
     render(<ActivationProvider><Probe /></ActivationProvider>);
@@ -72,19 +80,19 @@ describe("usedSurfaces + knownActivatedPillars", () => {
     api.get.mockResolvedValue(payload());
     render(<ActivationProvider><Probe /></ActivationProvider>);
     await waitFor(() => expect(attr("data-loading")).toBe("false"));
-    expect(attr("data-surfaces")).toBe("expiry,waste,workshop");
+    expect(attr("data-surfaces")).toBe("egenkontrol,expiry,waste,workshop");
   });
 
   it("an error with nothing stored keeps every tool and every pillar (fail open)", async () => {
     api.get.mockRejectedValue(new Error("Network Error"));
     render(<ActivationProvider><Probe /></ActivationProvider>);
     await waitFor(() => expect(attr("data-loading")).toBe("false"));
-    expect(attr("data-surfaces")).toBe("expiry,waste,workshop");
+    expect(attr("data-surfaces")).toBe("egenkontrol,expiry,waste,workshop");
     expect(attr("data-known")).toBe("events,inventory,reservations,staff");
   });
 
   it("outside the provider: everything (a bare render never hides a tool)", () => {
     render(<Probe />);
-    expect(attr("data-surfaces")).toBe("expiry,waste,workshop");
+    expect(attr("data-surfaces")).toBe("egenkontrol,expiry,waste,workshop");
   });
 });

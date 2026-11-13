@@ -45,6 +45,7 @@ import { useDeviceShare } from "../hooks/useDeviceShare";
 import { archetypeIdFor } from "../config/archetypes";
 import MobileBottomNav from "./MobileBottomNav";
 import PillarDiscovery from "./PillarDiscovery";
+import EgenkontrolNavBadge from "./egenkontrol/EgenkontrolNavBadge";
 import ResumeRow from "./ResumeRow";
 import { useRouteHistoryRecorder } from "../hooks/useRouteHistory";
 import { useAppLifecycle } from "../hooks/useAppLifecycle";
@@ -668,6 +669,7 @@ export default function Layout() {
             {badge.count != null ? badge.count : t("tdBadgeMissing")}
           </span>
         )}
+        {!badge && item.badge === "egenkontrol" ? <EgenkontrolNavBadge /> : null}
       </NavLink>
     );
   };

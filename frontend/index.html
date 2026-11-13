@@ -240,6 +240,12 @@
           // front door instead of tonight's book.
           var isStandDevice = /^\/stand(\/|$)/.test(location.pathname);
           window.__BONBOX_IS_STAND = isStand || isStandDevice;
+          // Egenkontrol — the paired kitchen iPad (/kitchen, /kitchen/<token>):
+          // the same Add-to-Home problem as the door screen. iOS gets NO
+          // manifest, so the icon bookmarks /kitchen/<token>; Android gets the
+          // kitchen's own manifest (start_url /kitchen reopens the pairing it
+          // remembers — no token in a static file).
+          var isKitchenDevice = /^\/kitchen(\/|$)/.test(location.pathname);
 
           function setManifest(href) {
             var link = document.querySelector('link[rel="manifest"]');
@@ -281,6 +287,8 @@
               // Android/desktop staff route → per-staff manifest, first paint.
               setManifest("/portal/" + token + "/app.webmanifest");
             }
+          } else if (isKitchenDevice) {
+            setManifest(isIOS ? null : "/kitchen-device.webmanifest");
           } else if (isStandDevice) {
             if (isIOS) {
               // iOS → NO manifest, as for the staff portal and the owner's
@@ -427,7 +435,7 @@
           "/khata", "/faktura", "/faktura/review", "/customers", "/mileage", "/loans", "/imports", "/bank-import",
           "/payment-imports", "/budgets", "/team", "/staff/schedule", "/staff/hours", "/staff/time-registration",
           "/staff/tips", "/staff/payroll", "/more", "/subscription", "/bookkeeping-export", "/month-end", "/insights", "/home",
-          "/daily-report", "/channel-settings", "/connections", "/accountant/clients",
+          "/daily-report", "/channel-settings", "/connections", "/accountant/clients", "/egenkontrol",
           "/admin", "/admin/training", "/admin/support"
         ].indexOf(wp) !== -1;
         if (!paper) document.documentElement.classList.add("bb-page-white");

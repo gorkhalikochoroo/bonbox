@@ -217,7 +217,8 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
   // projection, kept as the one-line revert path — and the manifest gained two
   // sidebar rows: "Fuldt overblik" (/home, the previous Home) and "Alle
   // sider" (/more). The new rail's own order is pinned in todayNavMap.test.js.
-  it("renders 22 rows, in order, with the six jobs on the spine", () => {
+  // (+1 on 12 Nov 2026: the Egenkontrol row, food service + bar only.)
+  it("renders 23 rows, in order, with the six jobs on the spine", () => {
     expect(sidebarRoutes(opts)).toEqual([
       // ── the spine: Home + Sales + Expenses, then jobs 1-5 in landing order.
       //    Everything below the hairline is the detail.
@@ -235,6 +236,7 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
       "/cashflow",
       "/imports",
       // stock — the DETAIL rows keep the LAGER header
+      "/egenkontrol",   // Egenkontrol R1a (food service + bar), first under LAGER
       "/expiry",
       "/waste",
       // reports & MOMS — every compliance row intact, in the same order
@@ -263,12 +265,13 @@ describe("the resolved sidebar — a real DK restaurant owner", () => {
     ]);
   });
 
-  it("is 22 rows whether or not this owner runs Events", () => {
+  it("is 23 rows whether or not this owner runs Events", () => {
     // Before the promotion this was 20 / 21 — the founder's own account
-    // carried the extra row. It no longer can. (+2 in Nov 2026: /home,
+    // carried the extra row. It no longer can. (+1 on 12 Nov 2026: the
+    // Egenkontrol row, food service + bar only; +2 in Nov 2026: /home,
     // /more — the same for every owner.)
-    expect(sidebarRoutes(opts)).toHaveLength(22);
-    expect(sidebarRoutes({ ...opts, usageDormant: new Set() })).toHaveLength(22);
+    expect(sidebarRoutes(opts)).toHaveLength(23);
+    expect(sidebarRoutes({ ...opts, usageDormant: new Set() })).toHaveLength(23);
   });
 
   it("dropped exactly the four C12b rows and nothing else", () => {

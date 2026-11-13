@@ -400,6 +400,34 @@ def _detect_public_booking_dead(db: Session, user, now, skip=frozenset()):
     )
 
 
+def _detect_egenkontrol_due(db: Session, user, now, skip=frozenset()):
+    """Egenkontrol: a scheduled reading is overdue, or a deviation is still
+    open. Urgent when a deviation is open (food may still be at risk), warn
+    for a missing reading. Read-only — it never records anything.
+
+    Uses egenkontrol_service's own clock and the ONE status module, so the
+    queue says exactly what the Egenkontrol page and the kitchen iPad say.
+    Never for the accountant view; nothing when there are no active checks."""
+    from app.services.auth import is_accountant_view
+    if is_accountant_view(user):
+        return None
+    from app.services import egenkontrol_service as ek
+    if ek.active_check_count(db, user) == 0:
+        return None
+    today = ek.build_today(db, user)
+    missing = int(today["summary"]["missing"])
+    deviations = int(today["summary"]["open_deviations"])
+    if missing <= 0 and deviations <= 0:
+        return None
+    return _finding(
+        "egenkontrol_due",
+        "urgent" if deviations else "warn",
+        "/egenkontrol",
+        {"date": today["business_date"], "missing": missing,
+         "deviations": deviations, "count": missing + deviations},
+    )
+
+
 # Registry — add a detector here and it joins the queue. Each runs guarded.
 _DETECTORS = [
     _detect_unconfirmed_reservations,
@@ -408,6 +436,7 @@ _DETECTORS = [
     _detect_stale_draft_close,
     _detect_close_unreconciled,
     _detect_public_booking_dead,
+    _detect_egenkontrol_due,
 ]
 
 # Severity ordering for a stable, owner-friendly sort (urgent first).

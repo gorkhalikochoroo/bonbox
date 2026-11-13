@@ -272,6 +272,16 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # (DK 06:00 cutoff). The 20/min per-IP slowapi cap stays as the
         # coarse second barrier.
         "smart_scan_classify_per_day": 10,
+        # Egenkontrol — active TEMPERATURE checks (køl, frost, varmholdelse,
+        # genopvarmning, varemodtagelse). Decision 1: the 5-check start list +
+        # one spare. Founder, 13 Nov 2026: cleaning and thermometer TICKS do
+        # NOT count — on ANY plan (one rule everywhere; they have their own
+        # flat abuse ceiling, egenkontrol_rules.TICKS_MAX, a 409 never a 402).
+        # Records stay readable/printable on every plan. Only ADDING or
+        # RE-ACTIVATING a temperature check is refused over the limit — after
+        # a downgrade every existing check keeps recording
+        # (egenkontrol_service._enforce_room: setup / create / patch).
+        "egenkontrol_active_checks": 6,
     },
     "starter": {
         "branches": 1,
@@ -343,6 +353,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # day never hits it, still bounded against a runaway script. Marginal
         # cost stays well inside Starter's margin. See Free comment above.
         "smart_scan_classify_per_day": 100,
+        "egenkontrol_active_checks": 100,  # temperature checks; an abuse ceiling, not a product limit (see Free)
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -379,6 +390,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "salon_services_max": 100,         # Trial mirrors Pro
         "gavekort_active_max": 1000,       # Trial mirrors Pro
         "smart_scan_classify_per_day": 300,  # Trial mirrors Pro
+        "egenkontrol_active_checks": 100,    # Trial mirrors Pro
     },
     "pro": {
         "branches": 3,
@@ -436,6 +448,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # effectively unlimited for a 3-branch multi-terminal operator
         # snapping all day, still bounded against an abusive/runaway client.
         "smart_scan_classify_per_day": 300,
+        "egenkontrol_active_checks": 100,  # temperature checks; an abuse ceiling, not a product limit (see Free)
     },
 }
 
@@ -664,6 +677,10 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # router on this flag anyway so the entitlements payload surfaces it
         # and a future "Free can't issue at all" decision is one flip away.
         "gavekort": True,
+        # Egenkontrol (temperature records, Kontrolmappe) — on EVERY plan
+        # (Decision 1). The tier lever is the numeric
+        # `egenkontrol_active_checks` cap; records are never locked away.
+        "egenkontrol": True,
         "sms_reminders": False,   # SMS is a Pro perk (per-message cost)
         # 2026-06-03 — Reservations Insights (owner analytics on the booking
         # book: seat-hour utilization, weekday×day-part heatmap, no-show rate,
@@ -840,6 +857,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "cross_event_analytics": True,     # 2026-07-12 — opened to Starter+ (all-features doctrine)
         "reservations": True,              # Starter = full reservations
         "gavekort": True,                  # Starter = full gavekort (cap=200)
+        "egenkontrol": True,               # every plan (Decision 1)
         "sms_reminders": True,             # SMS reminders on Starter + Pro
         "reservation_insights": True,      # 2026-07-12 — opened to Starter+ (forecast + no-show detail)
         "inbox_email_capture": True,       # Universal — workflow feature
@@ -901,6 +919,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "cross_event_analytics": True,          # Trial mirrors Pro
         "reservations": True,                   # Trial mirrors Pro
         "gavekort": True,                       # Trial mirrors Pro
+        "egenkontrol": True,                    # Trial mirrors Pro
         "sms_reminders": True,                  # Trial mirrors Pro
         "reservation_insights": True,           # Trial mirrors Pro
         "inbox_email_capture": True,            # Universal
@@ -957,6 +976,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "cross_event_analytics": True,     # Pro killer for kulturarrangører
         "reservations": True,              # Pro = full reservations
         "gavekort": True,                  # Pro = full gavekort (cap=1000)
+        "egenkontrol": True,               # every plan (Decision 1)
         "sms_reminders": True,             # Pro perk — SMS booking reminders
         "reservation_insights": True,      # Pro killer — analytics + forecast
         "inbox_email_capture": True,       # Universal

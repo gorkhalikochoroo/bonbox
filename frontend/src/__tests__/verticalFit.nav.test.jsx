@@ -275,6 +275,18 @@ describe("type gates now that a type is resolved", () => {
     expect(keep("jewelry", [])).not.toContain("/expiry");
   });
 
+  it("Egenkontrol (R1b): a grocery keeps it once it is switched on; a clothing shop or a salon does not get it", () => {
+    const keep = (type, used) => filterDestinations(
+      NAV_MANIFEST.filter((d) => d.surfaces.includes("more") || d.surfaces.includes("sidebar")),
+      { businessTypes: [type], archetypeId: archetypeIdFor(type), enabledModules: new Set(), hasFeature: () => true, usedSurfaces: new Set(used) },
+    ).map((d) => d.to);
+    expect(keep("grocery", [])).not.toContain("/egenkontrol");
+    expect(keep("grocery", ["egenkontrol"])).toContain("/egenkontrol");
+    expect(keep("clothing", [])).not.toContain("/egenkontrol");
+    expect(keep("salon", ["egenkontrol"])).not.toContain("/egenkontrol");
+    expect(keep("restaurant", [])).toContain("/egenkontrol");
+  });
+
   it("Bar Pour and Vinkort show for a bar with the canonical module ids", () => {
     expect(visible("bar", ["bar_pour", "wine_sommelier"])).toEqual(expect.arrayContaining(["/bar", "/wine-list"]));
   });
