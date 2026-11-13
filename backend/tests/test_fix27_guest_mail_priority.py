@@ -91,7 +91,10 @@ def test_a_decline_still_goes_out_once_reminders_are_held_back(db, outbox, engin
                          guest_email="reminder@example.dk", party_size=2, starts_at=tomorrow,
                          ends_at=tomorrow + timedelta(minutes=90), duration_min=90,
                          status="confirmed", source="public", created_at=utc_now())
-    soon = _now_local().replace(second=0, microsecond=0) + timedelta(hours=3)
+    # 50 minutes out: past "an hour before the sitting", so the decline is
+    # due at any time of day. (+3 h was due only in daytime: before ~09:00
+    # the owner's daytime answer window still ran, and CI went red at 06:34.)
+    soon = _now_local().replace(second=0, microsecond=0) + timedelta(minutes=50)
     asked = Reservation(user_id=u.id, guest_name="Selskab", guest_email="selskab@example.dk",
                         party_size=10, starts_at=soon, ends_at=soon + timedelta(hours=2),
                         duration_min=120, status="requested", source="public",

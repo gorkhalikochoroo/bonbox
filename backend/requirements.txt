@@ -58,3 +58,11 @@ pywebpush==2.0.1
 # pinned (Task #91 deploy audit caught it).  The FastAPI integration
 # auto-captures unhandled exceptions per-request.
 sentry-sdk[fastapi]==2.18.0
+
+# Time zone database for zoneinfo. Browsers store old IANA names such as
+# "Asia/Katmandu" (Chrome) and "Asia/Calcutta"; a server whose system tz
+# database leaves out the legacy names (GitHub's ubuntu-26.04 runner, and
+# possibly a future Render image) cannot resolve them, so a Kathmandu owner
+# silently ran on Copenhagen days. zoneinfo falls back to this package
+# key by key when the system has no file for a name.
+tzdata==2026.6
