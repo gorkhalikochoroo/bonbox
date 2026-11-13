@@ -29,6 +29,15 @@
  * keypad keys ≥ 64 px, 16 px gutter, no sideways scroll. Colours only through
  * ui/CheckStatusPill.
  *
+ * "Hvem målte?" fits (release 2026-11-15): in landscape the whole name row
+ * shows above the button WITHOUT scrolling the pane — the panel runs in
+ * fit="panes" (keys 48 … 64 px from the pane's height, the "For varmt" line
+ * inside the display, tighter head and button bar) and the header's progress
+ * and "Måler" share one line of fixed height. Measured (headless Chromium,
+ * three cooks): keys 61.6 px at 1180 × 820, 64 px at 1194 × 834 and
+ * 1366 × 1024, 48.6 px at 1024 × 768 — never under 48 px; a shorter screen
+ * than that scrolls the pane as before. egenkontrol.kitchenFit.test.jsx.
+ *
  * R1b: unsent readings are kept on the iPad (a reload keeps them, and an
  * offline reload still lists them; a reading typed on an earlier business day
  * is sent once to ASK — a replay means it was stored — and only the server's
@@ -561,6 +570,7 @@ function KitchenScreen({ token }) {
         t={t}
         lang={lang}
         idPrefix="ek-kitchen"
+        fit={landscape ? "panes" : "sheet"}
       />
     );
   };
@@ -621,11 +631,16 @@ function KitchenScreen({ token }) {
                 {longDate(today?.business_date, lang)}
               </span>
             </h1>
-            <p className="mt-1 text-[16px] text-gray-700 dark:text-gray-300 font-display tabular-nums" data-testid="ek-kitchen-progress">
-              {progress}
-            </p>
-            <div className="mt-1 min-h-6">
-              <MeasurerBar held={nameRound.held} onClear={nameRound.clear} t={t} />
+            {/* Landscape: the progress and "Måler: … · Skift" share ONE line of
+                fixed height (the pane below gets that line back, and holding a
+                name no longer moves the panes). Portrait: two lines as before. */}
+            <div className={landscape ? "mt-1 h-8 flex items-center gap-x-4 min-w-0" : undefined} data-testid="ek-kitchen-status">
+              <p className={(landscape ? "shrink-0 " : "mt-1 ") + "text-[16px] text-gray-700 dark:text-gray-300 font-display tabular-nums"} data-testid="ek-kitchen-progress">
+                {progress}
+              </p>
+              <div className={landscape ? "min-w-0 flex items-center" : "mt-1 min-h-6"}>
+                <MeasurerBar held={nameRound.held} onClear={nameRound.clear} t={t} />
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

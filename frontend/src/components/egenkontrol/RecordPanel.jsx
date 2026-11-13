@@ -37,6 +37,17 @@
  *     only close (closing fates), and a paper reading never answers an open
  *     deviation's follow-up;
  *   • the body carries client_business_date (the queue's stale rule).
+ *
+ * fit (the kitchen iPad only; the owner's panels pass nothing):
+ *   • "sheet" — portrait / phone: a little less air above the keypad and
+ *     before "Hvem målte?" (the phone's fixed 92dvh sheet cut the second
+ *     row of names by 1.5 px);
+ *   • "panes" — landscape, a pane of FIXED height: "Hvem målte?" with its
+ *     chips must show above the button without scrolling the pane (a cook
+ *     with wet hands does not scroll to find their name). The panel is a
+ *     size container and the keys get what is left (FIT_KEY_HEIGHT), the
+ *     "For varmt" line moves inside the display box (Keypad fit), the head
+ *     and the button bar are tighter. Pinned in egenkontrol.kitchenFit.
  */
 import { useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -78,6 +89,22 @@ import {
 } from "./ekLogic";
 
 const BIG = "min-h-14! px-4 text-base";
+
+/**
+ * fit="panes": everything in the panel except the four key rows, in px —
+ * the head (92.5: label, name, limit line), the scroll area's top padding
+ * (12), the display row (56 + 8), the gaps between key rows (3 × 6), the gap
+ * before "Hvem målte?" (16), its legend (22.5 + 8) and TWO rows of 56 px
+ * chips (three names + "Andet navn" at the pane's 440 px: 120), a 4 px
+ * margin, and the button bar (8 + 56 + 12 + 1). Measured in headless
+ * Chromium on the kitchen screen (release 2026-11-15 lab notes).
+ */
+export const FIT_RESERVED_PX = 434;
+/** The key height: the rest of the panel over four rows, 48 … 64 px. The
+ *  panel itself is the query container (100cqh = its height): typing never
+ *  changes it, so the keys never resize under a finger. */
+export const FIT_KEY_HEIGHT = `clamp(48px, calc((100cqh - ${FIT_RESERVED_PX}px) / 4), 64px)`;
+
 // The "not ready yet" look of ui/Button's main variant (its disabled: grey),
 // on aria-disabled: the button stays tappable, and a tap goes to what is missing.
 const NOT_READY =
@@ -132,7 +159,10 @@ export default function RecordPanel({
   businessDate = null,
   paper = null,
   allowPhoto = true,
+  fit = null,
 }) {
+  const panes = fit === "panes";
+  const tight = panes || fit === "sheet";
   const confirm = useConfirm();
   const d = draft?.state || {};
   // The photo waiting on this reading (in memory only; a reopened unsent
@@ -335,8 +365,13 @@ export default function RecordPanel({
   const source = receiving ? (limit ? sourceLine(limit, t) : receivingSourceLine(check, t)) : sourceLine(check.limit, t);
 
   return (
-    <div className="flex flex-col grow min-h-0" data-testid="ek-record-panel">
-      <div className="flex items-start gap-3 px-4 sm:px-5 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800">
+    <div
+      className={"flex flex-col grow min-h-0" + (panes ? " [container-type:size]" : "")}
+      style={panes ? { "--ek-key-h": FIT_KEY_HEIGHT } : undefined}
+      data-testid="ek-record-panel"
+      data-ek-fit={fit || undefined}
+    >
+      <div className={"flex items-start gap-3 px-4 sm:px-5 border-b border-gray-100 dark:border-gray-800 " + (tight ? "pt-3 pb-2" : "pt-4 pb-3")}>
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t(paper ? "ekPaperTitle" : "ekRecord")}</p>
           <h2 className="text-[20px] font-semibold text-gray-900 dark:text-gray-50 truncate">
@@ -368,7 +403,11 @@ export default function RecordPanel({
         ) : null}
       </div>
 
-      <div ref={scrollRef} data-ek-scroll="" className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 py-4 space-y-5">
+      <div
+        ref={scrollRef}
+        data-ek-scroll=""
+        className={"flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 " + (tight ? "pt-3 pb-4 space-y-4" : "py-4 space-y-5")}
+      >
         {paper ? (
           <div className="space-y-3" data-testid="ek-paper-block">
             {paper.header || null}
@@ -489,6 +528,7 @@ export default function RecordPanel({
             t={t}
             hint={hint}
             idPrefix={idPrefix}
+            fit={panes ? "panes" : null}
           />
         </div>
         )}
@@ -567,7 +607,12 @@ export default function RecordPanel({
         />
       </div>
 
-      <div className="px-4 sm:px-5 pt-3 pb-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 0px))" }}>
+      {/* In the landscape pane the bar is not at the screen's edge (the
+          panes keep 16 px below it), so no home-indicator padding there. */}
+      <div
+        className={"px-4 sm:px-5 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 " + (panes ? "pt-2" : "pt-3 pb-4")}
+        style={{ paddingBottom: panes ? "0.75rem" : "max(1rem, env(safe-area-inset-bottom, 0px))" }}
+      >
         {errorKey ? (
           <p role="alert" className="mb-2 text-[15px] leading-snug text-red-700 dark:text-red-400" data-testid="ek-panel-error">
             {t(errorKey)}
