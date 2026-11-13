@@ -405,6 +405,67 @@ export default function QuickAdd() {
     setTab(mode === "personal" ? "personal_income" : "sale");
   };
 
+  // The save button for the open tab, pinned under the scrolling form (13 Nov
+  // 2026, founder yes). On a 360×780 phone the "+" sheet's job chips and the
+  // gift-card row pushed "Registrer salg" below the fold, so the owner had to
+  // scroll to finish a two-field form. Same buttons, same rules — only the
+  // place changed: they sit in Modal's footer, always in view.
+  const saveButtons = {
+    sale: (
+      <button
+        onClick={submitSale}
+        aria-busy={posting}
+        disabled={posting || !(saleAmountNum > 0)}
+        className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+      >
+        {/* The label has to match the date actually being posted. It said
+            "Log Today's Sale" ("Registrer dagens salg") no matter what,
+            so backdating a sale to the 20th still told the owner it was
+            today's — the button lying about what it does, on the money
+            path. Verified on device before the fix.
+
+            While the save is in flight it says so. The lock above makes
+            the second tap harmless; this is what stops the owner wanting
+            to make it. */}
+        {posting
+          ? t("savingEllipsis")
+          : saleDate === bizToday()
+          ? t("logSale")
+          : t("logSaleForDate").replace("{date}", formatDateShort(saleDate))}
+      </button>
+    ),
+    expense: (
+      <button
+        onClick={submitExpense}
+        aria-busy={posting}
+        disabled={posting || !(expAmountNum > 0) || !expCatId || !expDesc || !expMethod}
+        className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+      >
+        {posting ? t("savingEllipsis") : t("addExpense")}
+      </button>
+    ),
+    personal_income: (
+      <button
+        onClick={submitPersonal}
+        aria-busy={posting}
+        disabled={posting || !(pAmountNum > 0) || !pCatId}
+        className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+      >
+        {posting ? t("savingEllipsis") : t("logIncome")}
+      </button>
+    ),
+    personal_expense: (
+      <button
+        onClick={submitPersonal}
+        aria-busy={posting}
+        disabled={posting || !(pAmountNum > 0) || !pCatId}
+        className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+      >
+        {posting ? t("savingEllipsis") : t("logExpense")}
+      </button>
+    ),
+  };
+
   return (
     <>
       {/* Hidden external trigger — always in the DOM so MobileBottomNav's
@@ -436,7 +497,12 @@ export default function QuickAdd() {
         </button>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title={mode === "personal" ? t("personalEntry") : t("quickEntry")}>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={mode === "personal" ? t("personalEntry") : t("quickEntry")}
+        footer={saveButtons[tab]}
+      >
         {jobs && (jobs.walkIn || jobs.newBooking) && (
           <div className="ow-jobs" role="group" aria-label={t("tdQuickActions")} data-quick-jobs="">
             {/* Both open Reservationer's own sheets (its ?walkin=1 / ?new=1
@@ -620,28 +686,6 @@ export default function QuickAdd() {
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>
-
-            <button
-              onClick={submitSale}
-              aria-busy={posting}
-              disabled={posting || !(saleAmountNum > 0)}
-              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
-            >
-              {/* The label has to match the date actually being posted. It said
-                  "Log Today's Sale" ("Registrer dagens salg") no matter what,
-                  so backdating a sale to the 20th still told the owner it was
-                  today's — the button lying about what it does, on the money
-                  path. Verified on device before the fix.
-
-                  While the save is in flight it says so. The lock above makes
-                  the second tap harmless; this is what stops the owner wanting
-                  to make it. */}
-              {posting
-                ? t("savingEllipsis")
-                : saleDate === bizToday()
-                ? t("logSale")
-                : t("logSaleForDate").replace("{date}", formatDateShort(saleDate))}
-            </button>
           </div>
         )}
 
@@ -732,15 +776,6 @@ export default function QuickAdd() {
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>
-
-            <button
-              onClick={submitExpense}
-              aria-busy={posting}
-              disabled={posting || !(expAmountNum > 0) || !expCatId || !expDesc || !expMethod}
-              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
-            >
-              {posting ? t("savingEllipsis") : t("addExpense")}
-            </button>
           </div>
         )}
 
@@ -818,15 +853,6 @@ export default function QuickAdd() {
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
               />
             </div>
-
-            <button
-              onClick={submitPersonal}
-              aria-busy={posting}
-              disabled={posting || !(pAmountNum > 0) || !pCatId}
-              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
-            >
-              {posting ? t("savingEllipsis") : t("logIncome")}
-            </button>
           </div>
         )}
 
@@ -904,15 +930,6 @@ export default function QuickAdd() {
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
               />
             </div>
-
-            <button
-              onClick={submitPersonal}
-              aria-busy={posting}
-              disabled={posting || !(pAmountNum > 0) || !pCatId}
-              className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
-            >
-              {posting ? t("savingEllipsis") : t("logExpense")}
-            </button>
           </div>
         )}
       </Modal>
