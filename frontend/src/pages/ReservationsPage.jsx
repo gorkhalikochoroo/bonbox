@@ -34,6 +34,8 @@ import { warningFrom, roomFullText } from "../utils/bookingRefusal";
 import { createPortal } from "react-dom";
 import {
   CalendarCheck,
+  CalendarPlus,
+  UserPlus,
   Plus,
   Minus,
   Trash2,
@@ -4964,11 +4966,35 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // SeatNowSheet to render its table picker; a tile-launched seat-now still
   // passes the tapped resource object and skips the picker. Seating jumps to
   // today so the walk-in is visible, matching the tile flow.
+  // A drop-in sits down NOW, on today's book. Opened while the book showed
+  // another day (a phone booking for tomorrow jumps the book there), the
+  // picker offered THAT day's free tables and the seat was refused — "Bordet
+  // er nu optaget", 409 (phone R1 device pass, 13 Nov). So the book returns
+  // to today first, and the sheet opens once today's book is on screen.
+  const [walkInWaits, setWalkInWaits] = useState(0); // since when, or 0
   const openSeatWalkIn = () => {
     setError("");
     setSeatError("");
+    const today = serviceDayIso();
+    if (day !== today) {
+      setWalkInWaits(Date.now());
+      setDay(today);
+      return;
+    }
     setSeatTarget(SEAT_WALK_IN_PICK);
   };
+  useEffect(() => {
+    if (!walkInWaits) return;
+    // The host moved to another day, or today's book did not come within
+    // 10 s (the page says why): the sheet never pops up out of nowhere later.
+    if (day !== serviceDayIso() || Date.now() - walkInWaits > 10000) {
+      setWalkInWaits(0);
+      return;
+    }
+    if (loading || shownDayRef.current !== day) return;
+    setWalkInWaits(0);
+    setSeatTarget(SEAT_WALK_IN_PICK);
+  }, [walkInWaits, day, loading, data]);
 
   // ── Deep-link: /reservations?new=1 | ?walkin=1 (I dag, the "+" sheet) ───
   // "Ny reservation" and "Drop-in" on I dag and in the phone "+" sheet open
@@ -7230,7 +7256,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <Button
               variant="secondary"
               size="lg"
-              iconLeft={<Armchair className="w-4 h-4" />}
+              iconLeft={<UserPlus className="w-4 h-4" />}
               onClick={openSeatWalkIn}
               aria-label={apptWords ? t("rsvpSeatWalkInAppt", "Check in a drop-in") : t("rsvpSeatWalkIn", "Seat a drop-in")}
               className={PHONE_ACTION}
@@ -7244,7 +7270,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           <Button
             variant="main"
             size="lg"
-            iconLeft={<Plus className="w-4 h-4" />}
+            iconLeft={<CalendarPlus className="w-4 h-4" />}
             onClick={openNewBooking}
             className={PHONE_ACTION}
           >

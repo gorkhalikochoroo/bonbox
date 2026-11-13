@@ -219,6 +219,50 @@ describe("one model, two ways in (quickJobs.js)", () => {
   });
 });
 
+describe("one chip for both ways in (fix round, 13 Nov)", () => {
+  const strip = (x) => x.replace(/\/\*[\s\S]*?\*\//g, "");
+  const readSrc = async (rel) => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    return fs.readFileSync(path.join(SRC, rel), "utf8");
+  };
+
+  it('the "+" chip IS I dag\'s phone chip: 40 px, 12 px round, DM Sans 13 px/600, the warm hairline', async () => {
+    const shell = strip(await readSrc("components/owner/ownerShell.css"));
+    const job = shell.match(/\.ow-job \{([^}]*)\}/)[1];
+    expect(job).toMatch(/height: 40px;/);
+    expect(job).toMatch(/border-radius: 12px;/);
+    expect(job).toMatch(/font: 600 13px\/1\.2 "DM Sans", "Inter"/);
+    expect(job).toMatch(/border: 1px solid var\(--td-line\);/);
+    expect(shell).toMatch(/\.ow-jobs > \.ow-job \{ min-height: 40px; \}/);
+    // I dag's chip really draws 40 too: index.css's 44 px touch floor on <a>
+    // used to win over its height.
+    const today = strip(await readSrc("components/today/today.css"));
+    const quick = today.match(/\.td-quick \.td-btn \{([^}]*)\}/)[1];
+    expect(quick).toMatch(/height: 40px;/);
+    expect(quick).toMatch(/min-height: 40px;/);
+    expect(quick).toMatch(/border-radius: 12px;/);
+    expect(quick).toMatch(/font-size: 13px;/);
+  });
+
+  it('one order everywhere: Drop-in, then Ny reservation — on I dag as in the "+" sheet and on Reservationer', async () => {
+    const dash = await readSrc("components/today/TodayDashboard.jsx");
+    const row = dash.slice(dash.indexOf('<div className="td-quick"'), dash.indexOf("</div>", dash.indexOf('<div className="td-quick"')));
+    expect(row.indexOf("to={walkInTo}")).toBeGreaterThan(-1);
+    expect(row.indexOf("to={walkInTo}")).toBeLessThan(row.indexOf("to={newBookingTo}"));
+    expect(row.indexOf("to={newBookingTo}")).toBeLessThan(row.indexOf("to={closeTo}"));
+    // Same icon per job on I dag: UserPlus for Drop-in, CalendarPlus for Ny reservation.
+    expect(row).toMatch(/to=\{walkInTo\} className="td-btn"><UserPlus /);
+    expect(row).toMatch(/to=\{newBookingTo\} className="td-btn"><CalendarPlus /);
+    // The "+" sheet: rendered order.
+    noteBookFacts("u-1", { has_book: true, seats: 20 });
+    openSheet();
+    await waitFor(() => expect(chips()).toEqual(["walkin", "new"]));
+  });
+});
+
 describe("the words (decision 3): real Danish and English, one key each", () => {
   it("Drop-in and Ny reservation, in both dictionaries", () => {
     expect(da.tdWalkIn).toBe("Drop-in");

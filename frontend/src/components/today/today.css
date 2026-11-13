@@ -497,7 +497,10 @@ a.td-tile:hover { background: rgba(247,245,240,0.10); }
   /* Each job as wide as its words (phone R1: "Ny reservation" is longer
      than "Ny booking" was), the row still filling the width. */
   .td-quick { display: flex; gap: 8px; }
-  .td-quick .td-btn { flex: 1 1 auto; min-width: 0; height: 40px; font-size: 13px; padding: 0 8px; gap: 6px; border-radius: 12px; }
+  /* min-height: index.css's 44 px touch floor (on every <a> under a
+     finger) outgrew height: 40px — I dag drew 44 while the "+" sheet's same
+     chips drew 40. The phone rule is 40 (fix round, 13 Nov). */
+  .td-quick .td-btn { flex: 1 1 auto; min-width: 0; height: 40px; min-height: 40px; font-size: 13px; padding: 0 8px; gap: 6px; border-radius: 12px; }
   .td-hero { padding: 16px; border-radius: 16px; gap: 14px; }
   .td-hero-stats, .td-chart { flex-basis: 100%; }
   .td-tile { padding: 12px 12px; border-radius: 14px; }

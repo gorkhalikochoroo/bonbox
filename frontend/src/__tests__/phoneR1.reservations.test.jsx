@@ -9,6 +9,11 @@
  *      its sheet on EVERY tap, not once per page mount: "+ → Drop-in" twice
  *      in a row on Reservationer opens the seat sheet twice (the guard was a
  *      flag set once and never reset — a dead button the second time).
+ *   3. Fix round (13 Nov device pass): "+ → Drop-in" while the book shows
+ *      another day returns the book to TODAY first and opens the seat sheet
+ *      on today's tables — it offered tomorrow's free table, and the seat
+ *      was refused (409). And Reservationer's own two buttons carry the same
+ *      icon per job as I dag and the "+" sheet (UserPlus / CalendarPlus).
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { act, render, waitFor, within, fireEvent, cleanup } from "@testing-library/react";
@@ -244,5 +249,86 @@ describe('the deep link opens its sheet on every tap: "+ → Drop-in" twice work
     await act(async () => { window.dispatchEvent(new Event("bonbox-reservations-changed")); });
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(seatSheet()).toBeNull();
+  });
+});
+
+describe("fix round (13 Nov): Drop-in is today's job, one icon per job", () => {
+  const TOMORROW = "2026-11-13";
+  const summary = { total: 1, covers: 4, by_status: {} };
+  // Kristensen sits at Bord 5 NOW (today). Tomorrow Bord 5 is free.
+  const seatedNow = row("kri", "Kristensen", "5", "seated", "18:00", "20:00", 4, { seated_at: at("18:05") });
+  const bookCalls = (day) => api.get.mock.calls.filter(([u, c]) => u === "/reservations/book" && c?.params?.day === day).length;
+  const optionFor = (id) => document.querySelector(`#rsvp-seat-title ~ * option[value="${id}"], [aria-labelledby="rsvp-seat-title"] option[value="${id}"]`);
+
+  it('"+ → Drop-in" while the book shows tomorrow: back to today first, then the sheet — on TODAY\'s tables', async () => {
+    const base = api.get.getMockImplementation();
+    let todayAnswer = null;
+    api.get.mockImplementation((url, cfg) => {
+      if (url === "/reservations/book") {
+        if (cfg?.params?.day === TOMORROW) {
+          return Promise.resolve({ data: { date: TOMORROW, reservations: [], summary: { total: 0, covers: 0, by_status: {} } } });
+        }
+        if (todayAnswer) return todayAnswer.promise;
+        return Promise.resolve({ data: { date: DAY, reservations: [seatedNow], summary } });
+      }
+      return base(url, cfg);
+    });
+    render(
+      <MemoryRouter initialEntries={["/reservations"]}>
+        <ReservationsPage />
+        <Plus to="/reservations?walkin=1" />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(document.body.textContent).toContain("Kristensen"));
+    // The host booked a phone call for tomorrow: the book now shows tomorrow.
+    fireEvent.click(document.querySelector('[aria-label="Next day"]'));
+    await waitFor(() => expect(bookCalls(TOMORROW)).toBe(1));
+    await waitFor(() => expect(document.body.textContent).not.toContain("Kristensen"));
+
+    const before = bookCalls(DAY);
+    todayAnswer = deferred();
+    fireEvent.click(document.querySelector("[data-test-plus]"));
+    // The book asks for today; until today's book is on screen, no sheet
+    // offering tomorrow's tables.
+    await waitFor(() => expect(bookCalls(DAY)).toBe(before + 1));
+    expect(seatSheet()).toBeNull();
+    await act(async () => { todayAnswer.resolve({ data: { date: DAY, reservations: [seatedNow], summary } }); });
+    await waitFor(() => expect(seatSheet()).not.toBeNull());
+    // Bord 5 is taken NOW: the picker says so (on tomorrow's book it was free).
+    const five = await waitFor(() => {
+      const o = optionFor("5");
+      expect(o).not.toBeNull();
+      return o;
+    });
+    expect(five.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Kristensen");
+  });
+
+  it("on today the sheet opens at once, as before (no wait, no extra read)", async () => {
+    render(
+      <MemoryRouter initialEntries={["/reservations"]}>
+        <ReservationsPage />
+        <Plus to="/reservations?walkin=1" />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(bookCalls(DAY)).toBe(1));
+    await waitFor(() => expect(document.body.textContent).toContain("Petersen"));
+    fireEvent.click(document.querySelector("[data-test-plus]"));
+    await waitFor(() => expect(seatSheet()).not.toBeNull());
+    expect(bookCalls(DAY)).toBe(1);
+  });
+
+  it("Reservationer's own buttons: Drop-in is UserPlus, Ny reservation is CalendarPlus — as on I dag and in the \"+\" sheet", async () => {
+    render(<MemoryRouter initialEntries={["/reservations"]}><ReservationsPage /></MemoryRouter>);
+    const dropIn = await waitFor(() => {
+      const b = document.querySelector('button[aria-label="Seat a drop-in"]');
+      expect(b).not.toBeNull();
+      return b;
+    });
+    expect(dropIn.querySelector('svg[class*="user-plus"]')).not.toBeNull();
+    expect(dropIn.querySelector('svg[class*="armchair"]')).toBeNull();
+    const newRes = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "New reservation");
+    expect(newRes).toBeTruthy();
+    expect(newRes.querySelector('svg[class*="calendar-plus"]')).not.toBeNull();
   });
 });

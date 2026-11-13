@@ -211,6 +211,24 @@ describe("the dock is for phones only, and reads in both themes", () => {
     expect(css.indexOf('html.dark .ow-dock-item[aria-current="page"]')).toBeGreaterThan(css.indexOf("html.dark .ow-dock-item { color"));
   });
 
+  it("solid, the rail's own colour in both themes: no page text ghosting through a 97 % dock with no blur (fix round, 13 Nov)", () => {
+    const css = strip(read("components/owner/ownerShell.css"));
+    expect(css).toMatch(/\.ow-dock \{[^}]*--ow-dock-bg: var\(--td-rail-bg, #EFECE5\);[^}]*background: var\(--ow-dock-bg\);/);
+    // One definition: dark flips through the token (today.css), not a second see-through colour.
+    expect(css.match(/--ow-dock-bg:/g)).toHaveLength(1);
+    expect(css).not.toMatch(/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0?\.9\d*\)/);
+    const today = strip(read("components/today/today.css"));
+    expect(today).toMatch(/html\[data-owner-shell\], \.td-page, \.td-rail \{[^}]*--td-rail-bg: #EFECE5;/);
+    expect(today).toMatch(/html\.dark\[data-owner-shell\], \.dark \.td-page, \.dark \.td-rail \{[^}]*--td-rail-bg: #1F2937;/);
+  });
+
+  it("the top bar's ☰: no focus ring left standing after a finger closes the menu; a keyboard keeps it", () => {
+    const css = strip(read("components/owner/ownerShell.css"));
+    expect(css).toContain('html[data-modality="touch"] .ow-menu-btn:focus-visible { box-shadow: none; }');
+    const layout = read("components/Layout.jsx");
+    expect(layout).toMatch(/ref=\{menuButtonRef\}[\s\S]{0,400}className="ow-menu-btn [^"]*focus-visible:ring-2/);
+  });
+
   it("below 390 px the dock gives its names width (8 px edges, 3 px inside, no label padding), the indicator keeping its column", () => {
     const css = strip(read("components/owner/ownerShell.css"));
     const narrow = css.slice(css.indexOf("@media (max-width: 389.98px)"));

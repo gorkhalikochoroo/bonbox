@@ -37,8 +37,11 @@ html[data-modality="touch"] .td-tab[data-pressed] {
 
 /* ── The floating dock (4, decision 2) ────────────────────────────────── */
 /* Vagtplan's dock: 12 px in from each side (or the safe area), at most 560
-   wide, 52 tall (48 under 360 px), fully round, fixed, no blur. Two values
+   wide, 52 tall (48 under 360 px), fully round, fixed, no blur. Three values
    differ on purpose:
+   • solid, the rail's own colour (--td-rail-bg): Vagtplan's 97 % with no
+     blur let the page's text ghost through the dock ("Luk dagen" read
+     inside it) — neither solid nor glass (fix round, 13 Nov).
    • bottom: the old bar's own clearance (max(inset − 12 px, 8 px)), not
      Vagtplan's inset + 8 px. Its top edge then stays at or under the old
      bar's (74 px on a notched iPhone, 60 px without an inset; the bar was
@@ -47,7 +50,7 @@ html[data-modality="touch"] .td-tab[data-pressed] {
    • z-index: the class z-50 on the element (the old bar's layer; the
      drawer, its scrim and every sheet sit above it). */
 .ow-dock {
-  --ow-dock-bg: rgba(239, 236, 229, 0.97);   /* the rail, --td-rail-bg */
+  --ow-dock-bg: var(--td-rail-bg, #EFECE5);  /* the rail; dark flips with the token */
   position: fixed;
   left: max(12px, env(safe-area-inset-left, 0px));
   right: max(12px, env(safe-area-inset-right, 0px));
@@ -70,7 +73,6 @@ html[data-modality="touch"] .td-tab[data-pressed] {
   align-items: stretch;
 }
 html.dark .ow-dock {
-  --ow-dock-bg: rgba(31, 41, 55, 0.97);      /* the dark rail, --td-rail-bg */
   box-shadow:
     inset 0 1px 0 #ffffff12,
     0 0 0 1px var(--td-line),
@@ -213,7 +215,9 @@ html[data-modality="touch"] .ow-dock-item[data-pressed] {
 /* ── The "+" sheet's jobs (4, decision 3) ─────────────────────────────── */
 /* One row of 40 px chips above the unchanged sale form: Drop-in · Ny
    reservation. I dag's quick row offers the same jobs (one model, two ways
-   in), in the same face (.td-btn .td-btn-sm). */
+   in) in the same face, so the two are ONE chip: I dag's phone .td-quick
+   .td-btn — 40 px, 12 px round, the house DM Sans at 13 px/600, the warm
+   hairline (today.css). Same icons and order as I dag and Reservationer. */
 .ow-jobs {
   display: flex;
   gap: 8px;
@@ -228,13 +232,11 @@ html[data-modality="touch"] .ow-dock-item[data-pressed] {
   gap: 8px;
   height: 40px;
   padding: 0 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--td-line);
   background: var(--td-card);
   color: var(--td-ink);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font: 600 13px/1.2 "DM Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -257,6 +259,13 @@ html[data-modality="touch"] .ow-job[data-pressed] {
   transition-duration: var(--td-dur-press), var(--td-dur-fast);
   transition-timing-function: var(--td-ease-out);
 }
+
+/* ── The top bar's ☰ ───────────────────────────────────────────────── */
+/* Closing the menu hands focus back to the ☰ (Layout), and WebKit draws
+   :focus-visible on that scripted focus even after a finger closed it — a
+   ring left standing on the ☰ (device pass, 13 Nov). A finger gets no ring;
+   a keyboard (modality "keyboard") or no input yet keeps it. */
+html[data-modality="touch"] .ow-menu-btn:focus-visible { box-shadow: none; }
 
 /* ── Reduce Motion (rule 6): no travel, no scale; tint and opacity stay ─ */
 @media (prefers-reduced-motion: reduce) {

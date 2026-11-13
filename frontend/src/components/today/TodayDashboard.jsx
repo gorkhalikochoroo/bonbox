@@ -250,9 +250,12 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
         <Hero t={t} data={data} money={money} before={before} nowMin={nowMin} cutoff={cutoff}
           rsv={showRsv ? rsv : null} shifts={shifts} sum={sum} staffOn={staffOn} isAppointments={isAppointments} />
 
+        {/* The same jobs, icons and order as the phone "+" sheet and
+            Reservationer's own buttons: Drop-in · Ny reservation (one model,
+            two ways in — quickJobs.js). Then Luk dagen. */}
         <div className="td-quick" role="group" aria-label={t("tdQuickActions")}>
-          {showRsv && <Link to={newBookingTo} className="td-btn"><CalendarPlus size={16} aria-hidden="true" />{newBookingWord}</Link>}
           {canWalkIn && <Link to={walkInTo} className="td-btn"><UserPlus size={16} aria-hidden="true" />{t("tdWalkIn")}</Link>}
+          {showRsv && <Link to={newBookingTo} className="td-btn"><CalendarPlus size={16} aria-hidden="true" />{newBookingWord}</Link>}
           <Link to={closeTo} className="td-btn td-btn-brass"><Moon size={16} aria-hidden="true" />{t("tdCloseTheDay")}</Link>
         </div>
 
